@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { moveRunTo } from "../state.js";
+import state, { moveRunTo, grantStartReward } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -21,6 +21,9 @@ function svg(tag, attrs = {}, children = []) {
 }
 
 export function MapScene(container, params, api) {
+  // Fired once per run, right as the player arrives on the start square.
+  let rewardText = grantStartReward();
+
   function render() {
     const dungeon = getDungeon(state.run.dungeonId);
     const currentId = state.run.currentNodeId;
@@ -101,11 +104,25 @@ export function MapScene(container, params, api) {
         ? "進むルートを選んでください。"
         : "進めるマスをクリックしてください（自動では進みません）。";
 
+    const rewardBanner = rewardText
+      ? h("div", { class: "panel reward-banner" }, [
+          h("p", { class: "field-label", text: "獲得" }),
+          h("p", { class: "lead", text: rewardText }),
+          button("OK", {
+            variant: "primary",
+            onClick: () => {
+              rewardText = null;
+              render();
+            },
+          }),
+        ])
+      : null;
+
     renderScreen(container, {
       eyebrow: `MAP / ${dungeon.name}`,
       title: "マップ",
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
-      body: [mapScroll, h("p", { class: "map-hint", text: hint })],
+      body: [rewardBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),
       actions: [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })],
     });
   }

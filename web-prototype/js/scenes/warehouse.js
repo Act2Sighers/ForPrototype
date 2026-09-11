@@ -1,5 +1,6 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
+import { describeCoating } from "../data/resourceCatalog.js";
 
 const MODE_LABEL = { view: "鑑賞", takeout: "持ち出し" };
 
@@ -69,7 +70,7 @@ export function WarehouseScene(container, params, api) {
       body.push(
         h("div", { class: "panel" }, [
           h("p", { class: "field-label", text: selectedItem.name }),
-          h("p", { class: "lead", text: selectedItem.description }),
+          h("p", { class: "lead", text: describeCoating(selectedItem) }),
         ])
       );
     }

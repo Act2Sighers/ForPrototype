@@ -3,6 +3,12 @@
 // in-memory slots below. That's enough to exercise every transition in
 // the spec without pretending we have a real save format yet.
 
+import { createBiscuitBaker, createHumbleFryingPan, createColorfulPlasma } from "./data/resourceCatalog.js";
+
+function freshRunResources() {
+  return { natural: { baseCream: 0 }, rigid: { zarameOre: 0 } };
+}
+
 const state = {
   // The save data belonging to the run currently being played, before it
   // has necessarily been written into a slot.
@@ -11,34 +17,14 @@ const state = {
   // Fixed at 3 slots for the prototype.
   saveSlots: [null, null, null],
 
-  // Items that can be carried between runs. Four fixture items for now
-  // (enough to exercise multi-select in the warehouse), all enabled.
-  warehouseItems: [
-    {
-      id: "test-item-1",
-      name: "テストアイテム1",
-      description: "内容は未実装のテストアイテムです。",
-      enabled: true,
-    },
-    {
-      id: "test-item-2",
-      name: "テストアイテム2",
-      description: "内容は未実装のテストアイテムです。",
-      enabled: true,
-    },
-    {
-      id: "test-item-3",
-      name: "テストアイテム3",
-      description: "内容は未実装のテストアイテムです。",
-      enabled: true,
-    },
-    {
-      id: "test-item-4",
-      name: "テストアイテム4",
-      description: "内容は未実装のテストアイテムです。",
-      enabled: true,
-    },
-  ],
+  // 糖衣 (coatings): carried between runs, so they live here rather than
+  // on the run. Starts with one real fixture item, already enabled.
+  warehouseItems: [createColorfulPlasma()],
+
+  // 隊員 (characters): also carried between runs — a character keeps
+  // growing the more it's used, so recruiting one is permanent. Each
+  // character holds its own equipped 武器 directly (see resourceCatalog).
+  characters: [],
 
   // The active run, created when a dungeon challenge starts.
   run: null,
@@ -62,6 +48,11 @@ export function startNewRun(dungeonId, difficultyId) {
     currentNodeId: "start",
     visitedNodeIds: ["start"],
     takenOutItemIds: [],
+    // 資源 (materials/currency): reset to 0 at the top of every run —
+    // see grantStartReward(), which hands out a small starting supply
+    // as soon as the player is standing on the start square.
+    resources: freshRunResources(),
+    startRewardGranted: false,
   };
   return state.run;
 }
@@ -70,10 +61,36 @@ export function retryRun() {
   if (!state.run) return;
   state.run.currentNodeId = "start";
   state.run.visitedNodeIds = ["start"];
+  state.run.resources = freshRunResources();
+  state.run.startRewardGranted = false;
 }
 
 export function endRun() {
   state.run = null;
+}
+
+// Grants the start-square reward once per run (retrying re-grants the
+// resource supply, but never re-recruits a character already owned —
+// see the module comment on state.characters). Returns a human-readable
+// summary of what was granted, or null if this run already got it.
+export function grantStartReward() {
+  if (!state.run || state.run.startRewardGranted) return null;
+
+  const grantedParts = [];
+
+  if (!state.characters.some((c) => c.id === "biscuit-baker")) {
+    const biscuit = createBiscuitBaker();
+    biscuit.weapon = createHumbleFryingPan();
+    state.characters.push(biscuit);
+    grantedParts.push(`${biscuit.name}（武器：${biscuit.weapon.name}）`);
+  }
+
+  state.run.resources.natural.baseCream += 3;
+  state.run.resources.rigid.zarameOre += 3;
+  grantedParts.push("ベースクリーム×3", "ザラメ鉱石×3");
+
+  state.run.startRewardGranted = true;
+  return `${grantedParts.join("、")}を獲得`;
 }
 
 export function moveRunTo(nodeId) {
