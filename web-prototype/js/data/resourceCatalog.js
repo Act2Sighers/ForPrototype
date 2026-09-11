@@ -56,8 +56,11 @@ function createCharacter({ id, name, growth, level = 1 }) {
 export function createBiscuitBaker() {
   // growth 1 across the board -> HP 60, attack 4, and 2 each for
   // defense/destruction/wisdom/coordination, matching the design doc.
+  // Granted fresh every run (see state.js's grantStartReward), so each
+  // instance gets its own id -- "biscuit-baker" names the template, not
+  // a specific individual.
   return createCharacter({
-    id: "biscuit-baker",
+    id: `biscuit-baker-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: "ビスケット・ベーカー",
     growth: { attack: 1, defense: 1, destruction: 1, wisdom: 1, coordination: 1 },
   });

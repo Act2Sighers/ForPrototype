@@ -5,7 +5,7 @@ export const SCENE_LABELS = {
   saveSlot: "セーブスロット画面",
   options: "オプション画面",
   pause: "ポーズ画面",
-  dungeonSelect: "ダンジョン選択画面",
+  world: "ワールド画面",
   map: "マップ画面",
   episode: "エピソード画面",
   battle: "戦闘画面",

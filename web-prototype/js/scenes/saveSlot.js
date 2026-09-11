@@ -34,7 +34,9 @@ export function SaveSlotScene(container, params, api) {
     else if (action === "duplicate") duplicateSlot(index);
     else if (action === "load") {
       loadSlot(index);
-      api.navigateTo("dungeonSelect");
+      // A save made mid-dungeon carries its run along; resume straight
+      // into the map instead of always dropping the player at world.
+      api.navigateTo(state.run ? "map" : "world");
       return;
     }
     pending = null;

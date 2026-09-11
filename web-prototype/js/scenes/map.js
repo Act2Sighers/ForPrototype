@@ -28,7 +28,10 @@ export function MapScene(container, params, api) {
     const dungeon = getDungeon(state.run.dungeonId);
     const currentId = state.run.currentNodeId;
     const visited = state.run.visitedNodeIds;
-    const reachable = dungeon.edges[currentId] ?? [];
+    // While the reward banner is up, no node is clickable — the player
+    // must acknowledge it first (otherwise it's easy to click straight
+    // into the next event and leave the banner stuck on-screen).
+    const reachable = rewardText ? [] : dungeon.edges[currentId] ?? [];
 
     // Edges between two consecutively-visited nodes are drawn as "already
     // walked"; everything else is still just a possible route.
@@ -97,12 +100,13 @@ export function MapScene(container, params, api) {
     ]);
     const mapScroll = h("div", { class: "map-scroll" }, [mapSvg]);
 
-    const hint =
-      currentId === "goal"
-        ? "ゴールに到達しました。"
-        : reachable.length > 1
-        ? "進むルートを選んでください。"
-        : "進めるマスをクリックしてください（自動では進みません）。";
+    const hint = rewardText
+      ? "獲得内容を確認してください（OKを押すと先に進めます）。"
+      : currentId === "goal"
+      ? "ゴールに到達しました。"
+      : reachable.length > 1
+      ? "進むルートを選んでください。"
+      : "進めるマスをクリックしてください（自動では進みません）。";
 
     const rewardBanner = rewardText
       ? h("div", { class: "panel reward-banner" }, [

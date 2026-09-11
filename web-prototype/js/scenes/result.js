@@ -46,7 +46,7 @@ export function ResultScene(container, params, api) {
       button("挑戦終了", {
         onClick: () => {
           endRun();
-          api.navigateTo("dungeonSelect");
+          api.navigateTo("world");
         },
       }),
       button("タイトルへ", {

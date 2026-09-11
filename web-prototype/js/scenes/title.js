@@ -14,7 +14,7 @@ export function TitleScene(container, params, api) {
         variant: "primary",
         onClick: () => {
           createNewSaveData();
-          api.navigateTo("dungeonSelect");
+          api.navigateTo("world");
         },
       }),
       button("つづきから", {
@@ -23,10 +23,6 @@ export function TitleScene(container, params, api) {
       button("オプション", {
         variant: "ghost",
         onClick: () => api.callScene("options"),
-      }),
-      button("ギャラリー", {
-        variant: "ghost",
-        onClick: () => api.callScene("gallery"),
       }),
     ],
   });

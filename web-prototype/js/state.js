@@ -9,9 +9,30 @@ function freshRunResources() {
   return { natural: { baseCream: 0 }, rigid: { zarameOre: 0 } };
 }
 
+// 隊員 (characters, each carrying its own equipped 武器) live in one of
+// three slot groups:
+//  - formationSlots: fights in battle (max 6, must hold >=1 whenever a
+//    run is active).
+//  - standbySlots: recruited but not fielded (max 6).
+//  - retiredSlots: moved here in bulk when a run ends (see
+//    settleRunEnd) — on a clear, everyone in formation+standby; on a
+//    game over, only whoever was in standby. Max 20, not enforced yet.
 export const FORMATION_LIMIT = 6;
 export const STANDBY_LIMIT = 6;
 export const RETIRED_LIMIT = 20; // not enforced yet — overflow handling is future work
+
+// Everything a save file owns besides the save slot's own bookkeeping
+// (label/timestamp) and whatever run is in progress: the warehouse's
+// 糖衣 and the three 隊員 slot groups. Bundled together because they're
+// always saved/loaded as one unit — see slotSnapshot()/loadSlot().
+function freshProfile() {
+  return {
+    warehouseItems: [createColorfulPlasma()],
+    formationSlots: [],
+    standbySlots: [],
+    retiredSlots: [],
+  };
+}
 
 const state = {
   // The save data belonging to the run currently being played, before it
@@ -21,21 +42,10 @@ const state = {
   // Fixed at 3 slots for the prototype.
   saveSlots: [null, null, null],
 
-  // 糖衣 (coatings) only: carried between runs, so they live here rather
-  // than on the run. Starts with one real fixture item, already enabled.
-  warehouseItems: [createColorfulPlasma()],
-
-  // 隊員 (characters, each carrying its own equipped 武器) live in one of
-  // three slot groups, all carried between runs:
-  //  - formationSlots: fights in battle (max 6, must hold >=1 whenever a
-  //    run is active).
-  //  - standbySlots: recruited but not fielded (max 6).
-  //  - retiredSlots: moved here in bulk when a run ends (see
-  //    settleRunEnd) — on a clear, everyone in formation+standby; on a
-  //    game over, only whoever was in standby. Max 20, not enforced yet.
-  formationSlots: [],
-  standbySlots: [],
-  retiredSlots: [],
+  // 糖衣 (coatings): carried between runs, so they live here rather than
+  // on the run. Live working copy of whichever save is active — see
+  // freshProfile()/createNewSaveData()/loadSlot().
+  ...freshProfile(),
 
   // The active run, created when a dungeon challenge starts.
   run: null,
@@ -49,6 +59,8 @@ export function createNewSaveData() {
     label: "冒険の記録",
   };
   state.currentSave = data;
+  Object.assign(state, freshProfile());
+  state.run = null;
   return data;
 }
 
@@ -82,40 +94,26 @@ export function endRun() {
   state.run = null;
 }
 
-// Grants the start-square reward once per run. Resources are handed out
-// every time (including on retry); a character is only ever granted if
-// formation is currently empty — since a completed run always moves its
-// squad to retiredSlots (see settleRunEnd), formation is empty at the
-// start of every run after the first. In that case whoever is first in
-// retiredSlots is recommissioned back into formation; only if nobody has
-// ever been recruited yet is a brand new ビスケット・ベーカー created.
-// (A real recruitment/squad-select screen should replace this later.)
-// Returns a human-readable summary of what was granted, or null if this
-// run already received it.
+// Grants the start-square reward once per run: a fresh ビスケット・ベー
+// カー (unconditionally — this stands in for two events not built yet,
+// an opening episode and a "初期雇用" pick-your-starter screen, which
+// is trivial to simulate with only one candidate) plus a small resource
+// supply. Never pulls anyone back from retiredSlots — a retired
+// character only returns to play once real recruitment exists. Returns
+// a human-readable summary of what was granted, or null if this run
+// already received it.
 export function grantStartReward() {
   if (!state.run || state.run.startRewardGranted) return null;
 
-  const grantedParts = [];
-
-  if (state.formationSlots.length === 0) {
-    const recommissioned = state.retiredSlots.shift();
-    if (recommissioned) {
-      state.formationSlots.push(recommissioned);
-      grantedParts.push(`${recommissioned.name}が編成に復帰`);
-    } else {
-      const biscuit = createBiscuitBaker();
-      biscuit.weapon = createHumbleFryingPan();
-      state.formationSlots.push(biscuit);
-      grantedParts.push(`${biscuit.name}（武器：${biscuit.weapon.name}）`);
-    }
-  }
+  const biscuit = createBiscuitBaker();
+  biscuit.weapon = createHumbleFryingPan();
+  state.formationSlots.push(biscuit);
 
   state.run.resources.natural.baseCream += 3;
   state.run.resources.rigid.zarameOre += 3;
-  grantedParts.push("ベースクリーム×3", "ザラメ鉱石×3");
 
   state.run.startRewardGranted = true;
-  return `${grantedParts.join("、")}を獲得`;
+  return `${biscuit.name}（武器：${biscuit.weapon.name}）、ベースクリーム×3、ザラメ鉱石×3を獲得`;
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run
@@ -144,12 +142,22 @@ export function moveRunTo(nodeId) {
   }
 }
 
+// A save slot bundles: its own label/timestamp, a deep copy of the
+// profile (warehouse + character slots), and a deep copy of the run in
+// progress (or null, if the player saved from outside a run — e.g. from
+// the world screen). structuredClone fully decouples the slot from the
+// live state, so later play can't reach back and mutate an old save.
 function slotSnapshot() {
   return {
     savedAt: Date.now(),
     label: state.currentSave?.label ?? "冒険の記録",
-    dungeonId: state.run?.dungeonId ?? null,
-    difficultyId: state.run?.difficultyId ?? null,
+    profile: structuredClone({
+      warehouseItems: state.warehouseItems,
+      formationSlots: state.formationSlots,
+      standbySlots: state.standbySlots,
+      retiredSlots: state.retiredSlots,
+    }),
+    run: state.run ? structuredClone(state.run) : null,
   };
 }
 
@@ -164,13 +172,18 @@ export function deleteSlot(index) {
 export function duplicateSlot(fromIndex) {
   const emptyIndex = state.saveSlots.findIndex((slot) => slot === null);
   if (emptyIndex === -1) return -1;
-  state.saveSlots[emptyIndex] = { ...state.saveSlots[fromIndex] };
+  state.saveSlots[emptyIndex] = structuredClone(state.saveSlots[fromIndex]);
   return emptyIndex;
 }
 
+// Restores a save slot's profile and run into the live working state.
+// Callers should navigate to "map" if the restored run is non-null (the
+// player was mid-dungeon when they saved), or to "world" otherwise.
 export function loadSlot(index) {
   const slot = state.saveSlots[index];
   if (!slot) return null;
   state.currentSave = { createdAt: slot.savedAt, label: slot.label };
+  Object.assign(state, structuredClone(slot.profile));
+  state.run = slot.run ? structuredClone(slot.run) : null;
   return slot;
 }

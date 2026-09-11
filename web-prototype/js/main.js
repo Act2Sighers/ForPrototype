@@ -4,7 +4,7 @@ import { TitleScene } from "./scenes/title.js";
 import { SaveSlotScene } from "./scenes/saveSlot.js";
 import { OptionsScene } from "./scenes/options.js";
 import { PauseScene } from "./scenes/pause.js";
-import { DungeonSelectScene } from "./scenes/dungeonSelect.js";
+import { WorldScene } from "./scenes/world.js";
 import { MapScene } from "./scenes/map.js";
 import { EpisodeScene } from "./scenes/episode.js";
 import { BattleScene } from "./scenes/battle.js";
@@ -20,7 +20,7 @@ const registry = {
   saveSlot: SaveSlotScene,
   options: OptionsScene,
   pause: PauseScene,
-  dungeonSelect: DungeonSelectScene,
+  world: WorldScene,
   map: MapScene,
   episode: EpisodeScene,
   battle: BattleScene,

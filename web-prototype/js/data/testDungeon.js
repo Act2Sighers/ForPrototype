@@ -33,6 +33,14 @@ export function getDungeon(id) {
   return DUNGEONS.find((d) => d.id === id)?.data ?? null;
 }
 
+// The world screen's destination list: 王城 (a non-dungeon "location"
+// that just opens the gallery) plus every dungeon. Kept separate from
+// DUNGEONS since the castle isn't dungeon data.
+export const WORLD_LOCATIONS = [
+  { id: "castle", name: "王城", kind: "castle" },
+  ...DUNGEONS.map((d) => ({ id: d.id, name: d.name, kind: "dungeon" })),
+];
+
 // Node type -> the scene that gets called when the player steps on it.
 // "start" and "goal" are handled specially by the map scene itself.
 export const EVENT_SCENE_BY_NODE_TYPE = {
