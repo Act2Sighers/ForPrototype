@@ -11,10 +11,42 @@
 // per character. Max HP is the sum of the five non-HP growth values,
 // times 12.
 
+export const CHARACTER_BASE = { attack: 3, defense: 1, destruction: 1, wisdom: 1, coordination: 1 };
+
+export const CHARACTER_STAT_LABELS = {
+  hp: "カロリー",
+  attack: "トウド",
+  defense: "ヒフク",
+  destruction: "シゲキ",
+  wisdom: "フクミ",
+  coordination: "カオリ",
+};
+
 export function computeMaxHp(growth) {
   const sum =
     growth.attack + growth.defense + growth.destruction + growth.wisdom + growth.coordination;
   return sum * 12;
+}
+
+export function computeStats(character) {
+  const g = character.growth;
+  return {
+    hp: computeMaxHp(g),
+    attack: CHARACTER_BASE.attack + g.attack,
+    defense: CHARACTER_BASE.defense + g.defense,
+    destruction: CHARACTER_BASE.destruction + g.destruction,
+    wisdom: CHARACTER_BASE.wisdom + g.wisdom,
+    coordination: CHARACTER_BASE.coordination + g.coordination,
+  };
+}
+
+export function describeCharacter(character) {
+  const s = computeStats(character);
+  const statLine = ["hp", "attack", "defense", "destruction", "wisdom", "coordination"]
+    .map((key) => `${CHARACTER_STAT_LABELS[key]}${s[key]}`)
+    .join(" ");
+  const weaponPart = character.weapon ? `武器: ${character.weapon.name}` : "武器: なし";
+  return `Lv.${character.level} / ${statLine} / ${weaponPart}`;
 }
 
 function createCharacter({ id, name, growth, level = 1 }) {
@@ -67,6 +99,20 @@ export const RIGID_RESOURCES = {
     stats: { sweetness: 1, hardness: 1, poisonResist: 1, stability: 1, flexibility: 1 },
   },
 };
+
+// Flattens a run's { natural, rigid } quantity maps into a display-ready
+// list. Used by the small resource HUD and the squad formation screen.
+export function describeResources(resources) {
+  if (!resources) return [];
+  const list = [];
+  for (const [key, species] of Object.entries(NATURAL_RESOURCES)) {
+    list.push({ id: key, name: species.name, qty: resources.natural[key] ?? 0 });
+  }
+  for (const [key, species] of Object.entries(RIGID_RESOURCES)) {
+    list.push({ id: key, name: species.name, qty: resources.rigid[key] ?? 0 });
+  }
+  return list;
+}
 
 // ---------------------------------------------------------------------
 // 糖衣 / オブラート (coatings)

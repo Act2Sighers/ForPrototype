@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { retryRun, endRun } from "../state.js";
+import state, { retryRun, endRun, settleRunEnd } from "../state.js";
 
 const MODE_INFO = {
   clear: { label: "クリア", className: "is-clear" },
@@ -13,6 +13,11 @@ export function ResultScene(container, params, api) {
   }
   const info = MODE_INFO[mode];
   const visitedCount = state.run?.visitedNodeIds.length ?? 0;
+
+  // The run ends the moment its result is shown, regardless of which
+  // button the player picks next: formation/standby move to retired now
+  // (see settleRunEnd's own guard against running twice for this run).
+  settleRunEnd(mode);
 
   renderScreen(container, {
     eyebrow: "RESULT",

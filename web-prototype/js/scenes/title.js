@@ -26,7 +26,7 @@ export function TitleScene(container, params, api) {
       }),
       button("ギャラリー", {
         variant: "ghost",
-        onClick: () => api.callScene("warehouse", { mode: "view" }),
+        onClick: () => api.callScene("gallery"),
       }),
     ],
   });

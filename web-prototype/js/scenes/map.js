@@ -1,4 +1,4 @@
-import { renderScreen, button, h } from "../dom.js";
+import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, grantStartReward } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 
@@ -122,8 +122,12 @@ export function MapScene(container, params, api) {
       eyebrow: `MAP / ${dungeon.name}`,
       title: "マップ",
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
+      corner: resourceHud(state.run.resources),
       body: [rewardBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),
-      actions: [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })],
+      actions: [
+        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
+        button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
+      ],
     });
   }
 

@@ -180,6 +180,14 @@ body {
   gap: 6px;
 }
 
+.screen-head__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .eyebrow {
   margin: 0;
   font-family: var(--font-mono);
@@ -187,6 +195,21 @@ body {
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--ember-strong);
+}
+
+.hud-corner {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hud-tag {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-line-strong);
+  background: var(--panel-raised);
+  white-space: nowrap;
 }
 
 .screen-title {

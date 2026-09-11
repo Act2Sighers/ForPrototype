@@ -2,20 +2,16 @@ import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
 import { describeCoating } from "../data/resourceCatalog.js";
 
-const MODE_LABEL = { view: "鑑賞", takeout: "持ち出し" };
-
-// Note: unlike every other called screen, the warehouse does NOT offer a
-// "ポーズ" option. It can be opened from the title screen's gallery
-// (outside any run), where pausing — with its save/load actions — would
-// not make sense.
+// The warehouse only ever holds 糖衣 (coatings) now — 隊員/武器 live in
+// the formation/standby/retired slots instead (see state.js), and pure
+// viewing moved to the gallery screen. So this screen has exactly one
+// job: pick coatings to bring on the run.
+//
+// Note: unlike every other called screen, the warehouse does NOT offer
+// a "ポーズ" option — it's only ever opened mid-run from the trade
+// screen, which already has its own ポーズ button one level up.
 export function WarehouseScene(container, params, api) {
-  const mode = params.mode;
-  if (mode !== "view" && mode !== "takeout") {
-    throw new Error('warehouse scene requires params.mode of "view" or "takeout"');
-  }
-
-  let selectedItemId = null; // view mode: which item's detail is shown
-  const pickedIds = new Set(); // takeout mode: items chosen, not yet committed
+  const pickedIds = new Set(); // items chosen this visit, not yet committed
 
   function render() {
     const items = state.warehouseItems.filter((item) => item.enabled);
@@ -25,8 +21,8 @@ export function WarehouseScene(container, params, api) {
       "div",
       { class: "item-grid" },
       items.map((item) => {
-        const isTaken = mode === "takeout" && takenOutIds.includes(item.id);
-        const isPicked = mode === "takeout" && pickedIds.has(item.id);
+        const isTaken = takenOutIds.includes(item.id);
+        const isPicked = pickedIds.has(item.id);
 
         const classes = ["item-tile"];
         if (isTaken) classes.push("is-taken");
@@ -37,13 +33,9 @@ export function WarehouseScene(container, params, api) {
           {
             class: classes.join(" "),
             onClick: () => {
-              if (mode === "view") {
-                selectedItemId = item.id;
-              } else if (!isTaken) {
-                // Toggle this item in/out of the current multi-selection.
-                if (pickedIds.has(item.id)) pickedIds.delete(item.id);
-                else pickedIds.add(item.id);
-              }
+              if (isTaken) return;
+              if (pickedIds.has(item.id)) pickedIds.delete(item.id);
+              else pickedIds.add(item.id);
               render();
             },
           },
@@ -57,28 +49,13 @@ export function WarehouseScene(container, params, api) {
       })
     );
 
-    const selectedItem = mode === "view" ? items.find((item) => item.id === selectedItemId) : null;
-
-    const body = [
-      h("div", { class: "field-group" }, [
-        h("p", { class: "field-label", text: "引き継ぎアイテム" }),
-        grid,
-      ]),
-    ];
-
-    if (selectedItem) {
-      body.push(
-        h("div", { class: "panel" }, [
-          h("p", { class: "field-label", text: selectedItem.name }),
-          h("p", { class: "lead", text: describeCoating(selectedItem) }),
-        ])
-      );
-    }
-
-    const actions = [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })];
-
-    if (mode === "takeout") {
-      actions.push(
+    renderScreen(container, {
+      eyebrow: "WAREHOUSE",
+      title: "倉庫",
+      subtitle: "糖衣をクリックして複数選択し、「持ち出す」で確定します。",
+      body: [h("div", { class: "field-group" }, [h("p", { class: "field-label", text: "糖衣" }), grid])],
+      actions: [
+        button("戻る", { variant: "ghost", onClick: () => api.closeScene() }),
         button(pickedIds.size ? `持ち出す（${pickedIds.size}）` : "持ち出す", {
           variant: "primary",
           disabled: pickedIds.size === 0,
@@ -93,19 +70,8 @@ export function WarehouseScene(container, params, api) {
             pickedIds.clear();
             api.closeScene();
           },
-        })
-      );
-    }
-
-    renderScreen(container, {
-      eyebrow: `WAREHOUSE / ${MODE_LABEL[mode]}モード`,
-      title: "倉庫",
-      subtitle:
-        mode === "view"
-          ? "アイテムをクリックすると詳細を確認できます。"
-          : "アイテムをクリックして複数選択し、「持ち出す」で確定します。",
-      body,
-      actions,
+        }),
+      ],
     });
   }
 

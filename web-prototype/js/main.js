@@ -11,6 +11,8 @@ import { BattleScene } from "./scenes/battle.js";
 import { ExplorationScene } from "./scenes/exploration.js";
 import { TradeScene } from "./scenes/trade.js";
 import { WarehouseScene } from "./scenes/warehouse.js";
+import { GalleryScene } from "./scenes/gallery.js";
+import { SquadFormationScene } from "./scenes/squadFormation.js";
 import { ResultScene } from "./scenes/result.js";
 
 const registry = {
@@ -25,6 +27,8 @@ const registry = {
   exploration: ExplorationScene,
   trade: TradeScene,
   warehouse: WarehouseScene,
+  gallery: GalleryScene,
+  squadFormation: SquadFormationScene,
   result: ResultScene,
 };
 

@@ -1,5 +1,6 @@
-import { renderScreen, button, h } from "../dom.js";
+import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { SCENE_LABELS } from "../labels.js";
+import state from "../state.js";
 
 // Novel-style presentation: a portrait area + a bottom textbox. Choice
 // branching is planned but out of scope for this skeleton — right now
@@ -15,6 +16,7 @@ export function EpisodeScene(container, params, api) {
   renderScreen(container, {
     eyebrow: "EPISODE",
     title: "エピソード",
+    corner: resourceHud(state.run?.resources),
     body: h("div", { class: "episode-stage" }, [
       h("div", { class: "episode-textbox", onClick: finish }, [
         h("p", { class: "episode-textbox__name", text: "ナレーション" }),

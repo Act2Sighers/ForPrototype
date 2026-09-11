@@ -9,6 +9,10 @@ function freshRunResources() {
   return { natural: { baseCream: 0 }, rigid: { zarameOre: 0 } };
 }
 
+export const FORMATION_LIMIT = 6;
+export const STANDBY_LIMIT = 6;
+export const RETIRED_LIMIT = 20; // not enforced yet — overflow handling is future work
+
 const state = {
   // The save data belonging to the run currently being played, before it
   // has necessarily been written into a slot.
@@ -17,14 +21,21 @@ const state = {
   // Fixed at 3 slots for the prototype.
   saveSlots: [null, null, null],
 
-  // 糖衣 (coatings): carried between runs, so they live here rather than
-  // on the run. Starts with one real fixture item, already enabled.
+  // 糖衣 (coatings) only: carried between runs, so they live here rather
+  // than on the run. Starts with one real fixture item, already enabled.
   warehouseItems: [createColorfulPlasma()],
 
-  // 隊員 (characters): also carried between runs — a character keeps
-  // growing the more it's used, so recruiting one is permanent. Each
-  // character holds its own equipped 武器 directly (see resourceCatalog).
-  characters: [],
+  // 隊員 (characters, each carrying its own equipped 武器) live in one of
+  // three slot groups, all carried between runs:
+  //  - formationSlots: fights in battle (max 6, must hold >=1 whenever a
+  //    run is active).
+  //  - standbySlots: recruited but not fielded (max 6).
+  //  - retiredSlots: moved here in bulk when a run ends (see
+  //    settleRunEnd) — on a clear, everyone in formation+standby; on a
+  //    game over, only whoever was in standby. Max 20, not enforced yet.
+  formationSlots: [],
+  standbySlots: [],
+  retiredSlots: [],
 
   // The active run, created when a dungeon challenge starts.
   run: null,
@@ -53,6 +64,7 @@ export function startNewRun(dungeonId, difficultyId) {
     // as soon as the player is standing on the start square.
     resources: freshRunResources(),
     startRewardGranted: false,
+    settled: false,
   };
   return state.run;
 }
@@ -63,26 +75,39 @@ export function retryRun() {
   state.run.visitedNodeIds = ["start"];
   state.run.resources = freshRunResources();
   state.run.startRewardGranted = false;
+  state.run.settled = false;
 }
 
 export function endRun() {
   state.run = null;
 }
 
-// Grants the start-square reward once per run (retrying re-grants the
-// resource supply, but never re-recruits a character already owned —
-// see the module comment on state.characters). Returns a human-readable
-// summary of what was granted, or null if this run already got it.
+// Grants the start-square reward once per run. Resources are handed out
+// every time (including on retry); a character is only ever granted if
+// formation is currently empty — since a completed run always moves its
+// squad to retiredSlots (see settleRunEnd), formation is empty at the
+// start of every run after the first. In that case whoever is first in
+// retiredSlots is recommissioned back into formation; only if nobody has
+// ever been recruited yet is a brand new ビスケット・ベーカー created.
+// (A real recruitment/squad-select screen should replace this later.)
+// Returns a human-readable summary of what was granted, or null if this
+// run already received it.
 export function grantStartReward() {
   if (!state.run || state.run.startRewardGranted) return null;
 
   const grantedParts = [];
 
-  if (!state.characters.some((c) => c.id === "biscuit-baker")) {
-    const biscuit = createBiscuitBaker();
-    biscuit.weapon = createHumbleFryingPan();
-    state.characters.push(biscuit);
-    grantedParts.push(`${biscuit.name}（武器：${biscuit.weapon.name}）`);
+  if (state.formationSlots.length === 0) {
+    const recommissioned = state.retiredSlots.shift();
+    if (recommissioned) {
+      state.formationSlots.push(recommissioned);
+      grantedParts.push(`${recommissioned.name}が編成に復帰`);
+    } else {
+      const biscuit = createBiscuitBaker();
+      biscuit.weapon = createHumbleFryingPan();
+      state.formationSlots.push(biscuit);
+      grantedParts.push(`${biscuit.name}（武器：${biscuit.weapon.name}）`);
+    }
   }
 
   state.run.resources.natural.baseCream += 3;
@@ -91,6 +116,24 @@ export function grantStartReward() {
 
   state.run.startRewardGranted = true;
   return `${grantedParts.join("、")}を獲得`;
+}
+
+// Moves the run's squad into retiredSlots once, at the moment the run
+// ends (i.e. when the result screen is reached — see result.js). On a
+// clear, everyone in formation+standby retires; on a game over, only
+// whoever was left in standby (formation is presumed lost). Equipped
+// weapons travel with their owner since they're stored on the character
+// itself; nothing separate needs clearing for them.
+export function settleRunEnd(mode) {
+  if (!state.run || state.run.settled) return;
+  const survivors =
+    mode === "gameover"
+      ? [...state.standbySlots]
+      : [...state.formationSlots, ...state.standbySlots];
+  state.retiredSlots.push(...survivors);
+  state.formationSlots = [];
+  state.standbySlots = [];
+  state.run.settled = true;
 }
 
 export function moveRunTo(nodeId) {
