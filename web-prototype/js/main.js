@@ -1,0 +1,51 @@
+import { SceneManager } from "./sceneManager.js";
+import { SCENE_LABELS } from "./labels.js";
+import { TitleScene } from "./scenes/title.js";
+import { SaveSlotScene } from "./scenes/saveSlot.js";
+import { OptionsScene } from "./scenes/options.js";
+import { PauseScene } from "./scenes/pause.js";
+import { DungeonSelectScene } from "./scenes/dungeonSelect.js";
+import { MapScene } from "./scenes/map.js";
+import { EpisodeScene } from "./scenes/episode.js";
+import { BattleScene } from "./scenes/battle.js";
+import { ExplorationScene } from "./scenes/exploration.js";
+import { TradeScene } from "./scenes/trade.js";
+import { WarehouseScene } from "./scenes/warehouse.js";
+import { ResultScene } from "./scenes/result.js";
+
+const registry = {
+  title: TitleScene,
+  saveSlot: SaveSlotScene,
+  options: OptionsScene,
+  pause: PauseScene,
+  dungeonSelect: DungeonSelectScene,
+  map: MapScene,
+  episode: EpisodeScene,
+  battle: BattleScene,
+  exploration: ExplorationScene,
+  trade: TradeScene,
+  warehouse: WarehouseScene,
+  result: ResultScene,
+};
+
+const stage = document.getElementById("stage");
+const crumbbar = document.getElementById("crumbbar");
+
+function renderCrumbs(stackIds) {
+  crumbbar.innerHTML = "";
+  stackIds.forEach((id, index) => {
+    if (index > 0) {
+      const sep = document.createElement("span");
+      sep.className = "crumb-sep";
+      sep.textContent = "›";
+      crumbbar.appendChild(sep);
+    }
+    const crumb = document.createElement("span");
+    crumb.className = "crumb" + (index === stackIds.length - 1 ? " is-active" : "");
+    crumb.textContent = SCENE_LABELS[id] ?? id;
+    crumbbar.appendChild(crumb);
+  });
+}
+
+const manager = new SceneManager(stage, registry, { onStackChange: renderCrumbs });
+manager.api.navigateTo("title");
