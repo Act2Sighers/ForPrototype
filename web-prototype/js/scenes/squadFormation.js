@@ -70,7 +70,7 @@ export function SquadFormationScene(container, params, api) {
     const standbyList = editing ? draftStandby : state.standbySlots;
 
     const resourceTags = describeResources(state.run?.resources).map((r) =>
-      h("span", { class: "tag", text: `${r.name}×${r.qty}` })
+      h("span", { class: "tag", text: `${r.abbr}×${r.qty}` })
     );
 
     const body = [

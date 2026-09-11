@@ -3,11 +3,12 @@
 // in-memory slots below. That's enough to exercise every transition in
 // the spec without pretending we have a real save format yet.
 
-import { createBiscuitBaker, createHumbleFryingPan, createColorfulPlasma } from "./data/resourceCatalog.js";
-
-function freshRunResources() {
-  return { natural: { baseCream: 0 }, rigid: { zarameOre: 0 } };
-}
+import {
+  createBiscuitBaker,
+  createHumbleFryingPan,
+  createColorfulPlasma,
+  createEmptyResources,
+} from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
 // three slot groups:
@@ -74,7 +75,7 @@ export function startNewRun(dungeonId, difficultyId) {
     // 資源 (materials/currency): reset to 0 at the top of every run —
     // see grantStartReward(), which hands out a small starting supply
     // as soon as the player is standing on the start square.
-    resources: freshRunResources(),
+    resources: createEmptyResources(),
     startRewardGranted: false,
     settled: false,
   };
@@ -85,7 +86,7 @@ export function retryRun() {
   if (!state.run) return;
   state.run.currentNodeId = "start";
   state.run.visitedNodeIds = ["start"];
-  state.run.resources = freshRunResources();
+  state.run.resources = createEmptyResources();
   state.run.startRewardGranted = false;
   state.run.settled = false;
 }
@@ -110,7 +111,7 @@ export function grantStartReward() {
   state.formationSlots.push(biscuit);
 
   state.run.resources.natural.baseCream += 3;
-  state.run.resources.rigid.zarameOre += 3;
+  state.run.resources.rigid.coarseSugarMineral += 3;
 
   state.run.startRewardGranted = true;
   return `${biscuit.name}（武器：${biscuit.weapon.name}）、ベースクリーム×3、ザラメ鉱石×3を獲得`;

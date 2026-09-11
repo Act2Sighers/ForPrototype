@@ -54,7 +54,7 @@ export function renderScreen(container, { eyebrow, title, subtitle, body, action
 // stand in for icons for now, per the design doc.
 export function resourceHud(resources) {
   return describeResources(resources).map((r) =>
-    h("span", { class: "tag hud-tag", text: `${r.name}×${r.qty}` })
+    h("span", { class: "tag hud-tag", text: `${r.abbr}×${r.qty}` })
   );
 }
 
