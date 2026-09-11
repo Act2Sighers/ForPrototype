@@ -92,6 +92,7 @@ export function MapScene(container, params, api) {
       ...edgeEls,
       ...nodeEls,
     ]);
+    const mapScroll = h("div", { class: "map-scroll" }, [mapSvg]);
 
     const hint =
       currentId === "goal"
@@ -104,7 +105,7 @@ export function MapScene(container, params, api) {
       eyebrow: `MAP / ${dungeon.name}`,
       title: "マップ",
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
-      body: [mapSvg, h("p", { class: "map-hint", text: hint })],
+      body: [mapScroll, h("p", { class: "map-hint", text: hint })],
       actions: [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })],
     });
   }

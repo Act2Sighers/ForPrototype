@@ -13,7 +13,8 @@ export function WarehouseScene(container, params, api) {
     throw new Error('warehouse scene requires params.mode of "view" or "takeout"');
   }
 
-  let selectedItemId = null;
+  let selectedItemId = null; // view mode: which item's detail is shown
+  const pickedIds = new Set(); // takeout mode: items chosen, not yet committed
 
   function render() {
     const items = state.warehouseItems.filter((item) => item.enabled);
@@ -24,14 +25,23 @@ export function WarehouseScene(container, params, api) {
       { class: "item-grid" },
       items.map((item) => {
         const isTaken = mode === "takeout" && takenOutIds.includes(item.id);
+        const isPicked = mode === "takeout" && pickedIds.has(item.id);
+
+        const classes = ["item-tile"];
+        if (isTaken) classes.push("is-taken");
+        if (isPicked) classes.push("is-selected");
+
         return h(
           "div",
           {
-            class: `item-tile${isTaken ? " is-taken" : ""}`,
+            class: classes.join(" "),
             onClick: () => {
-              selectedItemId = item.id;
-              if (mode === "takeout" && !isTaken && state.run) {
-                state.run.takenOutItemIds.push(item.id);
+              if (mode === "view") {
+                selectedItemId = item.id;
+              } else if (!isTaken) {
+                // Toggle this item in/out of the current multi-selection.
+                if (pickedIds.has(item.id)) pickedIds.delete(item.id);
+                else pickedIds.add(item.id);
               }
               render();
             },
@@ -40,12 +50,13 @@ export function WarehouseScene(container, params, api) {
             h("div", { class: "item-tile__glyph", text: item.name.slice(0, 1) }),
             h("div", { class: "item-tile__name", text: item.name }),
             isTaken ? h("span", { class: "tag", text: "持ち出し済み" }) : null,
+            isPicked ? h("span", { class: "tag tag--selected", text: "選択中" }) : null,
           ]
         );
       })
     );
 
-    const selectedItem = items.find((item) => item.id === selectedItemId);
+    const selectedItem = mode === "view" ? items.find((item) => item.id === selectedItemId) : null;
 
     const body = [
       h("div", { class: "field-group" }, [
@@ -63,15 +74,37 @@ export function WarehouseScene(container, params, api) {
       );
     }
 
+    const actions = [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })];
+
+    if (mode === "takeout") {
+      actions.push(
+        button(pickedIds.size ? `持ち出す（${pickedIds.size}）` : "持ち出す", {
+          variant: "primary",
+          disabled: pickedIds.size === 0,
+          onClick: () => {
+            if (state.run) {
+              for (const id of pickedIds) {
+                if (!state.run.takenOutItemIds.includes(id)) {
+                  state.run.takenOutItemIds.push(id);
+                }
+              }
+            }
+            pickedIds.clear();
+            api.closeScene();
+          },
+        })
+      );
+    }
+
     renderScreen(container, {
       eyebrow: `WAREHOUSE / ${MODE_LABEL[mode]}モード`,
       title: "倉庫",
       subtitle:
         mode === "view"
           ? "アイテムをクリックすると詳細を確認できます。"
-          : "アイテムをクリックすると持ち出せます（複数選択可）。",
+          : "アイテムをクリックして複数選択し、「持ち出す」で確定します。",
       body,
-      actions: [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+      actions,
     });
   }
 

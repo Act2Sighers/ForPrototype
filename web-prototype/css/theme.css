@@ -1,58 +1,57 @@
 /* ============================================================
    DISTOASTED（仮） - prototype design system
-   A dungeon-crawler / solo-boardgame UI shell. Single dark world
-   by design (the game does not follow the OS theme), so tokens
-   are declared once and colors are painted explicitly throughout.
+   Pop & dark: a cute, rounded, candy-bright surface over a vivid,
+   near-black world. Single dark world by design (the game does not
+   follow the OS theme), so tokens are declared once and colors are
+   painted explicitly throughout.
    ============================================================ */
 
 :root {
-  /* --- surfaces --- */
-  --void: #120f0c;
-  --panel: #1c1712;
-  --panel-raised: #251e17;
-  --panel-line: rgba(236, 227, 214, 0.12);
-  --panel-line-strong: rgba(236, 227, 214, 0.22);
+  /* --- surfaces (deep vivid plum-black) --- */
+  --void: #150f1e;
+  --panel: #211531;
+  --panel-raised: #2c1d42;
+  --panel-line: rgba(247, 235, 255, 0.14);
+  --panel-line-strong: rgba(247, 235, 255, 0.26);
 
   /* --- ink --- */
-  --ink: #ece3d6;
-  --ink-dim: #a89a86;
-  --ink-faint: #6f6355;
+  --ink: #f8f0fd;
+  --ink-dim: #c4aedb;
+  --ink-faint: #8a76a6;
 
-  /* --- accents --- */
-  --ember: #d97b3f;
-  --ember-strong: #f2a35f;
-  --ember-ink: #2a1608;
-  --frost: #6fa8a0;
-  --frost-strong: #8fc4bc;
-  --danger: #b0503f;
-  --danger-strong: #d06a55;
+  /* --- accents: bubblegum pink (primary), toxic mint (secondary) --- */
+  --ember: #ff4fa3;
+  --ember-strong: #ff85c4;
+  --ember-ink: #250a1a;
+  --frost: #38e8bb;
+  --frost-strong: #7ff7d9;
+  --danger: #ff4d6d;
+  --danger-strong: #ff8098;
 
-  /* --- type --- */
-  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", serif;
-  --font-body: "Work Sans", "Segoe UI", sans-serif;
+  /* --- type: rounded & playful, still legible in Japanese --- */
+  --font-display: "Hachi Maru Pop", "Zen Maru Gothic", "Rounded Mplus 1c", sans-serif;
+  --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
+  --radius-sm: 10px;
+  --radius-md: 18px;
 }
 
 * {
   box-sizing: border-box;
 }
 
-html,
-body {
-  height: 100%;
-}
-
 body {
   margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   background: var(--void);
   color: var(--ink);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   padding: clamp(12px, 4vw, 32px) 16px;
 }
 
@@ -70,6 +69,11 @@ body {
 .console {
   width: 100%;
   max-width: 860px;
+  /* Bounded to the viewport so the frame never exceeds it — every
+     screen scrolls *internally* (see .screen-frame) instead of being
+     silently clipped by this element's own overflow:hidden. */
+  height: min(760px, calc(100vh - 64px));
+  height: min(760px, calc(100dvh - 64px));
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -104,8 +108,8 @@ body {
 
 .crumb.is-active {
   color: var(--ember-strong);
-  border-color: rgba(217, 123, 63, 0.5);
-  background: rgba(217, 123, 63, 0.08);
+  border-color: rgba(255, 79, 163, 0.5);
+  background: rgba(255, 79, 163, 0.1);
 }
 
 .crumb-sep {
@@ -115,7 +119,11 @@ body {
 
 .console__stage {
   position: relative;
-  min-height: 560px;
+  flex: 1 1 auto;
+  /* min-height:0 lets this flex child actually shrink to the
+     console's bounded height instead of growing to fit its content —
+     required for the inner .screen-frame scrollbar to ever appear. */
+  min-height: 0;
 }
 
 /* ---------------------------------------------------------
@@ -139,6 +147,31 @@ body {
   padding: clamp(20px, 3vw, 36px);
   gap: 20px;
   overflow-y: auto;
+}
+
+/* Themed, draggable scrollbars for the screen body and the map's
+   horizontal scroller. */
+.screen-frame,
+.map-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-line-strong) transparent;
+}
+
+.screen-frame::-webkit-scrollbar,
+.map-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.screen-frame::-webkit-scrollbar-thumb,
+.map-scroll::-webkit-scrollbar-thumb {
+  background: var(--panel-line-strong);
+  border-radius: 999px;
+}
+
+.screen-frame::-webkit-scrollbar-thumb:hover,
+.map-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ember);
 }
 
 .screen-head {
@@ -172,11 +205,15 @@ body {
 }
 
 .screen-body {
+  /* No min-height:0 here on purpose: this keeps the browser's default
+     content-based minimum size, so on a very short viewport this box
+     (and its siblings) stop shrinking at their real content size and
+     let .screen-frame's overflow-y:auto scroll the rest — instead of
+     collapsing toward zero and letting children spill over each other. */
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  min-height: 0;
 }
 
 .lead {
@@ -385,10 +422,17 @@ body {
    Map / node graph
    --------------------------------------------------------- */
 
+.map-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: var(--radius-sm);
+}
+
 .map-svg {
-  width: 100%;
-  height: auto;
   display: block;
+  width: 640px;
+  max-width: none;
+  height: auto;
 }
 
 .map-edge {
@@ -507,12 +551,43 @@ body {
   color: var(--frost-strong);
 }
 
+.item-tile.is-selected {
+  border-color: var(--ember);
+  background: rgba(255, 79, 163, 0.12);
+}
+
+.item-tile.is-selected .item-tile__glyph {
+  border-color: var(--ember);
+  color: var(--ember-strong);
+}
+
 .tag {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-faint);
+}
+
+.tag--selected {
+  color: var(--ember-strong);
+}
+
+/* ---------------------------------------------------------
+   Confirmation prompt (save slots, and anywhere an action needs
+   a one-tap-to-confirm step before it commits)
+   --------------------------------------------------------- */
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.confirm-row__text {
+  font-size: 13px;
+  color: var(--ink-dim);
 }
 
 /* ---------------------------------------------------------

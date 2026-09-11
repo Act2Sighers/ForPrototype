@@ -18,7 +18,7 @@ export function DungeonSelectScene(container, params, api) {
   function render() {
     const canChallenge = Boolean(selectedDifficultyId && selectedDungeonId);
 
-    const body = h("div", { class: "screen-body" }, [
+    const body = [
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "難易度" }),
         h(
@@ -45,7 +45,7 @@ export function DungeonSelectScene(container, params, api) {
           )
         ),
       ]),
-    ]);
+    ];
 
     renderScreen(container, {
       eyebrow: "EXPEDITION SETUP",

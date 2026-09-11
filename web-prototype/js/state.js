@@ -11,12 +11,30 @@ const state = {
   // Fixed at 3 slots for the prototype.
   saveSlots: [null, null, null],
 
-  // Items that can be carried between runs. Only one fixture item exists
-  // for now, always enabled.
+  // Items that can be carried between runs. Four fixture items for now
+  // (enough to exercise multi-select in the warehouse), all enabled.
   warehouseItems: [
     {
-      id: "test-item",
-      name: "テストアイテム",
+      id: "test-item-1",
+      name: "テストアイテム1",
+      description: "内容は未実装のテストアイテムです。",
+      enabled: true,
+    },
+    {
+      id: "test-item-2",
+      name: "テストアイテム2",
+      description: "内容は未実装のテストアイテムです。",
+      enabled: true,
+    },
+    {
+      id: "test-item-3",
+      name: "テストアイテム3",
+      description: "内容は未実装のテストアイテムです。",
+      enabled: true,
+    },
+    {
+      id: "test-item-4",
+      name: "テストアイテム4",
       description: "内容は未実装のテストアイテムです。",
       enabled: true,
     },
