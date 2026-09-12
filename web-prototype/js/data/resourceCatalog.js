@@ -1,7 +1,7 @@
-// Catalog for the four resource kinds (隊員 / 武器 / 糖衣 / 資源).
-// Only one species of each exists so far; this module holds their fixed
-// data plus the small factory functions needed to create instances of
-// them. state.js owns *where* instances live and how they're granted.
+// Catalog for the four resource kinds (隊員 / 武器 / 糖衣 / 資源): their
+// fixed data, plus the small factory functions needed to create
+// instances of them. state.js owns *where* instances live and how
+// they're granted.
 
 // ---------------------------------------------------------------------
 // 隊員 (characters)
@@ -55,7 +55,7 @@ export function describeCharacter(character) {
   const statLine = ["hp", "attack", "defense", "destruction", "wisdom", "coordination"]
     .map((key) => `${CHARACTER_STAT_LABELS[key]}${s[key]}`)
     .join(" ");
-  const weaponPart = character.weapon ? `武器: ${character.weapon.name}` : "武器: なし";
+  const weaponPart = character.weapon ? `武器: ${getWeaponDisplayName(character.weapon)}` : "武器: なし";
   return `Lv.${character.level} / ${statLine} / ${weaponPart}`;
 }
 
@@ -106,28 +106,139 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
   };
 }
 
-export function createBiscuitBaker() {
-  return createCharacterFromData("biscuitBaker");
-}
-
 // ---------------------------------------------------------------------
 // 武器 / カトラリー (weapons)
 // ---------------------------------------------------------------------
 // Performance stats are ranked 無/低/中/高/極, stored internally as 0-4.
+// A weapon's own fixed data is just which 武器種 it is -- everything
+// else (stats, and the prefix derived from them) comes from what it was
+// forged from. forgeWeapon references RIGID_RESOURCES, defined further
+// below; that's fine since it's only read when forgeWeapon actually
+// runs, well after the whole module has finished loading.
 
-function createWeapon({ id, name, stats }) {
-  return { id, name, stats: { ...stats } };
+export const WEAPON_TYPES = {
+  fork: { id: "fork", name: "フォーク" },
+  knife: { id: "knife", name: "ナイフ" },
+  dipper: { id: "dipper", name: "ディッパー" },
+  recipeBook: { id: "recipeBook", name: "レシピブック" },
+  straw: { id: "straw", name: "ストロー" },
+  paperPlate: { id: "paperPlate", name: "カミザラ" },
+  timer: { id: "timer", name: "タイマー" },
+  fryingPan: { id: "fryingPan", name: "フライパン" },
+  mixer: { id: "mixer", name: "ミキサー" },
+  jarredBottle: { id: "jarredBottle", name: "ビンヅメ" },
+  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター" },
+  shaker: { id: "shaker", name: "シェイカー" },
+  icePick: { id: "icePick", name: "アイスピック" },
+  slicer: { id: "slicer", name: "スライサー" },
+};
+
+// A weapon's name is "<prefix><weapon type>" (e.g. "質素な" + "フライ
+// パン"). The prefix is picked from one of ten pools, chosen by the
+// weapon's current total stat points and, in the middle bracket, by
+// which single stat (if any) leads: see computeWeaponPrefixTier. It's
+// rolled fresh at creation, and is meant to be re-rolled by
+// refreshWeaponPrefix() any time a stat change (e.g. future
+// enhancement) moves the weapon into a different bracket -- but left
+// alone if the bracket doesn't change, so upgrading a weapon doesn't
+// rename it on every tweak.
+const WEAPON_PREFIX_POOL = {
+  broken: ["即席の", "壊れかけの", "練習用", "おもちゃの", "廃品の", "形だけの"],
+  humble: ["質素な", "中古の", "お得用の", "試作品の", "お下がりの", "頑張った"],
+  "mid-tie": ["実用的な", "器用な", "愛用の", "いい感じの", "堅実な", "食べごろ"],
+  "mid-sweetness": ["甘味入り", "別腹の", "おやつの", "食べやすい", "鋭利な", "強火の"],
+  "mid-hardness": ["頑固な", "弾力のある", "もちもち", "丈夫な", "鉄壁の", "老舗の"],
+  "mid-poisonResist": ["刺激的な", "すっぱい", "酢漬けの", "爆発", "劇的な", "衝撃の"],
+  "mid-stability": ["落ち着く", "安全な", "職人技の", "複雑な", "難解な", "こだわりの"],
+  "mid-flexibility": ["伸びる", "しなる", "競技用", "お揃いの", "コラボ品の", "芳しい"],
+  premium: ["上物の", "由緒ある", "熟練者の", "人気の", "流行りの", "お祝い用"],
+  legendary: ["究極の", "完璧な", "伝説の", "宇宙的な", "霜降り", "七色の"],
+};
+
+function computeWeaponPrefixTier(stats) {
+  const sum = STAT_KEYS.reduce((total, key) => total + stats[key], 0);
+  if (sum >= 17) return "legendary";
+  if (sum >= 14) return "premium";
+  if (sum >= 7) {
+    const maxValue = Math.max(...STAT_KEYS.map((key) => stats[key]));
+    const topKeys = STAT_KEYS.filter((key) => stats[key] === maxValue);
+    return topKeys.length >= 2 ? "mid-tie" : `mid-${topKeys[0]}`;
+  }
+  if (sum >= 4) return "humble";
+  return "broken";
 }
 
-export function createHumbleFryingPan() {
-  // A frying pan freshly forged from ザラメ鉱石: its stats are copied
-  // straight from that ore (see RIGID_RESOURCES below). Which material
-  // it was forged from is intentionally not kept on the weapon itself.
+// Recomputes a weapon's prefix tier from its current stats. Only rolls
+// a new prefix when the tier actually changed (including the very
+// first call, since prefixTier starts as null) -- otherwise the
+// existing prefix is left as-is.
+export function refreshWeaponPrefix(weapon) {
+  const tier = computeWeaponPrefixTier(weapon.stats);
+  if (tier !== weapon.prefixTier) {
+    weapon.prefixTier = tier;
+    const pool = WEAPON_PREFIX_POOL[tier];
+    weapon.prefix = pool[Math.floor(Math.random() * pool.length)];
+  }
+  return weapon;
+}
+
+export function getWeaponDisplayName(weapon) {
+  return `${weapon.prefix}${WEAPON_TYPES[weapon.baseTypeId].name}`;
+}
+
+function createWeapon({ id, baseTypeId, stats }) {
+  const weapon = { id, baseTypeId, stats: { ...stats }, prefix: null, prefixTier: null };
+  refreshWeaponPrefix(weapon);
+  return weapon;
+}
+
+// Forges a weapon of the given 武器種 from a rigid resource species: the
+// weapon's stats are copied from the material (or freshly rolled, for
+// 琥珀糖鉱石) as of the moment it's forged. Which material was used is
+// intentionally not kept on the weapon afterward.
+export function forgeWeapon(weaponTypeId, materialId) {
+  const species = RIGID_RESOURCES[materialId];
+  const stats = species.variableStats ? rollAmberSugarMineralStats() : { ...species.stats };
   return createWeapon({
     id: `weapon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    name: "質素なフライパン",
-    stats: { sweetness: 1, hardness: 1, poisonResist: 1, stability: 1, flexibility: 1 },
+    baseTypeId: weaponTypeId,
+    stats,
   });
+}
+
+// ---------------------------------------------------------------------
+// 初期雇用データ (initial-employment data)
+// ---------------------------------------------------------------------
+// Used only by the (not yet built) 初期雇用 event: each entry pairs a
+// キャラクターデータ with the 武器種 + 剛体資源 it starts equipped
+// with. Every entry here uses ザラメ鉱石, the weakest material, since
+// this is meant for early-game / low-difficulty initial-employment
+// pools; stronger variants (better material, or bonus growth) would be
+// separate entries once higher-tier recruitment exists.
+export const INITIAL_EMPLOYMENT_DATA = {
+  flakeSugar: { characterDataId: "flakeSugar", weaponTypeId: "fork", materialId: "coarseSugarMineral" },
+  cubeSugar: { characterDataId: "cubeSugar", weaponTypeId: "knife", materialId: "coarseSugarMineral" },
+  honeyScrew: { characterDataId: "honeyScrew", weaponTypeId: "dipper", materialId: "coarseSugarMineral" },
+  chocolatBitterTaste: { characterDataId: "chocolatBitterTaste", weaponTypeId: "recipeBook", materialId: "coarseSugarMineral" },
+  lollipopSpiral: { characterDataId: "lollipopSpiral", weaponTypeId: "straw", materialId: "coarseSugarMineral" },
+  flawlessNoColor: { characterDataId: "flawlessNoColor", weaponTypeId: "paperPlate", materialId: "coarseSugarMineral" },
+  sunlightSaccharum: { characterDataId: "sunlightSaccharum", weaponTypeId: "timer", materialId: "coarseSugarMineral" },
+  biscuitBaker: { characterDataId: "biscuitBaker", weaponTypeId: "fryingPan", materialId: "coarseSugarMineral" },
+  paletteFlash: { characterDataId: "paletteFlash", weaponTypeId: "mixer", materialId: "coarseSugarMineral" },
+  chalkThroat: { characterDataId: "chalkThroat", weaponTypeId: "jarredBottle", materialId: "coarseSugarMineral" },
+  jellyMaltose: { characterDataId: "jellyMaltose", weaponTypeId: "pizzaCutter", materialId: "coarseSugarMineral" },
+  drinkFree: { characterDataId: "drinkFree", weaponTypeId: "shaker", materialId: "coarseSugarMineral" },
+  sherbetFrost: { characterDataId: "sherbetFrost", weaponTypeId: "icePick", materialId: "coarseSugarMineral" },
+  shelfStable: { characterDataId: "shelfStable", weaponTypeId: "slicer", materialId: "coarseSugarMineral" },
+};
+
+// Instantiates a character from an 初期雇用データ entry, forging and
+// equipping its starting weapon in the same step.
+export function createInitialRecruit(employmentId) {
+  const entry = INITIAL_EMPLOYMENT_DATA[employmentId];
+  const character = createCharacterFromData(entry.characterDataId);
+  character.weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
+  return character;
 }
 
 // ---------------------------------------------------------------------

@@ -4,10 +4,10 @@
 // the spec without pretending we have a real save format yet.
 
 import {
-  createBiscuitBaker,
-  createHumbleFryingPan,
+  createInitialRecruit,
   createColorfulPlasma,
   createEmptyResources,
+  getWeaponDisplayName,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -96,25 +96,24 @@ export function endRun() {
 }
 
 // Grants the start-square reward once per run: a fresh ビスケット・ベー
-// カー (unconditionally — this stands in for two events not built yet,
-// an opening episode and a "初期雇用" pick-your-starter screen, which
-// is trivial to simulate with only one candidate) plus a small resource
-// supply. Never pulls anyone back from retiredSlots — a retired
-// character only returns to play once real recruitment exists. Returns
-// a human-readable summary of what was granted, or null if this run
-// already received it.
+// カー, from the 初期雇用データ entry of the same name (unconditionally
+// — this stands in for two events not built yet, an opening episode and
+// a "初期雇用" pick-your-starter screen, which is trivial to simulate
+// with only one candidate) plus a small resource supply. Never pulls
+// anyone back from retiredSlots — a retired character only returns to
+// play once real recruitment exists. Returns a human-readable summary
+// of what was granted, or null if this run already received it.
 export function grantStartReward() {
   if (!state.run || state.run.startRewardGranted) return null;
 
-  const biscuit = createBiscuitBaker();
-  biscuit.weapon = createHumbleFryingPan();
+  const biscuit = createInitialRecruit("biscuitBaker");
   state.formationSlots.push(biscuit);
 
   state.run.resources.natural.baseCream += 3;
   state.run.resources.rigid.coarseSugarMineral += 3;
 
   state.run.startRewardGranted = true;
-  return `${biscuit.name}（武器：${biscuit.weapon.name}）、ベースクリーム×3、ザラメ鉱石×3を獲得`;
+  return `${biscuit.name}（武器：${getWeaponDisplayName(biscuit.weapon)}）、ベースクリーム×3、ザラメ鉱石×3を獲得`;
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run
