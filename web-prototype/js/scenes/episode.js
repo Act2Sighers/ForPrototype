@@ -1,4 +1,5 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
+import { rollJudgement } from "../dice.js";
 import state, { grantResource, grantTieredResource } from "../state.js";
 import {
   RIGID_RESOURCES,
@@ -12,10 +13,6 @@ import {
   applyHpDamage,
   refreshWeaponPrefix,
 } from "../data/resourceCatalog.js";
-
-function rollD6() {
-  return 1 + Math.floor(Math.random() * 6);
-}
 
 function interpolate(text, context) {
   return text.replace(/\{\{name\}\}/g, context.selectedCharacter?.name ?? "");
@@ -98,8 +95,8 @@ export function EpisodeScene(container, params, api) {
     if (beat.type !== "judgement") return beat;
     const character = context.selectedCharacter;
     const statValue = computeStats(character)[beat.statKey];
-    const rolls = Array.from({ length: statValue }, rollD6);
-    const success = rolls.some((die) => die >= 4);
+    const { rolls, successCount } = rollJudgement(statValue);
+    const success = successCount > 0;
     const prefix = `${character.name}の${beat.statLabel}（${statValue}）で判定：D6を${statValue}回振り、出目は［${rolls.join("、")}］。出目に4以上が${
       success ? "含まれていたため" : "無かったため"
     }、判定は【`;

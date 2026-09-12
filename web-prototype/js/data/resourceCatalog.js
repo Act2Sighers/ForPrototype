@@ -132,6 +132,17 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
   };
 }
 
+// Permanently raises one of a character's five growth stats (not HP,
+// which is derived, not stored) by `amount`, recomputing level to match
+// (see computeLevel). Returns {before, after} of the raw growth value,
+// for display purposes -- see exploration.js's post-run stat growth.
+export function growCharacterStat(character, statKey, amount = 1) {
+  const before = character.growth[statKey];
+  character.growth[statKey] = before + amount;
+  character.level = computeLevel(character.growth);
+  return { before, after: character.growth[statKey] };
+}
+
 // Picks whichever of `characters` currently has the highest `statKey`
 // value (base+growth), breaking ties uniformly at random. Returns null
 // for an empty list. Used by episode outcomes that single out e.g.

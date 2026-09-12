@@ -39,6 +39,14 @@
   --stat-wisdom: #6bdb7a;
   --stat-coordination: #b98aff;
 
+  /* --- 探索イベントの複合能力値 colors (採集能力/採掘能力 draw from
+     two different 能力値 depending on the character, so they get their
+     own colors rather than borrowing one specific stat's; 監督能力 is
+     always coordination, so it reuses that color). --- */
+  --ability-gather: #6bdb7a;
+  --ability-mine: #ffa64d;
+  --ability-supervise: #b98aff;
+
   /* --- type: rounded & playful, still legible in Japanese --- */
   --font-display: "Hachi Maru Pop", "Zen Maru Gothic", "Rounded Mplus 1c", sans-serif;
   --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
@@ -633,6 +641,10 @@ body {
 .stat-wisdom { color: var(--stat-wisdom); }
 .stat-coordination { color: var(--stat-coordination); }
 
+.ability-gather { color: var(--ability-gather); }
+.ability-mine { color: var(--ability-mine); }
+.ability-supervise { color: var(--ability-supervise); }
+
 /* Generic plus/minus coloring (episode effects, dice-judgement results)
    -- used only when the affected quantity has no dedicated stat color
    of its own; a stat's own color always wins over these (see
@@ -687,6 +699,14 @@ body {
   height: 100%;
   background: var(--stat-hp);
   border-radius: 999px;
+}
+
+/* 探索イベントの作業進捗度ゲージ -- .hp-gauge と同じ構造で色だけ変える */
+.progress-gauge__fill {
+  height: 100%;
+  background: var(--frost);
+  border-radius: 999px;
+  transition: width 0.2s ease;
 }
 
 .character-card {
