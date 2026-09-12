@@ -1,11 +1,12 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
-import state, { grantResource } from "../state.js";
+import state, { grantResource, grantTieredResource } from "../state.js";
 import {
   RIGID_RESOURCES,
   CHARACTER_STAT_LABELS,
   CHARACTER_STAT_FULL_LABELS,
   WEAPON_STAT_LABELS,
   CHARACTER_STAT_BY_WEAPON_STAT,
+  rigidResourceTierName,
   computeStats,
   pickHighestStatCharacter,
   applyHpDamage,
@@ -32,11 +33,17 @@ function interpolate(text, context) {
 function applyEffect(effect, context) {
   switch (effect.kind) {
     case "grantRigidResource": {
+      // Flat-quantity species only (no quality tiers) -- e.g. ザラメ鉱石.
       const species = RIGID_RESOURCES[effect.id];
       const before = state.run.resources.rigid[effect.id];
       grantResource("rigid", effect.id, effect.amount);
       const after = state.run.resources.rigid[effect.id];
       return { text: `${species.name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    case "grantTieredRigidResource": {
+      const { before, after } = grantTieredResource("rigid", effect.id, effect.tier, effect.amount);
+      const name = rigidResourceTierName(effect.id, effect.tier);
+      return { text: `${name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
     }
     case "damageHighestStatCharacter": {
       const target = pickHighestStatCharacter(state.formationSlots, effect.statKey);

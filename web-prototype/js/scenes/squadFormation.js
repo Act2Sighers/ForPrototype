@@ -1,7 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
 import { characterHpGauge, characterStatLine, characterWeaponLine } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter } from "../state.js";
-import { describeResources, computeWeaponRating } from "../data/resourceCatalog.js";
+import { describeResourcesIndividually, computeWeaponRating } from "../data/resourceCatalog.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
 
@@ -171,8 +171,10 @@ export function SquadFormationScene(container, params, api) {
     const formationList = mode === "discharge" ? state.formationSlots : editing ? draftFormation : state.formationSlots;
     const standbyList = mode === "discharge" ? state.standbySlots : editing ? draftStandby : state.standbySlots;
 
-    const resourceTags = describeResources(state.run?.resources).map((r) =>
-      h("span", { class: "tag", text: `${r.abbr}×${r.qty}` })
+    // 部隊編成画面だけは「個別表示」: 品質/型番ごとに全て別計上して見せる
+    // (他の画面の資源HUDは「短縮表示」のdescribeResourcesを使う)。
+    const resourceLines = describeResourcesIndividually(state.run?.resources).map((line) =>
+      h("p", { class: "resource-line", text: line })
     );
 
     const body = [
@@ -190,7 +192,9 @@ export function SquadFormationScene(container, params, api) {
       ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "所持資源" }),
-        h("div", { class: "chip-row" }, resourceTags),
+        resourceLines.length
+          ? h("div", { class: "resource-list" }, resourceLines)
+          : h("p", { class: "lead", text: "資源を所持していません。" }),
       ]),
     ];
 

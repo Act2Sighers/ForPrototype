@@ -3,7 +3,12 @@
 // in-memory slots below. That's enough to exercise every transition in
 // the spec without pretending we have a real save format yet.
 
-import { createColorfulPlasma, createEmptyResources, computeTradeValue } from "./data/resourceCatalog.js";
+import {
+  createColorfulPlasma,
+  createEmptyResources,
+  computeTradeValue,
+  createAmberSugarMineralInstance,
+} from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
 // three slot groups:
@@ -124,12 +129,38 @@ export function hireCharacter(character, cost) {
 
 // Generic resource grant used by episode outcomes (see episode.js /
 // data/scripts.js) and anywhere else that just needs to add to the run's
-// stockpile with nothing further to validate or compute. hireCharacter/
-// dischargeCharacter mutate coarseSugarMineral directly above instead,
-// since those also need to check affordability or compute the amount.
+// stockpile with nothing further to validate or compute. Only valid for
+// a species with no quality variance (ベースクリーム/ザラメ鉱石) --
+// everything else uses grantTieredResource or grantAmberSugarMineral
+// below. hireCharacter/dischargeCharacter mutate coarseSugarMineral
+// directly above instead, since those also need to check affordability
+// or compute the amount.
 export function grantResource(category, id, amount) {
   if (!state.run) return;
   state.run.resources[category][id] += amount;
+}
+
+// Grants `amount` of one quality tier of a species tracked as a
+// {tier: count} bucket (every natural/rigid species except
+// ベースクリーム, ザラメ鉱石, and 琥珀糖鉱石 -- see
+// data/resourceCatalog.js's createEmptyResources). Returns the species'
+// total count before/after, for effect-description purposes (see
+// episode.js).
+export function grantTieredResource(category, id, tier, amount) {
+  const bucket = state.run.resources[category][id];
+  const before = Object.values(bucket).reduce((total, qty) => total + qty, 0);
+  bucket[tier] += amount;
+  return { before, after: before + amount };
+}
+
+// Rolls and grants one fresh 琥珀糖鉱石 instance of the given quality.
+// Returns the new instance plus the species' total count before/after.
+export function grantAmberSugarMineral(quality) {
+  const list = state.run.resources.rigid.amberSugarMineral;
+  const before = list.length;
+  const instance = createAmberSugarMineralInstance(quality);
+  list.push(instance);
+  return { instance, before, after: list.length };
 }
 
 // Removes a character (by id) from formation or standby, retires them,

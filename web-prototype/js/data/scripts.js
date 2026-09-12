@@ -143,7 +143,7 @@ export const ENCOUNTER_SCRIPT = {
     },
     "down-success-end": {
       type: "end",
-      effects: [{ kind: "grantRigidResource", id: "sugarCaneFiber", amount: 1 }],
+      effects: [{ kind: "grantTieredRigidResource", id: "sugarCaneFiber", tier: "mid", amount: 1 }],
     },
 
     "down-fail1": {

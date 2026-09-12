@@ -376,6 +376,20 @@ body {
   gap: 8px;
 }
 
+/* 部隊編成画面の資源「個別表示」 -- 品質/型番ごとの内訳を1行ずつ */
+.resource-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.resource-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
 .chip {
   border: 1px solid var(--panel-line-strong);
   background: var(--panel);

@@ -71,9 +71,7 @@ export function renderScreen(container, { eyebrow, title, subtitle, body, action
 // Small "資源" readout (name x qty) for the corner of a screen. Names
 // stand in for icons for now, per the design doc.
 export function resourceHud(resources) {
-  return describeResources(resources).map((r) =>
-    h("span", { class: "tag hud-tag", text: `${r.abbr}×${r.qty}` })
-  );
+  return describeResources(resources).map((r) => h("span", { class: "tag hud-tag", text: r.text }));
 }
 
 export function button(label, { variant = null, disabled = false, onClick, block = false } = {}) {
