@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { retryRun, endRun, settleRunEnd } from "../state.js";
+import state, { retryRun, endRun, settleRunEnd, autoSave } from "../state.js";
 
 const MODE_INFO = {
   clear: { label: "クリア", className: "is-clear" },
@@ -53,6 +53,9 @@ export function ResultScene(container, params, api) {
         variant: "ghost",
         onClick: () => {
           endRun();
+          // Auto-save with no run in progress so an autosave-load lands
+          // at the world screen rather than resuming a concluded run.
+          autoSave();
           api.navigateTo("title");
         },
       }),

@@ -2,13 +2,25 @@ import { renderScreen, button, h } from "../dom.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter } from "../state.js";
 import { describeCharacter, describeResources, computeWeaponRating } from "../data/resourceCatalog.js";
 
+const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
+
+// While editing, moving a member to the other list is always allowed
+// (no per-move capacity check) — validity is only checked here, at
+// commit time. Over capacity (>6) on either list, or an empty
+// formation, blocks 編成完了 until the player moves people back.
+function formationWarning(formationList, standbyList) {
+  if (formationList.length === 0) return EMPTY_FORMATION_MESSAGE;
+  if (formationList.length > FORMATION_LIMIT) return `編成スロットが定員(${FORMATION_LIMIT}人)を超えています。`;
+  if (standbyList.length > STANDBY_LIMIT) return `待機スロットが定員(${STANDBY_LIMIT}人)を超えています。`;
+  return null;
+}
+
 // 部隊編成画面. Two modes:
 //  - "normal" (default): view the squad, or edit it -- move members
-//    between formation/standby one at a time (disabled once the
-//    destination list is full), or select one from each list and hit
-//    交換 to swap them directly (the only way to rearrange once both
-//    lists are completely full, since there's no open slot to move
-//    into).
+//    freely between formation/standby one at a time. "編成完了" is
+//    disabled (with a warning explaining why) if that leaves formation
+//    empty or either list over its 6-person capacity; moving people
+//    back the other way clears it.
 //  - "discharge": called from the 雇用画面's 除隊 button. Every member
 //    gets a 除隊 button that retires them for a resource reward (see
 //    state.js's dischargeCharacter). The sole remaining formation
@@ -19,20 +31,17 @@ export function SquadFormationScene(container, params, api) {
   let editing = false;
   let draftFormation = [];
   let draftStandby = [];
-  let selectedFormationId = null;
-  let selectedStandbyId = null;
   let pendingDischargeId = null;
 
   function enterEdit() {
     draftFormation = [...state.formationSlots];
     draftStandby = [...state.standbySlots];
-    selectedFormationId = null;
-    selectedStandbyId = null;
     editing = true;
     render();
   }
 
   function commit() {
+    if (formationWarning(draftFormation, draftStandby)) return;
     state.formationSlots = draftFormation;
     state.standbySlots = draftStandby;
     editing = false;
@@ -45,38 +54,12 @@ export function SquadFormationScene(container, params, api) {
   }
 
   function moveCharacter(id, fromKey) {
-    selectedFormationId = null;
-    selectedStandbyId = null;
-
     const fromArr = fromKey === "formation" ? draftFormation : draftStandby;
-    const toKey = fromKey === "formation" ? "standby" : "formation";
-    const toArr = toKey === "formation" ? draftFormation : draftStandby;
-    const toLimit = toKey === "formation" ? FORMATION_LIMIT : STANDBY_LIMIT;
-
-    if (fromKey === "formation" && fromArr.length <= 1) return; // formation needs >=1
-    if (toArr.length >= toLimit) return;
-
+    const toArr = fromKey === "formation" ? draftStandby : draftFormation;
     const idx = fromArr.findIndex((c) => c.id === id);
     if (idx === -1) return;
     const [character] = fromArr.splice(idx, 1);
     toArr.push(character);
-    render();
-  }
-
-  function toggleSelect(id, listKey) {
-    if (listKey === "formation") selectedFormationId = selectedFormationId === id ? null : id;
-    else selectedStandbyId = selectedStandbyId === id ? null : id;
-    render();
-  }
-
-  function swapSelected() {
-    if (!selectedFormationId || !selectedStandbyId) return;
-    const fIdx = draftFormation.findIndex((c) => c.id === selectedFormationId);
-    const sIdx = draftStandby.findIndex((c) => c.id === selectedStandbyId);
-    if (fIdx === -1 || sIdx === -1) return;
-    [draftFormation[fIdx], draftStandby[sIdx]] = [draftStandby[sIdx], draftFormation[fIdx]];
-    selectedFormationId = null;
-    selectedStandbyId = null;
     render();
   }
 
@@ -128,24 +111,16 @@ export function SquadFormationScene(container, params, api) {
     ]);
   }
 
-  function characterRow(character, listKey, sourceLen, targetLen, targetLimit) {
-    if (mode === "discharge") return dischargeRow(character, listKey, sourceLen);
+  function characterRow(character, listKey) {
+    if (mode === "discharge") {
+      const sourceLen = listKey === "formation" ? state.formationSlots.length : state.standbySlots.length;
+      return dischargeRow(character, listKey, sourceLen);
+    }
 
     const actions = [];
     if (editing) {
-      const isSelected =
-        listKey === "formation" ? selectedFormationId === character.id : selectedStandbyId === character.id;
-      actions.push(
-        button(isSelected ? "選択中" : "選択", {
-          variant: isSelected ? "primary" : "frost",
-          onClick: () => toggleSelect(character.id, listKey),
-        })
-      );
       const label = listKey === "formation" ? "待機へ" : "編成へ";
-      const moveDisabled = (listKey === "formation" && sourceLen <= 1) || targetLen >= targetLimit;
-      actions.push(
-        button(label, { variant: "frost", disabled: moveDisabled, onClick: () => moveCharacter(character.id, listKey) })
-      );
+      actions.push(button(label, { variant: "frost", onClick: () => moveCharacter(character.id, listKey) }));
     }
     return h("div", { class: "slot" }, [
       h("div", { class: "slot__meta" }, [
@@ -168,24 +143,14 @@ export function SquadFormationScene(container, params, api) {
     const body = [
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: `編成スロット（${formationList.length}/${FORMATION_LIMIT}）` }),
-        h(
-          "div",
-          { class: "slot-list" },
-          formationList.map((c) =>
-            characterRow(c, "formation", formationList.length, standbyList.length, STANDBY_LIMIT)
-          )
-        ),
+        formationList.length
+          ? h("div", { class: "slot-list" }, formationList.map((c) => characterRow(c, "formation")))
+          : h("p", { class: "lead", text: EMPTY_FORMATION_MESSAGE }),
       ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: `待機スロット（${standbyList.length}/${STANDBY_LIMIT}）` }),
         standbyList.length
-          ? h(
-              "div",
-              { class: "slot-list" },
-              standbyList.map((c) =>
-                characterRow(c, "standby", standbyList.length, formationList.length, FORMATION_LIMIT)
-              )
-            )
+          ? h("div", { class: "slot-list" }, standbyList.map((c) => characterRow(c, "standby")))
           : h("p", { class: "lead", text: "待機中の隊員はいません。" }),
       ]),
       h("div", { class: "field-group" }, [
@@ -200,17 +165,15 @@ export function SquadFormationScene(container, params, api) {
       actions = [button("閉じる", { variant: "ghost", onClick: () => api.closeScene() })];
       subtitle = "退役させたい隊員の「除隊」を押してください。";
     } else if (editing) {
+      const warning = formationWarning(draftFormation, draftStandby);
+      if (warning) {
+        body.push(h("p", { class: "lead", style: "color: var(--danger-strong)", text: warning }));
+      }
       actions = [
         button("キャンセル", { variant: "ghost", onClick: cancel }),
-        button("交換", {
-          variant: "frost",
-          disabled: !(selectedFormationId && selectedStandbyId),
-          onClick: swapSelected,
-        }),
-        button("編成完了", { variant: "primary", onClick: commit }),
+        button("編成完了", { variant: "primary", disabled: Boolean(warning), onClick: commit }),
       ];
-      subtitle =
-        "隊員を編成・待機スロット間で移動できます（編成には最低1人必要です）。両方満員のときは、編成側と待機側から1人ずつ「選択」して「交換」してください。";
+      subtitle = "隊員を編成・待機スロット間で移動できます（編成には最低1人必要です。各スロット定員は6人です）。";
     } else {
       actions = [
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),

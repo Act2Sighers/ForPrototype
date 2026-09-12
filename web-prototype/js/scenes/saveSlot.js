@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { saveToSlot, deleteSlot, duplicateSlot, loadSlot } from "../state.js";
+import state, { saveToSlot, deleteSlot, duplicateSlot, loadSlot, loadAutoSave } from "../state.js";
 
 const MODE_LABEL = { save: "セーブ", load: "ロード" };
 
@@ -12,6 +12,10 @@ const CONFIRM_TEXT = {
   delete: "このデータを消去します。元に戻せません。よろしいですか？",
   duplicate: "空きスロットにこのデータを複製します。よろしいですか？",
 };
+
+// A sentinel index distinct from the numbered slots (0/1/2), used only
+// to track a pending action on the autosave row.
+const AUTO_SAVE_INDEX = "auto";
 
 export function SaveSlotScene(container, params, api) {
   const mode = params.mode;
@@ -28,15 +32,23 @@ export function SaveSlotScene(container, params, api) {
     return `${slot.label} ・ ${date.toLocaleString("ja-JP")}`;
   }
 
+  function goToLoadedRun() {
+    // A save made mid-dungeon carries its run along; resume straight
+    // into the map instead of always dropping the player at world.
+    api.navigateTo(state.run ? "map" : "world");
+  }
+
   function runAction(action, index) {
     if (action === "save" || action === "overwrite") saveToSlot(index);
     else if (action === "delete") deleteSlot(index);
     else if (action === "duplicate") duplicateSlot(index);
     else if (action === "load") {
       loadSlot(index);
-      // A save made mid-dungeon carries its run along; resume straight
-      // into the map instead of always dropping the player at world.
-      api.navigateTo(state.run ? "map" : "world");
+      goToLoadedRun();
+      return;
+    } else if (action === "load-auto") {
+      loadAutoSave();
+      goToLoadedRun();
       return;
     }
     pending = null;
@@ -54,8 +66,43 @@ export function SaveSlotScene(container, params, api) {
     });
   }
 
+  function confirmRow(action, index) {
+    return h("div", { class: "confirm-row" }, [
+      h("span", { class: "confirm-row__text", text: CONFIRM_TEXT[action === "load-auto" ? "load" : action] }),
+      button("実行する", {
+        variant: action === "delete" ? "danger" : "primary",
+        onClick: () => runAction(action, index),
+      }),
+      button("キャンセル", {
+        variant: "ghost",
+        onClick: () => {
+          pending = null;
+          render();
+        },
+      }),
+    ]);
+  }
+
   function render() {
     const body = h("div", { class: "slot-list" });
+
+    // Autosave: load-only, no delete/duplicate, always listed first.
+    if (mode === "load" && state.autoSaveSlot) {
+      const isPending = pending?.index === AUTO_SAVE_INDEX;
+      body.appendChild(
+        h("div", { class: "slot" }, [
+          h("div", { class: "slot__meta" }, [
+            h("span", { class: "slot__id", text: "AUTO" }),
+            h("span", { class: "slot__name", text: formatSlot(state.autoSaveSlot) }),
+          ]),
+          isPending
+            ? confirmRow("load-auto", AUTO_SAVE_INDEX)
+            : h("div", { class: "slot__actions" }, [
+                actionButton("ロード", "load-auto", AUTO_SAVE_INDEX, "primary"),
+              ]),
+        ])
+      );
+    }
 
     state.saveSlots.forEach((slot, index) => {
       const isEmpty = slot === null;
@@ -67,20 +114,7 @@ export function SaveSlotScene(container, params, api) {
 
       let right;
       if (isPending) {
-        right = h("div", { class: "confirm-row" }, [
-          h("span", { class: "confirm-row__text", text: CONFIRM_TEXT[pending.action] }),
-          button("実行する", {
-            variant: pending.action === "delete" ? "danger" : "primary",
-            onClick: () => runAction(pending.action, index),
-          }),
-          button("キャンセル", {
-            variant: "ghost",
-            onClick: () => {
-              pending = null;
-              render();
-            },
-          }),
-        ]);
+        right = confirmRow(pending.action, index);
       } else {
         const actions = [];
         if (mode === "save") {
@@ -118,7 +152,7 @@ export function SaveSlotScene(container, params, api) {
       subtitle:
         mode === "save"
           ? "空きスロットへのセーブ、または既存スロットへの上書きができます。"
-          : "セーブデータのロード・消去・空きスロットへの複製ができます。",
+          : "セーブデータのロード・消去・空きスロットへの複製ができます。オートセーブは、タイトルへ戻った際に自動的に記録されたものです。",
       body,
       actions: [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });

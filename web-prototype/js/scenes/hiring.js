@@ -19,18 +19,30 @@ import {
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 const NORMAL_CANDIDATE_COUNT = 5;
 
+function generateCandidates(mode) {
+  const employmentIds =
+    mode === "initial" ? Object.keys(INITIAL_EMPLOYMENT_DATA) : pickRandomEmploymentIds(NORMAL_CANDIDATE_COUNT);
+  return employmentIds.map((id) => ({
+    ...createHiringCandidate(id, mode === "initial" ? { flatCost: 1 } : undefined),
+    hired: false,
+  }));
+}
+
 // 雇用画面. Call-only, two modes:
 //  - "initial": the very first squad-building pass, right after
 //    entering a dungeon (see map.js). Every 初期雇用データ entry is a
 //    candidate, cost is a flat 1 regardless of stats, and the screen
 //    grants its own starting budget on mount so it doesn't depend on
 //    whatever triggered it. Closing ("出発") is gated on having hired
-//    at least one candidate into a non-empty formation.
-//  - "normal": mid-run hiring from the trade screen's 雇用所. Draws 5
-//    unique candidates at random from the same underlying data (a
-//    stand-in for a real difficulty-scaled candidate pool) and charges
-//    the real (simplified) cost formula. Closing ("店を出る") is never
-//    gated.
+//    at least one candidate into a non-empty formation. No 除隊 button
+//    here — pairing it with a flat cost of 1 would let the player hire
+//    and immediately discharge someone as a resource-laundering glitch.
+//  - "normal": mid-run hiring from the trade screen's 雇用所. Candidates
+//    are passed in via params.candidates (trade.js keeps them alive for
+//    the whole trade visit, re-passing the same array — hired flags and
+//    all — every time the player reopens 雇用所) rather than drawn fresh
+//    here; see trade.js. Real cost via computeTradeValue. Closing ("店
+//    を出る") is never gated, and 除隊 is available.
 export function HiringScene(container, params, api) {
   const mode = params.mode;
   if (mode !== "initial" && mode !== "normal") {
@@ -41,13 +53,8 @@ export function HiringScene(container, params, api) {
     grantInitialHiringBudget();
   }
 
-  const employmentIds =
-    mode === "initial" ? Object.keys(INITIAL_EMPLOYMENT_DATA) : pickRandomEmploymentIds(NORMAL_CANDIDATE_COUNT);
-  const candidates = employmentIds.map((id) =>
-    createHiringCandidate(id, mode === "initial" ? { flatCost: 1 } : undefined)
-  );
+  const candidates = params.candidates ?? generateCandidates(mode);
 
-  const hiredIds = new Set();
   const expandedIds = new Set();
   let pending = null; // { employmentId, kind: "confirm" | "insufficient-funds" | "no-space" }
 
@@ -66,7 +73,7 @@ export function HiringScene(container, params, api) {
     const character = createCharacterFromData(candidate.characterDataId);
     character.weapon = candidate.weapon;
     hireCharacter(character, candidate.cost);
-    hiredIds.add(candidate.employmentId);
+    candidate.hired = true;
     pending = null;
     render();
   }
@@ -98,7 +105,6 @@ export function HiringScene(container, params, api) {
   }
 
   function candidateRow(candidate) {
-    const isHired = hiredIds.has(candidate.employmentId);
     const isExpanded = expandedIds.has(candidate.employmentId);
     const isPendingThis = pending?.employmentId === candidate.employmentId;
     const rating = computeWeaponRating(candidate.weapon.stats);
@@ -108,7 +114,7 @@ export function HiringScene(container, params, api) {
         h("span", { class: "slot__id", text: `Lv.${candidate.level} / 武器評価${rating}` }),
         h("span", { class: "slot__name", text: candidate.name }),
         h("span", { class: "tag", text: `費用 ${COST_ABBR}×${candidate.cost}` }),
-        isHired ? h("span", { class: "tag tag--selected", text: "雇用済み" }) : null,
+        candidate.hired ? h("span", { class: "tag tag--selected", text: "雇用済み" }) : null,
       ]),
     ];
 
@@ -125,7 +131,11 @@ export function HiringScene(container, params, api) {
               render();
             },
           }),
-          button("雇用", { variant: "primary", disabled: isHired, onClick: () => handleHireClick(candidate) }),
+          button("雇用", {
+            variant: "primary",
+            disabled: candidate.hired,
+            onClick: () => handleHireClick(candidate),
+          }),
         ])
       );
       if (isExpanded) {
@@ -146,7 +156,21 @@ export function HiringScene(container, params, api) {
   }
 
   function render() {
-    const canDepart = mode === "initial" ? state.formationSlots.length > 0 && hiredIds.size > 0 : true;
+    const canDepart = mode === "initial" ? state.formationSlots.length > 0 && candidates.some((c) => c.hired) : true;
+
+    const actions = [];
+    if (mode === "normal") {
+      actions.push(
+        button("除隊", { variant: "ghost", onClick: () => api.callScene("squadFormation", { mode: "discharge" }) })
+      );
+    }
+    actions.push(
+      button(mode === "initial" ? "出発" : "店を出る", {
+        variant: "primary",
+        disabled: !canDepart,
+        onClick: () => api.closeScene(candidates),
+      })
+    );
 
     renderScreen(container, {
       eyebrow: mode === "initial" ? "INITIAL HIRING" : "HIRING",
@@ -157,14 +181,7 @@ export function HiringScene(container, params, api) {
           : "雇用したい候補者を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list" }, candidates.map(candidateRow))],
-      actions: [
-        button("除隊", { variant: "ghost", onClick: () => api.callScene("squadFormation", { mode: "discharge" }) }),
-        button(mode === "initial" ? "出発" : "店を出る", {
-          variant: "primary",
-          disabled: !canDepart,
-          onClick: () => api.closeScene(),
-        }),
-      ],
+      actions,
     });
   }
 

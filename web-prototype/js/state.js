@@ -35,8 +35,10 @@ const state = {
   // has necessarily been written into a slot.
   currentSave: null,
 
-  // Fixed at 3 slots for the prototype.
+  // Fixed at 3 manual slots for the prototype, plus one autosave slot
+  // (see autoSave()) that the player never writes to directly.
   saveSlots: [null, null, null],
+  autoSaveSlot: null,
 
   // 糖衣 (coatings): carried between runs, so they live here rather than
   // on the run. Live working copy of whichever save is active — see
@@ -210,11 +212,30 @@ export function duplicateSlot(fromIndex) {
 // Restores a save slot's profile and run into the live working state.
 // Callers should navigate to "map" if the restored run is non-null (the
 // player was mid-dungeon when they saved), or to "world" otherwise.
-export function loadSlot(index) {
-  const slot = state.saveSlots[index];
-  if (!slot) return null;
+function restoreFromSlot(slot) {
   state.currentSave = { createdAt: slot.savedAt, label: slot.label };
   Object.assign(state, structuredClone(slot.profile));
   state.run = slot.run ? structuredClone(slot.run) : null;
+}
+
+export function loadSlot(index) {
+  const slot = state.saveSlots[index];
+  if (!slot) return null;
+  restoreFromSlot(slot);
   return slot;
+}
+
+// Silently records the current profile/run into a dedicated autosave
+// slot (separate from the 3 manual ones, and never shown/editable in
+// save mode) — called whenever the player returns to the title screen,
+// so quitting out never loses progress even if they forgot to save
+// manually. See pause.js and result.js.
+export function autoSave() {
+  state.autoSaveSlot = slotSnapshot();
+}
+
+export function loadAutoSave() {
+  if (!state.autoSaveSlot) return null;
+  restoreFromSlot(state.autoSaveSlot);
+  return state.autoSaveSlot;
 }

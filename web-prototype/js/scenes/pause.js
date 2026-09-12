@@ -1,4 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
+import { autoSave } from "../state.js";
 
 export function PauseScene(container, params, api) {
   renderScreen(container, {
@@ -10,7 +11,15 @@ export function PauseScene(container, params, api) {
       button("セーブ", { onClick: () => api.callScene("saveSlot", { mode: "save" }) }),
       button("ロード", { onClick: () => api.callScene("saveSlot", { mode: "load" }) }),
       button("オプション", { onClick: () => api.callScene("options") }),
-      button("タイトルへ", { variant: "danger", onClick: () => api.navigateTo("title") }),
+      button("タイトルへ", {
+        variant: "danger",
+        onClick: () => {
+          // Auto-saves the current progress so leaving without a manual
+          // save first never loses it — see state.js's autoSave().
+          autoSave();
+          api.navigateTo("title");
+        },
+      }),
     ],
   });
   return {};
