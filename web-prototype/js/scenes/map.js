@@ -1,5 +1,5 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
-import state, { moveRunTo, grantStartReward } from "../state.js";
+import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -21,17 +21,11 @@ function svg(tag, attrs = {}, children = []) {
 }
 
 export function MapScene(container, params, api) {
-  // Fired once per run, right as the player arrives on the start square.
-  let rewardText = grantStartReward();
-
   function render() {
     const dungeon = getDungeon(state.run.dungeonId);
     const currentId = state.run.currentNodeId;
     const visited = state.run.visitedNodeIds;
-    // While the reward banner is up, no node is clickable — the player
-    // must acknowledge it first (otherwise it's easy to click straight
-    // into the next event and leave the banner stuck on-screen).
-    const reachable = rewardText ? [] : dungeon.edges[currentId] ?? [];
+    const reachable = dungeon.edges[currentId] ?? [];
 
     // Edges between two consecutively-visited nodes are drawn as "already
     // walked"; everything else is still just a possible route.
@@ -100,34 +94,19 @@ export function MapScene(container, params, api) {
     ]);
     const mapScroll = h("div", { class: "map-scroll" }, [mapSvg]);
 
-    const hint = rewardText
-      ? "獲得内容を確認してください（OKを押すと先に進めます）。"
-      : currentId === "goal"
-      ? "ゴールに到達しました。"
-      : reachable.length > 1
-      ? "進むルートを選んでください。"
-      : "進めるマスをクリックしてください（自動では進みません）。";
-
-    const rewardBanner = rewardText
-      ? h("div", { class: "panel reward-banner" }, [
-          h("p", { class: "field-label", text: "獲得" }),
-          h("p", { class: "lead", text: rewardText }),
-          button("OK", {
-            variant: "primary",
-            onClick: () => {
-              rewardText = null;
-              render();
-            },
-          }),
-        ])
-      : null;
+    const hint =
+      currentId === "goal"
+        ? "ゴールに到達しました。"
+        : reachable.length > 1
+        ? "進むルートを選んでください。"
+        : "進めるマスをクリックしてください（自動では進みません）。";
 
     renderScreen(container, {
       eyebrow: `MAP / ${dungeon.name}`,
       title: "マップ",
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
       corner: resourceHud(state.run.resources),
-      body: [rewardBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),
+      body: [mapScroll, h("p", { class: "map-hint", text: hint })],
       actions: [
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
@@ -136,5 +115,15 @@ export function MapScene(container, params, api) {
   }
 
   render();
+
+  // First time the player arrives on the start square this run: build
+  // the starting squad via the 雇用画面 in 初期雇用モード. Called after
+  // render() so the map itself is already mounted underneath (matching
+  // how every other event is entered), and synchronously enough that
+  // the player never sees the map interactive before it's covered.
+  if (consumeStartEventTrigger()) {
+    api.callScene("hiring", { mode: "initial" });
+  }
+
   return { onResume: () => render() };
 }

@@ -14,5 +14,6 @@ export const SCENE_LABELS = {
   warehouse: "倉庫画面",
   gallery: "ギャラリー画面",
   squadFormation: "部隊編成画面",
+  hiring: "雇用画面",
   result: "リザルト画面",
 };

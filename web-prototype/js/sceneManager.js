@@ -27,15 +27,26 @@ export class SceneManager {
     };
   }
 
-  _mount(id, params) {
+  // Pushes a new entry onto the stack and *then* runs its factory —
+  // deliberately in that order. A scene's factory can call
+  // api.callScene(...) synchronously during its own construction (e.g.
+  // to immediately layer another scene on top, as map.js does for the
+  // start-of-run hiring event); if the entry weren't on the stack yet
+  // when that nested call looks up "the current top", it would find
+  // whatever was there before this scene started mounting and insert
+  // itself in the wrong place. Pushing first means `this.stack` always
+  // reflects reality, even mid-construction.
+  _pushMounted(id, params) {
     const factory = this.registry[id];
     if (!factory) throw new Error(`Unknown scene id: "${id}"`);
     const el = document.createElement("div");
     el.className = "screen";
     el.dataset.scene = id;
     this.root.appendChild(el);
-    const instance = factory(el, params ?? {}, this.api) ?? {};
-    return { id, params, el, instance };
+    const entry = { id, params, el, instance: {} };
+    this.stack.push(entry);
+    entry.instance = factory(el, params ?? {}, this.api) ?? {};
+    return entry;
   }
 
   _setActive(entry) {
@@ -49,18 +60,16 @@ export class SceneManager {
       entry.instance.onExit?.();
       entry.el.remove();
     }
-    const entry = this._mount(id, params);
-    this.stack.push(entry);
-    this._setActive(entry);
+    this._pushMounted(id, params);
+    this._setActive(this.stack[this.stack.length - 1]);
     this._emitStackChange();
   }
 
   _callScene(id, params) {
     const top = this.stack[this.stack.length - 1];
     top?.instance.onSuspend?.();
-    const entry = this._mount(id, params);
-    this.stack.push(entry);
-    this._setActive(entry);
+    this._pushMounted(id, params);
+    this._setActive(this.stack[this.stack.length - 1]);
     this._emitStackChange();
   }
 

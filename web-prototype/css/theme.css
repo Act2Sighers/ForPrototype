@@ -523,15 +523,6 @@ body {
   color: var(--frost-strong);
 }
 
-.reward-banner {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  border-color: var(--frost);
-  background: rgba(56, 232, 187, 0.1);
-}
-
 /* ---------------------------------------------------------
    Warehouse grid
    --------------------------------------------------------- */

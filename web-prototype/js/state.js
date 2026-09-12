@@ -3,12 +3,7 @@
 // in-memory slots below. That's enough to exercise every transition in
 // the spec without pretending we have a real save format yet.
 
-import {
-  createInitialRecruit,
-  createColorfulPlasma,
-  createEmptyResources,
-  getWeaponDisplayName,
-} from "./data/resourceCatalog.js";
+import { createColorfulPlasma, createEmptyResources, computeTradeValue } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
 // three slot groups:
@@ -72,11 +67,12 @@ export function startNewRun(dungeonId, difficultyId) {
     currentNodeId: "start",
     visitedNodeIds: ["start"],
     takenOutItemIds: [],
-    // 資源 (materials/currency): reset to 0 at the top of every run —
-    // see grantStartReward(), which hands out a small starting supply
-    // as soon as the player is standing on the start square.
+    // 資源 (materials/currency): reset to 0 at the top of every run.
     resources: createEmptyResources(),
-    startRewardGranted: false,
+    // Consumed the first time the player reaches the start square this
+    // run — see consumeStartEventTrigger(), which map.js uses to call
+    // the 雇用画面 in 初期雇用モード exactly once per run.
+    startEventTriggered: false,
     settled: false,
   };
   return state.run;
@@ -87,7 +83,7 @@ export function retryRun() {
   state.run.currentNodeId = "start";
   state.run.visitedNodeIds = ["start"];
   state.run.resources = createEmptyResources();
-  state.run.startRewardGranted = false;
+  state.run.startEventTriggered = false;
   state.run.settled = false;
 }
 
@@ -95,25 +91,60 @@ export function endRun() {
   state.run = null;
 }
 
-// Grants the start-square reward once per run: a fresh ビスケット・ベー
-// カー, from the 初期雇用データ entry of the same name (unconditionally
-// — this stands in for two events not built yet, an opening episode and
-// a "初期雇用" pick-your-starter screen, which is trivial to simulate
-// with only one candidate) plus a small resource supply. Never pulls
-// anyone back from retiredSlots — a retired character only returns to
-// play once real recruitment exists. Returns a human-readable summary
-// of what was granted, or null if this run already received it.
-export function grantStartReward() {
-  if (!state.run || state.run.startRewardGranted) return null;
+// Returns true the first time this is called for the current run (and
+// marks it consumed so it never fires again this run), false every time
+// after. map.js calls this once on mount and, if true, immediately
+// calls the 雇用画面 in 初期雇用モード -- that screen grants its own
+// starting resource budget on mount (see hiring.js), so nothing needs
+// granting here.
+export function consumeStartEventTrigger() {
+  if (!state.run || state.run.startEventTriggered) return false;
+  state.run.startEventTriggered = true;
+  return true;
+}
 
-  const biscuit = createInitialRecruit("biscuitBaker");
-  state.formationSlots.push(biscuit);
+export function canAffordCost(cost) {
+  return (state.run?.resources.rigid.coarseSugarMineral ?? 0) >= cost;
+}
 
-  state.run.resources.natural.baseCream += 3;
-  state.run.resources.rigid.coarseSugarMineral += 3;
+export function hasSquadRoom() {
+  return state.formationSlots.length < FORMATION_LIMIT || state.standbySlots.length < STANDBY_LIMIT;
+}
 
-  state.run.startRewardGranted = true;
-  return `${biscuit.name}（武器：${getWeaponDisplayName(biscuit.weapon)}）、ベースクリーム×3、ザラメ鉱石×3を獲得`;
+// Deducts a hire's cost and places the newly hired character into
+// formation if there's room, else standby. Callers must have already
+// checked canAffordCost()/hasSquadRoom() -- this trusts both hold.
+export function hireCharacter(character, cost) {
+  state.run.resources.rigid.coarseSugarMineral -= cost;
+  if (state.formationSlots.length < FORMATION_LIMIT) state.formationSlots.push(character);
+  else state.standbySlots.push(character);
+}
+
+// 初期雇用モード's flat starting budget, granted once by hiring.js when
+// that screen mounts.
+export function grantInitialHiringBudget() {
+  if (state.run) state.run.resources.rigid.coarseSugarMineral += 200;
+}
+
+// Removes a character (by id) from formation or standby, retires them,
+// and grants the discharge reward. Returns { character, reward }, or
+// null if no such character was found in either slot group. Callers
+// are responsible for not discharging the last formation member (the
+// squad-formation screen's discharge mode disables that button).
+export function dischargeCharacter(characterId) {
+  let list = state.formationSlots;
+  let idx = list.findIndex((c) => c.id === characterId);
+  if (idx === -1) {
+    list = state.standbySlots;
+    idx = list.findIndex((c) => c.id === characterId);
+  }
+  if (idx === -1) return null;
+
+  const [character] = list.splice(idx, 1);
+  const reward = computeTradeValue(character);
+  state.run.resources.rigid.coarseSugarMineral += reward;
+  state.retiredSlots.push(character);
+  return { character, reward };
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run

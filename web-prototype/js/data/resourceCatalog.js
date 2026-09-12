@@ -83,8 +83,8 @@ export const CHARACTER_DATA = {
 
 // Instantiates an actual 隊員 from a キャラクターデータ template, with
 // an id unique to this individual (the template id names the species,
-// not the individual — the same template can be granted more than
-// once, e.g. ビスケット・ベーカー every run; see grantStartReward).
+// not the individual — the same template can be hired more than once,
+// e.g. ビスケット・ベーカー showing up in every 初期雇用 pool).
 // bonusGrowth optionally adds on top of the template for a
 // stronger-than-default recruit (not used anywhere yet).
 export function createCharacterFromData(dataId, bonusGrowth = {}) {
@@ -156,7 +156,7 @@ const WEAPON_PREFIX_POOL = {
 };
 
 function computeWeaponPrefixTier(stats) {
-  const sum = STAT_KEYS.reduce((total, key) => total + stats[key], 0);
+  const sum = sumStatValues(stats);
   if (sum >= 17) return "legendary";
   if (sum >= 14) return "premium";
   if (sum >= 7) {
@@ -232,13 +232,80 @@ export const INITIAL_EMPLOYMENT_DATA = {
   shelfStable: { characterDataId: "shelfStable", weaponTypeId: "slicer", materialId: "coarseSugarMineral" },
 };
 
-// Instantiates a character from an 初期雇用データ entry, forging and
-// equipping its starting weapon in the same step.
-export function createInitialRecruit(employmentId) {
+// ---------------------------------------------------------------------
+// 雇用 / 除隊 (hiring & discharge) — shared by 雇用画面 and 部隊編成画面
+// の除隊モード.
+// ---------------------------------------------------------------------
+
+function sumStatValues(stats) {
+  return STAT_KEYS.reduce((total, key) => total + stats[key], 0);
+}
+
+// D/C/B/A/S, same breakpoints as the weapon prefix tiers, but the 7-13
+// bracket isn't split further here — it's just "B" regardless of which
+// stat leads.
+export function computeWeaponRating(stats) {
+  const sum = sumStatValues(stats);
+  if (sum >= 17) return "S";
+  if (sum >= 14) return "A";
+  if (sum >= 7) return "B";
+  if (sum >= 4) return "C";
+  return "D";
+}
+
+export const WEAPON_STAT_LABELS = {
+  sweetness: "糖度",
+  hardness: "硬性",
+  poisonResist: "毒耐性",
+  stability: "安定性",
+  flexibility: "柔軟性",
+};
+
+export function describeWeapon(weapon) {
+  const statLine = STAT_KEYS.map((key) => `${WEAPON_STAT_LABELS[key]}${weapon.stats[key]}`).join(" ");
+  return `${getWeaponDisplayName(weapon)} / ${statLine} / 武器評価:${computeWeaponRating(weapon.stats)}`;
+}
+
+// Simplified stand-in for the real hire-cost / discharge-reward
+// formulas (not designed yet): ザラメ鉱石 x ceil((growth sum + weapon
+// stat sum) / 2). Takes anything with a `growth` and an equipped
+// `weapon` -- a real character (for a discharge reward) or a hiring
+// candidate preview (for its listed cost) both fit this shape.
+export function computeTradeValue({ growth, weapon }) {
+  return Math.ceil((growthSum(growth) + sumStatValues(weapon.stats)) / 2);
+}
+
+function shuffledCopy(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+export function pickRandomEmploymentIds(count) {
+  return shuffledCopy(Object.keys(INITIAL_EMPLOYMENT_DATA)).slice(0, count);
+}
+
+// A 雇用画面 candidate: forges its weapon once, up front, so the rating
+// and cost shown stay consistent with what hiring actually grants (see
+// hiring.js, which reuses this same weapon instance rather than forging
+// a new one when the candidate is actually hired). `flatCost`, when
+// given, overrides computeTradeValue -- used by 初期雇用モード, whose
+// cost is a flat ザラメ鉱石x1 regardless of stats.
+export function createHiringCandidate(employmentId, { flatCost } = {}) {
   const entry = INITIAL_EMPLOYMENT_DATA[employmentId];
-  const character = createCharacterFromData(entry.characterDataId);
-  character.weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
-  return character;
+  const data = CHARACTER_DATA[entry.characterDataId];
+  const weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
+  return {
+    employmentId,
+    characterDataId: entry.characterDataId,
+    name: data.name,
+    level: computeLevel(data.growth),
+    weapon,
+    cost: flatCost ?? computeTradeValue({ growth: data.growth, weapon }),
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -250,11 +317,11 @@ export function createInitialRecruit(employmentId) {
 
 export const NATURAL_RESOURCES = {
   baseCream: { id: "baseCream", name: "ベースクリーム", abbr: "BC" },
-  squeezedFructoseLiquid: { id: "squeezedFructoseLiquid", name: "シボリ果糖液", abbr: "SFL" },
-  gummyElasticMaterial: { id: "gummyElasticMaterial", name: "口香弾性質", abbr: "GEM" },
-  waferMembraneObject: { id: "waferMembraneObject", name: "糖衣膜状物体", abbr: "WMO" },
-  sableSoftGravel: { id: "sableSoftGravel", name: "サブレ軟性塊", abbr: "SSG" },
-  electroMagneticGelatin: { id: "electroMagneticGelatin", name: "電磁性ゼラチン", abbr: "EMG" },
+  squeezedFructoseLiquid: { id: "squeezedFructoseLiquid", name: "シボリ果糖液", abbr: "シ果" },
+  gummyElasticMaterial: { id: "gummyElasticMaterial", name: "口香弾性質", abbr: "口香" },
+  waferMembraneObject: { id: "waferMembraneObject", name: "糖衣膜状物体", abbr: "糖膜" },
+  sableSoftGravel: { id: "sableSoftGravel", name: "サブレ軟性塊", abbr: "サ軟" },
+  electroMagneticGelatin: { id: "electroMagneticGelatin", name: "電磁性ゼラチン", abbr: "電ゼ" },
 };
 
 // Every rigid resource but 琥珀糖鉱石 has fixed performance stats and is
@@ -265,55 +332,55 @@ export const RIGID_RESOURCES = {
   coarseSugarMineral: {
     id: "coarseSugarMineral",
     name: "ザラメ鉱石",
-    abbr: "CSM",
+    abbr: "ザラメ",
     stats: { sweetness: 1, hardness: 1, poisonResist: 1, stability: 1, flexibility: 1 },
   },
   amberSugarMineral: {
     id: "amberSugarMineral",
     name: "琥珀糖鉱石",
-    abbr: "ASM",
+    abbr: "琥珀",
     variableStats: true,
   },
   cacaoLayeredRock: {
     id: "cacaoLayeredRock",
     name: "カカオ堆積岩",
-    abbr: "CLR",
+    abbr: "カ堆",
     stats: { sweetness: 2, hardness: 3, poisonResist: 1, stability: 2, flexibility: 2 },
   },
   driedFructoseRock: {
     id: "driedFructoseRock",
     name: "ヒボシ果糖岩",
-    abbr: "DFR",
+    abbr: "ヒ果",
     stats: { sweetness: 2, hardness: 1, poisonResist: 2, stability: 3, flexibility: 2 },
   },
   honeyCrystalOre: {
     id: "honeyCrystalOre",
     name: "ハチミツ結晶鉱",
-    abbr: "HCO",
+    abbr: "ハ結",
     stats: { sweetness: 1, hardness: 2, poisonResist: 2, stability: 2, flexibility: 3 },
   },
   dropSpiralOre: {
     id: "dropSpiralOre",
     name: "アメダマ螺旋鉱",
-    abbr: "DSO",
+    abbr: "ア螺",
     stats: { sweetness: 3, hardness: 2, poisonResist: 2, stability: 1, flexibility: 2 },
   },
   sorbetEternalIce: {
     id: "sorbetEternalIce",
     name: "ソルベ永久氷柱",
-    abbr: "SEI",
+    abbr: "ソ永",
     stats: { sweetness: 2, hardness: 2, poisonResist: 3, stability: 2, flexibility: 1 },
   },
   sugarCaneFiber: {
     id: "sugarCaneFiber",
     name: "甘蔗繊維質",
-    abbr: "SCF",
+    abbr: "甘蔗",
     stats: { sweetness: 0, hardness: 3, poisonResist: 3, stability: 3, flexibility: 3 },
   },
   highPuritySugar: {
     id: "highPuritySugar",
     name: "高純度糖鉱",
-    abbr: "HPS",
+    abbr: "純糖",
     stats: { sweetness: 4, hardness: 4, poisonResist: 0, stability: 0, flexibility: 0 },
   },
 };
