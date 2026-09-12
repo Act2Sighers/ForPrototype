@@ -1,10 +1,5 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
-import state, {
-  canAffordCost,
-  hasSquadRoom,
-  hireCharacter,
-  grantInitialHiringBudget,
-} from "../state.js";
+import state, { canAffordCost, hasSquadRoom, hireCharacter } from "../state.js";
 import {
   CHARACTER_DATA,
   INITIAL_EMPLOYMENT_DATA,
@@ -29,14 +24,14 @@ function generateCandidates(mode) {
 }
 
 // 雇用画面. Call-only, two modes:
-//  - "initial": the very first squad-building pass, right after
-//    entering a dungeon (see map.js). Every 初期雇用データ entry is a
-//    candidate, cost is a flat 1 regardless of stats, and the screen
-//    grants its own starting budget on mount so it doesn't depend on
-//    whatever triggered it. Closing ("出発") is gated on having hired
-//    at least one candidate into a non-empty formation. No 除隊 button
-//    here — pairing it with a flat cost of 1 would let the player hire
-//    and immediately discharge someone as a resource-laundering glitch.
+//  - "initial": the very first squad-building pass, right after the
+//    オープニング episode grants its starting budget (see map.js and
+//    data/scripts.js's OPENING_SCRIPT). Every 初期雇用データ entry is a
+//    candidate, cost is a flat 1 regardless of stats. Closing ("出発")
+//    is gated on having hired at least one candidate into a non-empty
+//    formation. No 除隊 button here — pairing it with a flat cost of 1
+//    would let the player hire and immediately discharge someone as a
+//    resource-laundering glitch.
 //  - "normal": mid-run hiring from the trade screen's 雇用所. Candidates
 //    are passed in via params.candidates (trade.js keeps them alive for
 //    the whole trade visit, re-passing the same array — hired flags and
@@ -47,10 +42,6 @@ export function HiringScene(container, params, api) {
   const mode = params.mode;
   if (mode !== "initial" && mode !== "normal") {
     throw new Error('hiring scene requires params.mode of "initial" or "normal"');
-  }
-
-  if (mode === "initial") {
-    grantInitialHiringBudget();
   }
 
   const candidates = params.candidates ?? generateCandidates(mode);

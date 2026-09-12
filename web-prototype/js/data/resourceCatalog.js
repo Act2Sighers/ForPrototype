@@ -52,8 +52,9 @@ export function computeStats(character) {
 
 export function describeCharacter(character) {
   const s = computeStats(character);
+  const currentHp = character.currentHp ?? s.hp;
   const statLine = ["hp", "attack", "defense", "destruction", "wisdom", "coordination"]
-    .map((key) => `${CHARACTER_STAT_LABELS[key]}${s[key]}`)
+    .map((key) => (key === "hp" ? `${CHARACTER_STAT_LABELS.hp}${currentHp}/${s.hp}` : `${CHARACTER_STAT_LABELS[key]}${s[key]}`))
     .join(" ");
   const weaponPart = character.weapon ? `武器: ${getWeaponDisplayName(character.weapon)}` : "武器: なし";
   return `Lv.${character.level} / ${statLine} / ${weaponPart}`;
@@ -101,9 +102,39 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     name: data.name,
     level: computeLevel(growth),
     growth,
+    currentHp: computeMaxHp(growth),
     skills: [],
     weapon: null,
   };
+}
+
+// Picks whichever of `characters` currently has the highest `statKey`
+// value (base+growth), breaking ties uniformly at random. Returns null
+// for an empty list. Used by episode outcomes that single out e.g.
+// "the wisest squad member" rather than a player-chosen one.
+export function pickHighestStatCharacter(characters, statKey) {
+  if (!characters.length) return null;
+  let best = -Infinity;
+  let ties = [];
+  for (const character of characters) {
+    const value = computeStats(character)[statKey];
+    if (value > best) {
+      best = value;
+      ties = [character];
+    } else if (value === best) {
+      ties.push(character);
+    }
+  }
+  return ties[Math.floor(Math.random() * ties.length)];
+}
+
+// Lowers a character's currentHp by `amount`, floored at 0. No battle
+// system exists yet to consume or heal it further -- for now this is
+// only ever called by episode outcomes (see data/scripts.js).
+export function applyHpDamage(character, amount) {
+  const maxHp = computeMaxHp(character.growth);
+  const current = character.currentHp ?? maxHp;
+  character.currentHp = Math.max(0, current - amount);
 }
 
 // ---------------------------------------------------------------------

@@ -122,10 +122,14 @@ export function hireCharacter(character, cost) {
   else state.standbySlots.push(character);
 }
 
-// 初期雇用モード's flat starting budget, granted once by hiring.js when
-// that screen mounts.
-export function grantInitialHiringBudget() {
-  if (state.run) state.run.resources.rigid.coarseSugarMineral += 200;
+// Generic resource grant used by episode outcomes (see episode.js /
+// data/scripts.js) and anywhere else that just needs to add to the run's
+// stockpile with nothing further to validate or compute. hireCharacter/
+// dischargeCharacter mutate coarseSugarMineral directly above instead,
+// since those also need to check affordability or compute the amount.
+export function grantResource(category, id, amount) {
+  if (!state.run) return;
+  state.run.resources[category][id] += amount;
 }
 
 // Removes a character (by id) from formation or standby, retires them,

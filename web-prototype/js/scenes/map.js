@@ -1,6 +1,7 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
+import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -21,6 +22,12 @@ function svg(tag, attrs = {}, children = []) {
 }
 
 export function MapScene(container, params, api) {
+  // Set right before callScene("episode", ...) whenever that episode's
+  // close needs to chain into a further transition, rather than just
+  // resuming the map as-is -- see onResume below.
+  let awaitingHiringAfterOpening = false;
+  let awaitingResultAfterEnding = false;
+
   function render() {
     const dungeon = getDungeon(state.run.dungeonId);
     const currentId = state.run.currentNodeId;
@@ -39,11 +46,16 @@ export function MapScene(container, params, api) {
       render();
       const node = dungeon.nodes[nodeId];
       if (node.type === "goal") {
-        api.navigateTo("result", { mode: "clear" });
+        awaitingResultAfterEnding = true;
+        api.callScene("episode", { script: ENDING_SCRIPT });
         return;
       }
       const sceneId = EVENT_SCENE_BY_NODE_TYPE[node.type];
-      if (sceneId) api.callScene(sceneId, { fromScene: "map" });
+      if (sceneId === "episode") {
+        api.callScene("episode", { script: ENCOUNTER_SCRIPT });
+      } else if (sceneId) {
+        api.callScene(sceneId);
+      }
     }
 
     const edgeEls = [];
@@ -116,14 +128,32 @@ export function MapScene(container, params, api) {
 
   render();
 
-  // First time the player arrives on the start square this run: build
-  // the starting squad via the 雇用画面 in 初期雇用モード. Called after
-  // render() so the map itself is already mounted underneath (matching
-  // how every other event is entered), and synchronously enough that
-  // the player never sees the map interactive before it's covered.
+  // First time the player arrives on the start square this run: play
+  // the オープニング episode (which grants the starting budget as its
+  // own completion effect -- see data/scripts.js's OPENING_SCRIPT),
+  // then chain into building the starting squad via 雇用画面 in
+  // 初期雇用モード once it closes. Called after render() so the map
+  // itself is already mounted underneath (matching how every other
+  // event is entered), and synchronously enough that the player never
+  // sees the map interactive before it's covered.
   if (consumeStartEventTrigger()) {
-    api.callScene("hiring", { mode: "initial" });
+    awaitingHiringAfterOpening = true;
+    api.callScene("episode", { script: OPENING_SCRIPT });
   }
 
-  return { onResume: () => render() };
+  return {
+    onResume: () => {
+      if (awaitingHiringAfterOpening) {
+        awaitingHiringAfterOpening = false;
+        api.callScene("hiring", { mode: "initial" });
+        return;
+      }
+      if (awaitingResultAfterEnding) {
+        awaitingResultAfterEnding = false;
+        api.navigateTo("result", { mode: "clear" });
+        return;
+      }
+      render();
+    },
+  };
 }
