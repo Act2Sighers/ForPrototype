@@ -22,6 +22,18 @@ export const CHARACTER_STAT_LABELS = {
   coordination: "カオリ",
 };
 
+// Full descriptive names, shown in parentheses alongside the short
+// labels above wherever a character's stats are broken out in detail
+// (see characterCard.js).
+export const CHARACTER_STAT_FULL_LABELS = {
+  hp: "HP",
+  attack: "攻撃力",
+  defense: "防御力",
+  destruction: "破壊力",
+  wisdom: "賢さ",
+  coordination: "協調性",
+};
+
 function growthSum(growth) {
   return growth.attack + growth.defense + growth.destruction + growth.wisdom + growth.coordination;
 }
@@ -38,26 +50,38 @@ export function computeLevel(growth) {
   return growthSum(growth) - 4;
 }
 
+// Which 性能値 (weapon stat) feeds into which 能力値 (character stat): a
+// character's displayed non-HP stats are base+growth *plus* whichever of
+// these its equipped weapon carries -- see computeStats below. The
+// reverse map is used by characterCard.js to color a weapon's stat
+// abbreviations the same as the 能力値 they feed.
+export const WEAPON_STAT_BY_CHARACTER_STAT = {
+  attack: "sweetness",
+  defense: "hardness",
+  destruction: "poisonResist",
+  wisdom: "stability",
+  coordination: "flexibility",
+};
+
+export const CHARACTER_STAT_BY_WEAPON_STAT = Object.fromEntries(
+  Object.entries(WEAPON_STAT_BY_CHARACTER_STAT).map(([charKey, weaponKey]) => [weaponKey, charKey])
+);
+
+// HP and level are growth-only (see computeMaxHp/computeLevel above) --
+// only the other five stats pick up their equipped weapon's matching
+// performance value on top of base+growth.
 export function computeStats(character) {
   const g = character.growth;
+  const weaponStats = character.weapon?.stats;
+  const withWeapon = (base, charKey) => base + (weaponStats?.[WEAPON_STAT_BY_CHARACTER_STAT[charKey]] ?? 0);
   return {
     hp: computeMaxHp(g),
-    attack: CHARACTER_BASE.attack + g.attack,
-    defense: CHARACTER_BASE.defense + g.defense,
-    destruction: CHARACTER_BASE.destruction + g.destruction,
-    wisdom: CHARACTER_BASE.wisdom + g.wisdom,
-    coordination: CHARACTER_BASE.coordination + g.coordination,
+    attack: withWeapon(CHARACTER_BASE.attack + g.attack, "attack"),
+    defense: withWeapon(CHARACTER_BASE.defense + g.defense, "defense"),
+    destruction: withWeapon(CHARACTER_BASE.destruction + g.destruction, "destruction"),
+    wisdom: withWeapon(CHARACTER_BASE.wisdom + g.wisdom, "wisdom"),
+    coordination: withWeapon(CHARACTER_BASE.coordination + g.coordination, "coordination"),
   };
-}
-
-export function describeCharacter(character) {
-  const s = computeStats(character);
-  const currentHp = character.currentHp ?? s.hp;
-  const statLine = ["hp", "attack", "defense", "destruction", "wisdom", "coordination"]
-    .map((key) => (key === "hp" ? `${CHARACTER_STAT_LABELS.hp}${currentHp}/${s.hp}` : `${CHARACTER_STAT_LABELS[key]}${s[key]}`))
-    .join(" ");
-  const weaponPart = character.weapon ? `武器: ${getWeaponDisplayName(character.weapon)}` : "武器: なし";
-  return `Lv.${character.level} / ${statLine} / ${weaponPart}`;
 }
 
 // キャラクターデータ: the growth-only templates candidates are built
@@ -291,6 +315,14 @@ export const WEAPON_STAT_LABELS = {
   stability: "安定性",
   flexibility: "柔軟性",
 };
+
+// A weapon stat's 0-4 internal value, spelled out as its 無/低/中/高/極
+// rank (see the 武器/カトラリー section below for why it's stored as a
+// plain 0-4 int).
+const WEAPON_STAT_RANK_LABELS = ["無", "低", "中", "高", "極"];
+export function weaponStatRankLabel(value) {
+  return WEAPON_STAT_RANK_LABELS[value] ?? "?";
+}
 
 export function describeWeapon(weapon) {
   const statLine = STAT_KEYS.map((key) => `${WEAPON_STAT_LABELS[key]}${weapon.stats[key]}`).join(" ");

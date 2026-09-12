@@ -1,11 +1,11 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
+import { characterInfoCard } from "../characterCard.js";
 import state, { canAffordCost, hasSquadRoom, hireCharacter } from "../state.js";
 import {
   CHARACTER_DATA,
   INITIAL_EMPLOYMENT_DATA,
   RIGID_RESOURCES,
   computeWeaponRating,
-  describeCharacter,
   createCharacterFromData,
   createHiringCandidate,
   pickRandomEmploymentIds,
@@ -131,13 +131,11 @@ export function HiringScene(container, params, api) {
       );
       if (isExpanded) {
         children.push(
-          h("p", {
-            class: "lead",
-            text: describeCharacter({
-              level: candidate.level,
-              growth: CHARACTER_DATA[candidate.characterDataId].growth,
-              weapon: candidate.weapon,
-            }),
+          characterInfoCard({
+            name: candidate.name,
+            level: candidate.level,
+            growth: CHARACTER_DATA[candidate.characterDataId].growth,
+            weapon: candidate.weapon,
           })
         );
       }

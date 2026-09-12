@@ -1,6 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
+import { characterInfoCard } from "../characterCard.js";
 import state from "../state.js";
-import { describeCoating, describeCharacter } from "../data/resourceCatalog.js";
+import { describeCoating } from "../data/resourceCatalog.js";
 
 // View-only: 糖衣 kept in the warehouse, and 隊員 who have retired. (A
 // real build would likely split these into separate tabs; one screen is
@@ -49,7 +50,7 @@ export function GalleryScene(container, params, api) {
       ]),
     ];
     if (isExpanded) {
-      children.push(h("p", { class: "lead", text: describeCharacter(character) }));
+      children.push(characterInfoCard(character));
     }
     return h("div", { class: "panel" }, children);
   }

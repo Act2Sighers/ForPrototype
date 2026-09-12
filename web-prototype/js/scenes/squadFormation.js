@@ -1,6 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
+import { characterHpGauge, characterStatLine, characterWeaponLine } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter } from "../state.js";
-import { describeCharacter, describeResources, computeWeaponRating } from "../data/resourceCatalog.js";
+import { describeResources, computeWeaponRating } from "../data/resourceCatalog.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
 
@@ -32,6 +33,13 @@ export function SquadFormationScene(container, params, api) {
   let draftFormation = [];
   let draftStandby = [];
   let pendingDischargeId = null;
+  const expandedIds = new Set();
+
+  function toggleDetail(id) {
+    if (expandedIds.has(id)) expandedIds.delete(id);
+    else expandedIds.add(id);
+    render();
+  }
 
   function enterEdit() {
     draftFormation = [...state.formationSlots];
@@ -122,14 +130,41 @@ export function SquadFormationScene(container, params, api) {
       const label = listKey === "formation" ? "待機へ" : "編成へ";
       actions.push(button(label, { variant: "frost", onClick: () => moveCharacter(character.id, listKey) }));
     }
-    return h("div", { class: "slot" }, [
-      h("div", { class: "slot__meta" }, [
-        h("span", { class: "slot__id", text: `Lv.${character.level}` }),
-        h("span", { class: "slot__name", text: character.name }),
-        listKey === "formation" ? h("span", { class: "tag", text: describeCharacter(character) }) : null,
+
+    if (listKey !== "formation") {
+      return h("div", { class: "slot" }, [
+        h("div", { class: "slot__meta" }, [
+          h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+          h("span", { class: "slot__name", text: character.name }),
+        ]),
+        h("div", { class: "slot__actions" }, actions),
+      ]);
+    }
+
+    // Formation members always show their HP gauge (per the player's
+    // request, this needs no click), with the full stat/weapon
+    // breakdown behind a 詳細表示 toggle -- a multi-line card like this
+    // shown unconditionally for every member would make the screen very
+    // tall, matching hiring.js/gallery.js's existing detail-toggle
+    // pattern.
+    const isExpanded = expandedIds.has(character.id);
+    actions.push(
+      button(isExpanded ? "詳細を隠す" : "詳細表示", { variant: "ghost", onClick: () => toggleDetail(character.id) })
+    );
+    const rowChildren = [
+      h("div", { class: "row-between" }, [
+        h("div", { class: "slot__meta" }, [
+          h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+          h("span", { class: "slot__name", text: character.name }),
+        ]),
+        h("div", { class: "slot__actions" }, actions),
       ]),
-      h("div", { class: "slot__actions" }, actions),
-    ]);
+      characterHpGauge(character),
+    ];
+    if (isExpanded) {
+      rowChildren.push(characterStatLine(character), characterWeaponLine(character));
+    }
+    return h("div", { class: "panel" }, rowChildren);
   }
 
   function render() {

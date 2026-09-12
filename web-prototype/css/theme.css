@@ -28,6 +28,17 @@
   --danger: #ff4d6d;
   --danger-strong: #ff8098;
 
+  /* --- 能力値/性能値 colors: HP is orange; each of the other five
+     character stats (and the weapon performance stat that feeds it,
+     see resourceCatalog.js's WEAPON_STAT_BY_CHARACTER_STAT) shares one
+     color, applied everywhere both are shown (see characterCard.js). --- */
+  --stat-hp: #ffa64d;
+  --stat-attack: #ff5c5c;
+  --stat-defense: #5ec8ff;
+  --stat-destruction: #ffd93d;
+  --stat-wisdom: #6bdb7a;
+  --stat-coordination: #b98aff;
+
   /* --- type: rounded & playful, still legible in Japanese --- */
   --font-display: "Hachi Maru Pop", "Zen Maru Gothic", "Rounded Mplus 1c", sans-serif;
   --font-body: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "Yu Gothic", sans-serif;
@@ -594,6 +605,101 @@ body {
 
 .tag--selected {
   color: var(--ember-strong);
+}
+
+/* ---------------------------------------------------------
+   能力値/性能値 colors (see characterCard.js) -- one class per
+   character stat, reused for the weapon stat that feeds it.
+   --------------------------------------------------------- */
+
+.stat-hp { color: var(--stat-hp); }
+.stat-attack { color: var(--stat-attack); }
+.stat-defense { color: var(--stat-defense); }
+.stat-destruction { color: var(--stat-destruction); }
+.stat-wisdom { color: var(--stat-wisdom); }
+.stat-coordination { color: var(--stat-coordination); }
+
+/* ---------------------------------------------------------
+   Character info (characterCard.js): a reusable HP gauge, stat
+   breakdown, and weapon line shown wherever a 隊員's full detail is
+   displayed (hiring/gallery detail toggles, squad formation rows).
+   --------------------------------------------------------- */
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hp-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.hp-line__label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hp-line__value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.hp-gauge {
+  flex: 1;
+  min-width: 80px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-line);
+  overflow: hidden;
+}
+
+.hp-gauge__fill {
+  height: 100%;
+  background: var(--stat-hp);
+  border-radius: 999px;
+}
+
+.character-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.character-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.character-card__name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.character-card__level {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.character-card__stats,
+.character-card__weapon {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.6;
 }
 
 /* ---------------------------------------------------------
