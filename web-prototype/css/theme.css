@@ -619,6 +619,13 @@ body {
 .stat-wisdom { color: var(--stat-wisdom); }
 .stat-coordination { color: var(--stat-coordination); }
 
+/* Generic plus/minus coloring (episode effects, dice-judgement results)
+   -- used only when the affected quantity has no dedicated stat color
+   of its own; a stat's own color always wins over these (see
+   episode.js's applyEffect). */
+.effect-positive { color: var(--stat-defense); }
+.effect-negative { color: var(--danger-strong); }
+
 /* ---------------------------------------------------------
    Character info (characterCard.js): a reusable HP gauge, stat
    breakdown, and weapon line shown wherever a 隊員's full detail is
@@ -753,6 +760,11 @@ body {
 
 .episode-textbox p {
   white-space: pre-line;
+}
+
+.episode-effect {
+  font-size: 12px;
+  margin-top: 8px;
 }
 
 /* ---------------------------------------------------------

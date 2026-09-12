@@ -18,7 +18,10 @@ import {
   getWeaponDisplayName,
 } from "./data/resourceCatalog.js";
 
-const STAT_ORDER = ["attack", "defense", "destruction", "wisdom", "coordination"];
+// Split across two lines (rather than one 5-stat row) per the user's
+// preference for readability: attack+defense, then the other three.
+const STAT_LINE_1 = ["attack", "defense"];
+const STAT_LINE_2 = ["destruction", "wisdom", "coordination"];
 const FULL_WIDTH_SPACE = "　";
 
 export function characterHpGauge(character) {
@@ -32,16 +35,22 @@ export function characterHpGauge(character) {
   ]);
 }
 
-export function characterStatLine(character) {
-  const s = computeStats(character);
+function statSpan(key, s) {
+  return h("span", { class: `stat-${key}`, text: `${CHARACTER_STAT_LABELS[key]}(${CHARACTER_STAT_FULL_LABELS[key]}): ${s[key]}` });
+}
+
+function statLineRow(keys, s) {
   const spans = [];
-  STAT_ORDER.forEach((key, i) => {
+  keys.forEach((key, i) => {
     if (i > 0) spans.push(FULL_WIDTH_SPACE);
-    spans.push(
-      h("span", { class: `stat-${key}`, text: `${CHARACTER_STAT_LABELS[key]}(${CHARACTER_STAT_FULL_LABELS[key]}): ${s[key]}` })
-    );
+    spans.push(statSpan(key, s));
   });
   return h("p", { class: "character-card__stats" }, spans);
+}
+
+export function characterStatLine(character) {
+  const s = computeStats(character);
+  return h("div", { class: "character-card__stat-lines" }, [statLineRow(STAT_LINE_1, s), statLineRow(STAT_LINE_2, s)]);
 }
 
 export function characterWeaponLine(character) {
