@@ -1,7 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
-import { characterHpGauge, characterStatLine, characterWeaponLine } from "../characterCard.js";
+import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter } from "../state.js";
-import { computeWeaponRating } from "../data/resourceCatalog.js";
+import { computeWeaponRating, describeWeapon } from "../data/resourceCatalog.js";
 import { resourceIndividualNodes } from "../resourceDisplay.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
@@ -163,9 +163,18 @@ export function SquadFormationScene(container, params, api) {
       characterHpGauge(character),
     ];
     if (isExpanded) {
-      rowChildren.push(characterStatLine(character), characterWeaponLine(character));
+      rowChildren.push(characterSynergyLine(character), characterStatLine(character), characterWeaponLine(character));
     }
     return h("div", { class: "panel" }, rowChildren);
+  }
+
+  // 武器置き場: player-owned weapons not currently equipped by anyone in
+  // formation/standby (see state.js's storedWeapons). Nothing produces
+  // one yet -- this is placeholder plumbing for future weapon
+  // forging/enhancement and the planned 持ち替え (re-equip) feature --
+  // so it's view-only for now, same as 所持資源.
+  function storedWeaponRow(weapon) {
+    return h("div", { class: "slot" }, [h("span", { class: "slot__name", text: describeWeapon(weapon) })]);
   }
 
   function render() {
@@ -180,14 +189,20 @@ export function SquadFormationScene(container, params, api) {
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: `編成スロット（${formationList.length}/${FORMATION_LIMIT}）` }),
         formationList.length
-          ? h("div", { class: "slot-list" }, formationList.map((c) => characterRow(c, "formation")))
+          ? h("div", { class: "slot-list slot-list--grid" }, formationList.map((c) => characterRow(c, "formation")))
           : h("p", { class: "lead", text: EMPTY_FORMATION_MESSAGE }),
       ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: `待機スロット（${standbyList.length}/${STANDBY_LIMIT}）` }),
         standbyList.length
-          ? h("div", { class: "slot-list" }, standbyList.map((c) => characterRow(c, "standby")))
+          ? h("div", { class: "slot-list slot-list--grid" }, standbyList.map((c) => characterRow(c, "standby")))
           : h("p", { class: "lead", text: "待機中の隊員はいません。" }),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "武器置き場" }),
+        state.storedWeapons.length
+          ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(storedWeaponRow))
+          : h("p", { class: "lead", text: "使用していない武器はありません。" }),
       ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "所持資源" }),

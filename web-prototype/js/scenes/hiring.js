@@ -136,6 +136,7 @@ export function HiringScene(container, params, api) {
             level: candidate.level,
             growth: CHARACTER_DATA[candidate.characterDataId].growth,
             weapon: candidate.weapon,
+            synergies: CHARACTER_DATA[candidate.characterDataId].synergies,
           })
         );
       }
@@ -169,7 +170,7 @@ export function HiringScene(container, params, api) {
           ? "最初に雇用する隊員を選んでください（複数人選べます）。"
           : "雇用したい候補者を選んでください。",
       corner: resourceHud(state.run?.resources),
-      body: [h("div", { class: "slot-list" }, candidates.map(candidateRow))],
+      body: [h("div", { class: "slot-list slot-list--grid" }, candidates.map(candidateRow))],
       actions,
     });
   }

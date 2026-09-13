@@ -59,12 +59,12 @@ export function GalleryScene(container, params, api) {
     const body = [
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "糖衣" }),
-        h("div", { class: "slot-list" }, state.warehouseItems.map(coatingRow)),
+        h("div", { class: "slot-list slot-list--grid" }, state.warehouseItems.map(coatingRow)),
       ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "退役した隊員" }),
         state.retiredSlots.length
-          ? h("div", { class: "slot-list" }, state.retiredSlots.map(characterRow))
+          ? h("div", { class: "slot-list slot-list--grid" }, state.retiredSlots.map(characterRow))
           : h("p", { class: "lead", text: "退役した隊員はまだいません。" }),
       ]),
     ];

@@ -14,6 +14,8 @@ import {
   CHARACTER_STAT_FULL_LABELS,
   CHARACTER_STAT_BY_WEAPON_STAT,
   WEAPON_STAT_LABELS,
+  WEAPON_TYPES,
+  SYNERGIES,
   weaponStatRankLabel,
   getWeaponDisplayName,
 } from "./data/resourceCatalog.js";
@@ -53,6 +55,15 @@ export function characterStatLine(character) {
   return h("div", { class: "character-card__stat-lines" }, [statLineRow(STAT_LINE_1, s), statLineRow(STAT_LINE_2, s)]);
 }
 
+// シナジー(戦闘スタイル) a character carries -- see resourceCatalog.js's
+// SYNERGIES/canEquip. `character.synergies` is expected to be set (see
+// createCharacterFromData); callers building an ad-hoc display-only
+// object (e.g. a 雇用画面 candidate preview) need to pass it through too.
+export function characterSynergyLine(character) {
+  const names = (character.synergies ?? []).map((id) => SYNERGIES[id].name).join(" / ");
+  return h("p", { class: "character-card__synergy", text: `シナジー：${names || "なし"}` });
+}
+
 export function characterWeaponLine(character) {
   if (!character.weapon) {
     return h("p", { class: "character-card__weapon", text: "武器：なし" });
@@ -69,7 +80,12 @@ export function characterWeaponLine(character) {
       })
     );
   });
-  return h("p", { class: "character-card__weapon" }, [`武器：${getWeaponDisplayName(weapon)}［`, ...rankParts, "］"]);
+  const weaponSynergyNames = WEAPON_TYPES[weapon.baseTypeId].synergies.map((id) => SYNERGIES[id].name).join("/");
+  return h("p", { class: "character-card__weapon" }, [
+    `武器：${getWeaponDisplayName(weapon)}［`,
+    ...rankParts,
+    `］（シナジー：${weaponSynergyNames}）`,
+  ]);
 }
 
 export function characterInfoCard(character) {
@@ -78,6 +94,7 @@ export function characterInfoCard(character) {
       h("span", { class: "character-card__name", text: character.name }),
       h("span", { class: "character-card__level", text: `Lv.${character.level}` }),
     ]),
+    characterSynergyLine(character),
     characterHpGauge(character),
     characterStatLine(character),
     characterWeaponLine(character),

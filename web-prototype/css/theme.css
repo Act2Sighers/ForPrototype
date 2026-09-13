@@ -455,6 +455,18 @@ body {
   gap: 10px;
 }
 
+/* Opt-in modifier for lists of 隊員情報/糖衣 items (gallery, squad
+   formation, hiring, exploration): lays them out in as many columns as
+   comfortably fit the current width, collapsing to the single vertical
+   column every .slot-list already had on a narrow (e.g. phone) screen.
+   align-items:start keeps an expanded 詳細表示 card (taller than its
+   neighbors) from stretching the rest of its row to match. */
+.slot-list--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: start;
+}
+
 .slot {
   display: flex;
   align-items: center;
@@ -762,7 +774,8 @@ body {
 }
 
 .character-card__stats,
-.character-card__weapon {
+.character-card__weapon,
+.character-card__synergy {
   margin: 0;
   font-size: 13px;
   color: var(--ink-dim);

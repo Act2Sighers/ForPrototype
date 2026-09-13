@@ -172,7 +172,7 @@ export function ExplorationScene(container, params, api) {
           text: `土壌：${STANDARD_ENVIRONMENT.soilLabel}　地質：${STANDARD_ENVIRONMENT.geologyLabel}　属性：${STANDARD_ENVIRONMENT.attributeLabel}`,
         }),
         eligibleCharacters.length
-          ? h("div", { class: "slot-list" }, eligibleCharacters.map(assignRow))
+          ? h("div", { class: "slot-list slot-list--grid" }, eligibleCharacters.map(assignRow))
           : h("p", { class: "lead", text: "割り当てられる隊員がいません。" }),
       ],
       actions: [
@@ -201,7 +201,7 @@ export function ExplorationScene(container, params, api) {
       body.push(
         h("div", { class: "field-group" }, [
           h("p", { class: "field-label", text: "採集担当" }),
-          h("div", { class: "slot-list" }, gatherGroup.members.map(workerRow)),
+          h("div", { class: "slot-list slot-list--grid" }, gatherGroup.members.map(workerRow)),
         ])
       );
     }
@@ -209,7 +209,7 @@ export function ExplorationScene(container, params, api) {
       body.push(
         h("div", { class: "field-group" }, [
           h("p", { class: "field-label", text: "採掘担当" }),
-          h("div", { class: "slot-list" }, mineGroup.members.map(workerRow)),
+          h("div", { class: "slot-list slot-list--grid" }, mineGroup.members.map(workerRow)),
         ])
       );
     }

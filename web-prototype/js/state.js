@@ -32,6 +32,12 @@ function freshProfile() {
     formationSlots: [],
     standbySlots: [],
     retiredSlots: [],
+    // 武器置き場: player-owned weapons not currently equipped by any
+    // formation/standby member -- see squadFormation.js. Nothing
+    // produces one yet (this is placeholder plumbing ahead of future
+    // weapon forging/enhancement and the planned 持ち替え feature), so
+    // this stays empty for now.
+    storedWeapons: [],
   };
 }
 
@@ -224,6 +230,7 @@ function slotSnapshot() {
       formationSlots: state.formationSlots,
       standbySlots: state.standbySlots,
       retiredSlots: state.retiredSlots,
+      storedWeapons: state.storedWeapons,
     }),
     run: state.run ? structuredClone(state.run) : null,
   };

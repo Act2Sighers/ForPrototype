@@ -11,6 +11,32 @@
 // per character. Max HP is the sum of the five non-HP growth values,
 // times 12.
 
+// ---------------------------------------------------------------------
+// シナジー (戦闘スタイル)
+// ---------------------------------------------------------------------
+// A weapon can be equipped by a character (and vice versa) only if they
+// share at least one シナジー -- see canEquip below. Purely a
+// compatibility/flavor concept for now; once battle exists, each
+// シナジー is meant to also gate which special attacks/actions a
+// character can perform.
+export const SYNERGIES = {
+  cut: { id: "cut", name: "カット", style: "近接×軽撃/速度重視" },
+  grill: { id: "grill", name: "グリル", style: "近接×重撃/威力重視" },
+  fry: { id: "fry", name: "フライ", style: "遠距離×射撃攻撃" },
+  hole: { id: "hole", name: "ホール", style: "遠距離×魔法攻撃" },
+  kaikei: { id: "kaikei", name: "カイケイ", style: "サポート×戦術指揮" },
+  araimono: { id: "araimono", name: "アライモノ", style: "サポート×防衛/回復" },
+};
+
+// Whether `character` and `weapon` share at least one シナジー, i.e.
+// whether the character could equip that weapon. No equip/swap screen
+// calls this yet (that's future work), but it's exercised by
+// INITIAL_EMPLOYMENT_DATA's own consistency check below.
+export function canEquip(character, weapon) {
+  const weaponSynergies = WEAPON_TYPES[weapon.baseTypeId].synergies;
+  return character.synergies.some((synergyId) => weaponSynergies.includes(synergyId));
+}
+
 export const CHARACTER_BASE = { attack: 3, defense: 1, destruction: 1, wisdom: 1, coordination: 1 };
 
 export const CHARACTER_STAT_LABELS = {
@@ -90,20 +116,20 @@ export function computeStats(character) {
 // of these via createCharacterFromData's bonusGrowth, not editing the
 // template itself.
 export const CHARACTER_DATA = {
-  flakeSugar: { id: "flakeSugar", name: "フレーク・シュガー", growth: { attack: 0, defense: 2, destruction: 1, wisdom: 1, coordination: 1 } },
-  cubeSugar: { id: "cubeSugar", name: "キューブ・シュガー", growth: { attack: 2, defense: 0, destruction: 1, wisdom: 1, coordination: 1 } },
-  honeyScrew: { id: "honeyScrew", name: "ハニー・スクリュー", growth: { attack: 1, defense: 1, destruction: 2, wisdom: 0, coordination: 1 } },
-  chocolatBitterTaste: { id: "chocolatBitterTaste", name: "ショコラ・ビターテイスト", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 2, coordination: 0 } },
-  lollipopSpiral: { id: "lollipopSpiral", name: "ロリポップ・スパイラル", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 1, coordination: 2 } },
-  flawlessNoColor: { id: "flawlessNoColor", name: "フローレス・ノーカラー", growth: { attack: 2, defense: 2, destruction: 0, wisdom: 1, coordination: 0 } },
-  sunlightSaccharum: { id: "sunlightSaccharum", name: "サンライト・サッカルム", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 2, coordination: 2 } },
-  biscuitBaker: { id: "biscuitBaker", name: "ビスケット・ベーカー", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 1, coordination: 1 } },
-  paletteFlash: { id: "paletteFlash", name: "パレット・フラッシュ", growth: { attack: 0, defense: 1, destruction: 1, wisdom: 0, coordination: 3 } },
-  chalkThroat: { id: "chalkThroat", name: "チョーク・スロート", growth: { attack: 0, defense: 3, destruction: 1, wisdom: 1, coordination: 0 } },
-  jellyMaltose: { id: "jellyMaltose", name: "ゼリー・マルトース", growth: { attack: 3, defense: 0, destruction: 1, wisdom: 0, coordination: 1 } },
-  drinkFree: { id: "drinkFree", name: "ドリンク・フリー", growth: { attack: 2, defense: 1, destruction: 0, wisdom: 0, coordination: 2 } },
-  sherbetFrost: { id: "sherbetFrost", name: "シャーベット・フロスト", growth: { attack: 0, defense: 2, destruction: 2, wisdom: 1, coordination: 0 } },
-  shelfStable: { id: "shelfStable", name: "シェルフ・ステイブル", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 3, coordination: 1 } },
+  flakeSugar: { id: "flakeSugar", name: "フレーク・シュガー", growth: { attack: 0, defense: 2, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["araimono"] },
+  cubeSugar: { id: "cubeSugar", name: "キューブ・シュガー", growth: { attack: 2, defense: 0, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["cut"] },
+  honeyScrew: { id: "honeyScrew", name: "ハニー・スクリュー", growth: { attack: 1, defense: 1, destruction: 2, wisdom: 0, coordination: 1 }, synergies: ["grill"] },
+  chocolatBitterTaste: { id: "chocolatBitterTaste", name: "ショコラ・ビターテイスト", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 2, coordination: 0 }, synergies: ["hole"] },
+  lollipopSpiral: { id: "lollipopSpiral", name: "ロリポップ・スパイラル", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 1, coordination: 2 }, synergies: ["fry"] },
+  flawlessNoColor: { id: "flawlessNoColor", name: "フローレス・ノーカラー", growth: { attack: 2, defense: 2, destruction: 0, wisdom: 1, coordination: 0 }, synergies: ["cut", "fry"] },
+  sunlightSaccharum: { id: "sunlightSaccharum", name: "サンライト・サッカルム", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 2, coordination: 2 }, synergies: ["kaikei"] },
+  biscuitBaker: { id: "biscuitBaker", name: "ビスケット・ベーカー", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["grill"] },
+  paletteFlash: { id: "paletteFlash", name: "パレット・フラッシュ", growth: { attack: 0, defense: 1, destruction: 1, wisdom: 0, coordination: 3 }, synergies: ["hole", "araimono"] },
+  chalkThroat: { id: "chalkThroat", name: "チョーク・スロート", growth: { attack: 0, defense: 3, destruction: 1, wisdom: 1, coordination: 0 }, synergies: ["kaikei", "araimono"] },
+  jellyMaltose: { id: "jellyMaltose", name: "ゼリー・マルトース", growth: { attack: 3, defense: 0, destruction: 1, wisdom: 0, coordination: 1 }, synergies: ["cut", "grill"] },
+  drinkFree: { id: "drinkFree", name: "ドリンク・フリー", growth: { attack: 2, defense: 1, destruction: 0, wisdom: 0, coordination: 2 }, synergies: ["fry", "araimono"] },
+  sherbetFrost: { id: "sherbetFrost", name: "シャーベット・フロスト", growth: { attack: 0, defense: 2, destruction: 2, wisdom: 1, coordination: 0 }, synergies: ["grill", "hole"] },
+  shelfStable: { id: "shelfStable", name: "シェルフ・ステイブル", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 3, coordination: 1 }, synergies: ["fry", "kaikei"] },
 };
 
 // Instantiates an actual 隊員 from a キャラクターデータ template, with
@@ -129,6 +155,7 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     currentHp: computeMaxHp(growth),
     skills: [],
     weapon: null,
+    synergies: data.synergies,
   };
 }
 
@@ -183,20 +210,20 @@ export function applyHpDamage(character, amount) {
 // runs, well after the whole module has finished loading.
 
 export const WEAPON_TYPES = {
-  fork: { id: "fork", name: "フォーク" },
-  knife: { id: "knife", name: "ナイフ" },
-  dipper: { id: "dipper", name: "ディッパー" },
-  recipeBook: { id: "recipeBook", name: "レシピブック" },
-  straw: { id: "straw", name: "ストロー" },
-  paperPlate: { id: "paperPlate", name: "カミザラ" },
-  timer: { id: "timer", name: "タイマー" },
-  fryingPan: { id: "fryingPan", name: "フライパン" },
-  mixer: { id: "mixer", name: "ミキサー" },
-  jarredBottle: { id: "jarredBottle", name: "ビンヅメ" },
-  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター" },
-  shaker: { id: "shaker", name: "シェイカー" },
-  icePick: { id: "icePick", name: "アイスピック" },
-  slicer: { id: "slicer", name: "スライサー" },
+  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"] },
+  knife: { id: "knife", name: "ナイフ", synergies: ["cut"] },
+  dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"] },
+  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"] },
+  straw: { id: "straw", name: "ストロー", synergies: ["fry"] },
+  paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"] },
+  timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"] },
+  fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"] },
+  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"] },
+  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"] },
+  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"] },
+  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"] },
+  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"] },
+  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"] },
 };
 
 // A weapon's name is "<prefix><weapon type>" (e.g. "質素な" + "フライ
