@@ -9,6 +9,7 @@ import {
   gatherGrowthStatKey,
   mineGrowthStatKey,
   STANDARD_ENVIRONMENT,
+  autoAssignRoles,
 } from "../data/exploration.js";
 import { createExplorationGroups, runExploration } from "../explorationSim.js";
 
@@ -45,6 +46,27 @@ export function ExplorationScene(container, params, api) {
   function toggleRole(character, targetRole) {
     const current = roles.get(character.id) ?? null;
     roles.set(character.id, current === targetRole ? null : targetRole);
+    render();
+  }
+
+  // "自動割り当て": recomputes the whole assignment from scratch across
+  // every eligible character (discarding whatever the player has
+  // toggled manually so far) via autoAssignRoles' exact optimum -- see
+  // that function's own comment for the scoring model. Disabled once
+  // there's clearly nothing left for it to add: either every assignable
+  // slot is already full (6 total, the 3-per-role cap), or every
+  // eligible character already has some role (only reachable at 5 or
+  // fewer eligible characters).
+  function isAutoAssignDisabled() {
+    if (countInRole("gather") + countInRole("mine") >= 6) return true;
+    return eligibleCharacters.every((character) => roles.get(character.id));
+  }
+
+  function autoAssign() {
+    const { gather, mine } = autoAssignRoles(eligibleCharacters);
+    roles.clear();
+    for (const character of gather) roles.set(character.id, "gather");
+    for (const character of mine) roles.set(character.id, "mine");
     render();
   }
 
@@ -156,6 +178,7 @@ export function ExplorationScene(container, params, api) {
       actions: [
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("探索せずに去る", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("自動割り当て", { variant: "ghost", disabled: isAutoAssignDisabled(), onClick: autoAssign }),
         button("探索開始！", { variant: "primary", disabled: totalAssigned === 0, onClick: startExploration }),
       ],
     });

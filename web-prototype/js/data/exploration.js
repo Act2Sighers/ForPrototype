@@ -148,3 +148,108 @@ export function pickMineReward(successCount, environment = STANDARD_ENVIRONMENT)
   const clampedQuality = species.qualityTiers.includes(quality) ? quality : "high";
   return { category: "rigid", speciesId, quality: clampedQuality };
 }
+
+// ---------------------------------------------------------------------
+// 自動割り当て (phase① "自動割り当て" button)
+// ---------------------------------------------------------------------
+
+// All k-sized index subsets of [0, n), as arrays of indices.
+function combinations(n, k) {
+  if (k > n) return [];
+  const results = [];
+  const combo = [];
+  function backtrack(start) {
+    if (combo.length === k) {
+      results.push([...combo]);
+      return;
+    }
+    for (let i = start; i < n; i++) {
+      combo.push(i);
+      backtrack(i + 1);
+      combo.pop();
+    }
+  }
+  backtrack(0);
+  return results;
+}
+
+// Scores one candidate 採集/採掘 group the way it will actually play out
+// in phase②: a group of 2+ always ends up with whichever member has
+// the highest 監督能力 as its supervisor (see explorationSim.js's own
+// pickSupervisor), contributing their 監督能力 instead of their
+// 採集/採掘能力, while every other member contributes their own
+// ability. A solo group just uses that one ability directly. When
+// several members tie for the top 監督能力, the tie is broken toward
+// whichever leaves the higher-scoring remainder -- this is what lets a
+// near-tied-but-not-quite-highest coordinator still "win" the
+// supervisor slot in the overall optimum when doing so frees up a
+// better 採集/採掘能力 elsewhere in the group.
+function scoreGroup(members, abilityKey) {
+  if (members.length === 0) return 0;
+  if (members.length === 1) return members[0][abilityKey];
+  const maxSupervise = Math.max(...members.map((m) => m.supervise));
+  const supervisorCandidates = members.filter((m) => m.supervise === maxSupervise);
+  let best = -Infinity;
+  for (const supervisor of supervisorCandidates) {
+    const rest = members.filter((m) => m !== supervisor);
+    const total = maxSupervise + rest.reduce((sum, m) => sum + m[abilityKey], 0);
+    if (total > best) best = total;
+  }
+  return best;
+}
+
+// Decides the single best way to split `characters` between the 採集
+// and 採掘 groups for the phase① "自動割り当て" button, by exhaustively
+// scoring every valid partition (see scoreGroup above) and keeping the
+// highest-scoring one. FORMATION_LIMIT+STANDBY_LIMIT caps the eligible
+// roster at 12, so even the worst case -- choosing 3 for 採集 and 3 for
+// 採掘 out of 12 -- is only ~18,500 combinations, cheap enough to brute
+// force exactly rather than risk a heuristic missing the true optimum.
+// At full capacity (6 or more characters) both groups are always filled
+// to their 3-person cap, leaving the weakest leftovers unassigned;
+// below that, the two groups are kept as equal in size as possible,
+// trying both orientations when the total is odd (since which group
+// gets the extra seat should follow whichever scores higher, not an
+// arbitrary default) -- this also naturally reduces to "put the lone
+// candidate wherever their better ability lies" at n=1, and to "match
+// the two candidates to whichever group each is individually better at"
+// at n=2, matching those cases' simpler, supervisor-free math exactly.
+export function autoAssignRoles(characters) {
+  const n = characters.length;
+  if (n === 0) return { gather: [], mine: [] };
+
+  const stats = characters.map((character) => ({
+    character,
+    gather: computeGatherAbility(character),
+    mine: computeMineAbility(character),
+    supervise: computeSuperviseAbility(character),
+  }));
+
+  const sizePairs =
+    n >= 6
+      ? [[3, 3]]
+      : (() => {
+          const low = Math.floor(n / 2);
+          const high = n - low;
+          return low === high ? [[low, high]] : [[low, high], [high, low]];
+        })();
+
+  let best = null;
+  for (const [gatherSize, mineSize] of sizePairs) {
+    for (const gatherIdx of combinations(n, gatherSize)) {
+      const gatherSet = new Set(gatherIdx);
+      const remaining = [];
+      for (let i = 0; i < n; i++) if (!gatherSet.has(i)) remaining.push(i);
+      for (const minePick of combinations(remaining.length, mineSize)) {
+        const mineIdx = minePick.map((i) => remaining[i]);
+        const gatherStats = gatherIdx.map((i) => stats[i]);
+        const mineStats = mineIdx.map((i) => stats[i]);
+        const score = scoreGroup(gatherStats, "gather") + scoreGroup(mineStats, "mine");
+        if (!best || score > best.score) {
+          best = { score, gather: gatherStats.map((s) => s.character), mine: mineStats.map((s) => s.character) };
+        }
+      }
+    }
+  }
+  return { gather: best.gather, mine: best.mine };
+}
