@@ -25,6 +25,11 @@ export function TradeScene(container, params, api) {
               text: "雇用所",
               onClick: () => api.callScene("hiring", { mode: "normal", candidates: hiringCandidates }),
             }),
+            h("button", {
+              class: "chip",
+              text: "鍛冶屋",
+              onClick: () => api.callScene("smithy"),
+            }),
           ]),
         ]),
       ],

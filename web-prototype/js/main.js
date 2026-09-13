@@ -15,6 +15,8 @@ import { GalleryScene } from "./scenes/gallery.js";
 import { SquadFormationScene } from "./scenes/squadFormation.js";
 import { WeaponStorageScene } from "./scenes/weaponStorage.js";
 import { ResourceStorageScene } from "./scenes/resourceStorage.js";
+import { SmithyScene } from "./scenes/smithy.js";
+import { WeaponForgeScene } from "./scenes/weaponForge.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { ResultScene } from "./scenes/result.js";
 
@@ -34,6 +36,8 @@ const registry = {
   squadFormation: SquadFormationScene,
   weaponStorage: WeaponStorageScene,
   resourceStorage: ResourceStorageScene,
+  smithy: SmithyScene,
+  weaponForge: WeaponForgeScene,
   hiring: HiringScene,
   result: ResultScene,
 };

@@ -386,6 +386,40 @@ body {
   overflow: hidden;
 }
 
+/* 武器製造画面's "原料１×原料２＝製造結果" layout. Wraps to a single
+   column on a narrow screen instead of squeezing 3 boxes + 2 operators
+   into one row. */
+.forge-formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.forge-box {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.forge-box--clickable {
+  cursor: pointer;
+}
+
+.forge-box--clickable:hover {
+  border-color: var(--frost);
+}
+
+.forge-box--disabled {
+  opacity: 0.4;
+}
+
+.forge-formula__operator {
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: var(--ink-faint);
+  flex: 0 0 auto;
+}
+
 .field-group {
   display: flex;
   flex-direction: column;

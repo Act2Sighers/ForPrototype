@@ -8,6 +8,8 @@ import {
   createEmptyResources,
   computeTradeValue,
   createAmberSugarMineralInstance,
+  RIGID_RESOURCES,
+  craftWeapon,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -201,6 +203,57 @@ export function equipStoredWeapon(character, weaponId) {
   const oldWeapon = character.weapon;
   character.weapon = newWeapon;
   if (oldWeapon) state.storedWeapons.push(oldWeapon);
+}
+
+const BASE_CREAM_COST_PER_CRAFT = 5;
+
+// Deducts a フレーム/モジュール reservation (see
+// data/resourceCatalog.js's pickLowestQualityFrame/pickBestModuleUnit/
+// pickAmberModuleInstance for how these shapes are built) from the
+// player's real holdings. Both take the same {speciesId, ...} shape;
+// only consumeRigidFrame additionally needs a `quantity`-shaped
+// breakdown (tierBreakdown/instanceIds/flatQuantity) since a フレーム
+// can span several units, while a モジュール pick is always exactly
+// one unit (see craftAndStoreWeapon below, which calls this with a
+// synthetic single-unit reservation).
+function consumeRigidReservation(reservation) {
+  const { speciesId } = reservation;
+  const species = RIGID_RESOURCES[speciesId];
+  if (species.variableStats) {
+    const excluded = new Set(reservation.instanceIds);
+    state.run.resources.rigid[speciesId] = state.run.resources.rigid[speciesId].filter(
+      (instance) => !excluded.has(instance.id)
+    );
+  } else if (species.qualityTiers) {
+    for (const [tier, qty] of Object.entries(reservation.tierBreakdown)) {
+      state.run.resources.rigid[speciesId][tier] -= qty;
+    }
+  } else {
+    state.run.resources.rigid[speciesId] -= reservation.flatQuantity;
+  }
+}
+
+// 鍛冶画面's 武器製造完了 step: pays the フレーム reservation (from
+// pickLowestQualityFrame, computed once when 武器製造画面 mounted), the
+// one モジュール unit (from pickBestModuleUnit/pickAmberModuleInstance),
+// and ベースクリーム×5, then crafts the weapon with the モジュール's
+// exact stats and drops it into 武器置き場 (storedWeapons) -- exactly
+// where an unequipped weapon already belongs, so "すぐに装備させる"
+// afterward is just the ordinary squadFormation "swap" mode reused
+// as-is. Returns the new weapon.
+export function craftAndStoreWeapon(weaponTypeId, frameReservation, modulePick) {
+  consumeRigidReservation(frameReservation);
+  consumeRigidReservation(
+    modulePick.tier
+      ? { speciesId: modulePick.speciesId, tierBreakdown: { [modulePick.tier]: 1 } }
+      : modulePick.instanceId
+      ? { speciesId: modulePick.speciesId, instanceIds: [modulePick.instanceId] }
+      : { speciesId: modulePick.speciesId, flatQuantity: 1 }
+  );
+  state.run.resources.natural.baseCream -= BASE_CREAM_COST_PER_CRAFT;
+  const weapon = craftWeapon(weaponTypeId, modulePick.stats);
+  state.storedWeapons.push(weapon);
+  return weapon;
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run

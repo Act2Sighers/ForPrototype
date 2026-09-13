@@ -106,7 +106,12 @@ export function SquadFormationScene(container, params, api) {
 
   function confirmEquip(character) {
     equipStoredWeapon(character, swapWeapon.id);
-    api.closeScene();
+    // {swapped: true} lets a caller that cares (weaponForge.js's own
+    // "すぐに装備させる", which should cascade-close back to 鍛冶画面
+    // once the swap actually happens) tell that apart from a plain
+    // キャンセル -- weaponStorage.js's own caller of this mode ignores
+    // the result either way and just re-renders.
+    api.closeScene({ swapped: true });
   }
 
   function cancelEquip() {

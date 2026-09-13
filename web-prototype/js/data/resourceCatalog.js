@@ -19,13 +19,16 @@
 // compatibility/flavor concept for now; once battle exists, each
 // シナジー is meant to also gate which special attacks/actions a
 // character can perform.
+// `style` is the full descriptive flavor text; `shortStyle` is the
+// terser parenthetical form 鍛冶画面 lists each シナジー under (e.g.
+// "カット（近接・軽撃）").
 export const SYNERGIES = {
-  cut: { id: "cut", name: "カット", style: "近接×軽撃/速度重視" },
-  grill: { id: "grill", name: "グリル", style: "近接×重撃/威力重視" },
-  fry: { id: "fry", name: "フライ", style: "遠距離×射撃攻撃" },
-  hole: { id: "hole", name: "ホール", style: "遠距離×魔法攻撃" },
-  kaikei: { id: "kaikei", name: "カイケイ", style: "サポート×戦術指揮" },
-  araimono: { id: "araimono", name: "アライモノ", style: "サポート×防衛/回復" },
+  cut: { id: "cut", name: "カット", style: "近接×軽撃/速度重視", shortStyle: "近接・軽撃" },
+  grill: { id: "grill", name: "グリル", style: "近接×重撃/威力重視", shortStyle: "近接・重撃" },
+  fry: { id: "fry", name: "フライ", style: "遠距離×射撃攻撃", shortStyle: "遠距離・射撃" },
+  hole: { id: "hole", name: "ホール", style: "遠距離×魔法攻撃", shortStyle: "遠距離・魔法" },
+  kaikei: { id: "kaikei", name: "カイケイ", style: "サポート×戦術指揮", shortStyle: "支援・戦術" },
+  araimono: { id: "araimono", name: "アライモノ", style: "サポート×防衛/回復", shortStyle: "支援・防護" },
 };
 
 // Whether `character` and `weapon` share at least one シナジー, i.e.
@@ -209,21 +212,27 @@ export function applyHpDamage(character, amount) {
 // below; that's fine since it's only read when forgeWeapon actually
 // runs, well after the whole module has finished loading.
 
+// `frame` names the 剛体資源 species + quantity 鍛冶画面's 武器製造
+// consumes as that weapon's フレーム (its quantity always matches the
+// weapon's own synergies.length -- see data/resourceCatalog.js's
+// pickLowestQualityFrame). The frame's own quality/stats are never
+// looked at; only the module (freely chosen at forge time) determines
+// the crafted weapon's stats -- see craftWeapon.
 export const WEAPON_TYPES = {
-  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"] },
-  knife: { id: "knife", name: "ナイフ", synergies: ["cut"] },
-  dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"] },
-  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"] },
-  straw: { id: "straw", name: "ストロー", synergies: ["fry"] },
-  paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"] },
-  timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"] },
-  fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"] },
-  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"] },
-  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"] },
-  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"] },
-  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"] },
-  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"] },
-  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"] },
+  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 } },
+  knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 } },
+  dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"], frame: { speciesId: "honeyCrystalOre", quantity: 1 } },
+  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 } },
+  straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 } },
+  paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"], frame: { speciesId: "driedFructoseRock", quantity: 2 } },
+  timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"], frame: { speciesId: "sugarCaneFiber", quantity: 2 } },
+  fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"], frame: { speciesId: "cacaoLayeredRock", quantity: 2 } },
+  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 } },
+  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 } },
+  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 } },
+  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 } },
+  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 } },
+  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 } },
 };
 
 // A weapon's name is "<prefix><weapon type>" (e.g. "質素な" + "フライ
@@ -718,6 +727,145 @@ function groupAmberInstances(instances) {
     byModel.set(instance.modelNumber, entry);
   }
   return [...byModel.values()].sort((a, b) => b.sum - a.sum);
+}
+
+function amberStatSum(stats) {
+  return STAT_KEYS.reduce((total, key) => total + stats[key], 0);
+}
+
+// ---------------------------------------------------------------------
+// 鍛冶画面 (武器製造): フレーム/モジュール selection.
+// ---------------------------------------------------------------------
+// Every function here is pure (takes `resources` explicitly, same
+// convention as describeResources/describeResourcesIndividually) --
+// the actual mutation of the player's real holdings only happens at
+// 製造完了 time, via state.js's consumeRigidFrame/consumeModulePick.
+
+// Total held of a rigid species regardless of its shape (flat number,
+// {tier: count} bucket, or an array of 琥珀糖鉱石 instances).
+function sumRigidHeld(resources, speciesId) {
+  const species = RIGID_RESOURCES[speciesId];
+  const value = resources.rigid[speciesId];
+  if (species.variableStats) return value.length;
+  if (!species.qualityTiers) return value;
+  return sumTiers(value);
+}
+
+// Whether the player holds enough of a weapon type's フレーム species,
+// in aggregate across every quality/instance -- this is the sole gate
+// on 鍛冶画面's per-weapon buttons (ベースクリーム isn't checked here;
+// that's 武器製造画面's own "製造開始！" gate instead).
+export function hasEnoughFrame(resources, weaponTypeId) {
+  const { speciesId, quantity } = WEAPON_TYPES[weaponTypeId].frame;
+  return sumRigidHeld(resources, speciesId) >= quantity;
+}
+
+// Picks `quantity` units of `speciesId` preferring the lowest quality
+// first, without mutating `resources`. Only ever called once, when
+// 武器製造画面 mounts (see that screen -- the frame selection is never
+// recomputed afterward), and only for a weapon type 鍛冶画面 already
+// gated on hasEnoughFrame, so `quantity` is always satisfiable. Returns
+// a breakdown shape state.js's consumeRigidFrame can apply directly at
+// 製造完了 time: {speciesId, tierBreakdown} for a quality-tiered
+// species, {speciesId, instanceIds} for 琥珀糖鉱石, or {speciesId,
+// flatQuantity} for a flat species (only ザラメ鉱石, never actually
+// used as a frame today, but handled for completeness).
+export function pickLowestQualityFrame(resources, speciesId, quantity) {
+  const species = RIGID_RESOURCES[speciesId];
+  const value = resources.rigid[speciesId];
+  if (species.variableStats) {
+    const sorted = [...value].sort((a, b) => amberStatSum(a.stats) - amberStatSum(b.stats));
+    return { speciesId, instanceIds: sorted.slice(0, quantity).map((instance) => instance.id) };
+  }
+  if (!species.qualityTiers) {
+    return { speciesId, flatQuantity: Math.min(value, quantity) };
+  }
+  const tierBreakdown = {};
+  let remaining = quantity;
+  for (const tier of species.qualityTiers) {
+    if (remaining <= 0) break;
+    const take = Math.min(value[tier], remaining);
+    if (take > 0) tierBreakdown[tier] = take;
+    remaining -= take;
+  }
+  return { speciesId, tierBreakdown };
+}
+
+// A view of `resources` with a pending フレーム reservation already
+// subtracted out, so 資源置き場画面's モジュール選択モード can't offer
+// (and thus double-book) the exact units already earmarked as フレーム
+// for the weapon currently being forged. Everything but the reserved
+// species' own bucket is shared by reference (safe: nothing here
+// mutates its input).
+export function resourcesMinusFrameReservation(resources, frameReservation) {
+  if (!frameReservation) return resources;
+  const { speciesId } = frameReservation;
+  const species = RIGID_RESOURCES[speciesId];
+  const rigid = { ...resources.rigid };
+  if (species.variableStats) {
+    const excluded = new Set(frameReservation.instanceIds);
+    rigid[speciesId] = resources.rigid[speciesId].filter((instance) => !excluded.has(instance.id));
+  } else if (species.qualityTiers) {
+    const bucket = { ...resources.rigid[speciesId] };
+    for (const [tier, qty] of Object.entries(frameReservation.tierBreakdown)) {
+      bucket[tier] = Math.max(0, bucket[tier] - qty);
+    }
+    rigid[speciesId] = bucket;
+  } else {
+    rigid[speciesId] = Math.max(0, resources.rigid[speciesId] - frameReservation.flatQuantity);
+  }
+  return { natural: resources.natural, rigid };
+}
+
+// Every 琥珀糖鉱石 型番 group currently tied for the highest quality
+// (see groupAmberInstances -- normally just one, but a genuine tie
+// means 資源置き場画面's モジュール選択モード must let the player pick
+// which 型番 rather than grabbing one arbitrarily).
+export function amberTopGroups(instances) {
+  const groups = groupAmberInstances(instances);
+  if (!groups.length) return [];
+  const topSum = groups[0].sum;
+  return groups.filter((group) => group.sum === topSum);
+}
+
+// The single highest-quality unit of a NON-琥珀糖鉱石 rigid species
+// (資源置き場画面's モジュール選択モード calls amberTopGroups instead
+// for 琥珀糖鉱石, since a tie there needs the player's own choice).
+// Returns null if none are held. `stats` is exactly what the crafted
+// weapon will receive (see craftWeapon) -- the whole reason a module
+// pick carries its resolved stats up front rather than just an id.
+export function pickBestModuleUnit(resources, speciesId) {
+  const species = RIGID_RESOURCES[speciesId];
+  const value = resources.rigid[speciesId];
+  if (!species.qualityTiers) {
+    return value > 0 ? { speciesId, stats: species.stats, displayName: species.name } : null;
+  }
+  const top = topNonZeroTier(value, species.qualityTiers);
+  if (!top) return null;
+  return { speciesId, tier: top.tier, stats: species.statsByTier[top.tier], displayName: rigidResourceTierName(speciesId, top.tier) };
+}
+
+// Builds a module pick descriptor for one specific 琥珀糖鉱石 instance
+// (the player's choice among amberTopGroups' tied 型番 candidates, or
+// the sole top group when there's no tie).
+export function pickAmberModuleInstance(resources, instanceId) {
+  const instance = resources.rigid.amberSugarMineral.find((i) => i.id === instanceId);
+  if (!instance) return null;
+  return { speciesId: "amberSugarMineral", instanceId: instance.id, stats: instance.stats, displayName: instance.name };
+}
+
+// Creates a weapon with exactly the given stats -- unlike forgeWeapon
+// (which looks up a fixed "mid" tier or freshly rolls 琥珀糖鉱石 stats,
+// for the unrelated 初期雇用 flow), 鍛冶画面's 武器製造 hands the
+// weapon whatever stats the player's chosen module resource actually
+// has, per the user's own spec ("フレーム側の品質や性能値は一切見ま
+// せん").
+export function craftWeapon(weaponTypeId, moduleStats) {
+  return createWeapon({
+    id: `weapon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    baseTypeId: weaponTypeId,
+    stats: moduleStats,
+  });
 }
 
 // These species stay in the 短縮表示 (HUD) even at zero count, so the
