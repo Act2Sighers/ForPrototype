@@ -1,11 +1,7 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
+import { resourceIndividualNodes } from "../resourceDisplay.js";
 import state, { grantResource, grantTieredResource } from "../state.js";
-import {
-  CHARACTER_STAT_LABELS,
-  CHARACTER_STAT_FULL_LABELS,
-  describeResourcesIndividually,
-  growCharacterStat,
-} from "../data/resourceCatalog.js";
+import { CHARACTER_STAT_LABELS, CHARACTER_STAT_FULL_LABELS, growCharacterStat } from "../data/resourceCatalog.js";
 import {
   computeGatherAbility,
   computeMineAbility,
@@ -85,9 +81,8 @@ export function ExplorationScene(container, params, api) {
         growthEntries.push({ character, statKey: "coordination", before, after });
       }
     }
-    const haulLines = describeResourcesIndividually(haul);
     commitHaul(haul);
-    return { haulLines, growthEntries };
+    return { haul, growthEntries };
   }
 
   function commitHaul(haul) {
@@ -121,12 +116,12 @@ export function ExplorationScene(container, params, api) {
         ]),
         h("div", { class: "slot__actions" }, [
           button("採集", {
-            variant: role === "gather" ? "primary" : "ghost",
+            variant: role === "gather" ? "gather" : "ghost",
             disabled: gatherDisabled,
             onClick: () => toggleRole(character, "gather"),
           }),
           button("採掘", {
-            variant: role === "mine" ? "primary" : "ghost",
+            variant: role === "mine" ? "mine" : "ghost",
             disabled: mineDisabled,
             onClick: () => toggleRole(character, "mine"),
           }),
@@ -206,12 +201,13 @@ export function ExplorationScene(container, params, api) {
   }
 
   function renderResult() {
-    const { haulLines, growthEntries } = resultData;
+    const { haul, growthEntries } = resultData;
+    const haulNodes = resourceIndividualNodes(haul);
     const body = [
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "探索結果" }),
-        haulLines.length
-          ? h("div", { class: "resource-list" }, haulLines.map((line) => h("p", { class: "resource-line", text: line })))
+        haulNodes.length
+          ? h("div", { class: "resource-list" }, haulNodes)
           : h("p", { class: "lead", text: "資源は得られませんでした。" }),
       ]),
     ];

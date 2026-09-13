@@ -444,6 +444,11 @@ export function rigidResourceTierName(speciesId, tier) {
 // `variableStats` instead of statsByTier: see rollAmberSugarMineralStats
 // below for why it can't work that way. Each statsByTier's "mid" entry
 // is this species' original (pre-quality-system) fixed stats.
+// Key order below matches the required display order for both display
+// modes (短縮表示/個別表示), which groups each rigid resource with the
+// natural resource sharing its color (see RESOURCE_COLOR_CLASS) --
+// ザラメ, アメダマ螺旋鉱, カカオ堆積岩, ソルベ永久氷柱, ヒボシ果糖岩,
+// ハチミツ結晶鉱, 琥珀糖鉱石, 甘蔗繊維質, 高純度糖鉱.
 export const RIGID_RESOURCES = {
   coarseSugarMineral: {
     id: "coarseSugarMineral",
@@ -451,11 +456,16 @@ export const RIGID_RESOURCES = {
     abbr: "ザラメ",
     stats: { sweetness: 1, hardness: 1, poisonResist: 1, stability: 1, flexibility: 1 },
   },
-  amberSugarMineral: {
-    id: "amberSugarMineral",
-    name: "琥珀糖鉱石",
-    abbr: "琥珀",
-    variableStats: true,
+  dropSpiralOre: {
+    id: "dropSpiralOre",
+    name: "アメダマ螺旋鉱",
+    abbr: "ア螺",
+    qualityTiers: RIGID_QUALITY_TIERS_3,
+    statsByTier: {
+      low: { sweetness: 2, hardness: 1, poisonResist: 1, stability: 0, flexibility: 1 },
+      mid: { sweetness: 3, hardness: 2, poisonResist: 2, stability: 1, flexibility: 2 },
+      high: { sweetness: 4, hardness: 3, poisonResist: 3, stability: 2, flexibility: 3 },
+    },
   },
   cacaoLayeredRock: {
     id: "cacaoLayeredRock",
@@ -466,6 +476,17 @@ export const RIGID_RESOURCES = {
       low: { sweetness: 1, hardness: 2, poisonResist: 0, stability: 1, flexibility: 1 },
       mid: { sweetness: 2, hardness: 3, poisonResist: 1, stability: 2, flexibility: 2 },
       high: { sweetness: 3, hardness: 4, poisonResist: 2, stability: 3, flexibility: 3 },
+    },
+  },
+  sorbetEternalIce: {
+    id: "sorbetEternalIce",
+    name: "ソルベ永久氷柱",
+    abbr: "ソ永",
+    qualityTiers: RIGID_QUALITY_TIERS_3,
+    statsByTier: {
+      low: { sweetness: 1, hardness: 1, poisonResist: 2, stability: 1, flexibility: 0 },
+      mid: { sweetness: 2, hardness: 2, poisonResist: 3, stability: 2, flexibility: 1 },
+      high: { sweetness: 3, hardness: 3, poisonResist: 4, stability: 3, flexibility: 2 },
     },
   },
   driedFructoseRock: {
@@ -490,27 +511,11 @@ export const RIGID_RESOURCES = {
       high: { sweetness: 2, hardness: 3, poisonResist: 3, stability: 3, flexibility: 4 },
     },
   },
-  dropSpiralOre: {
-    id: "dropSpiralOre",
-    name: "アメダマ螺旋鉱",
-    abbr: "ア螺",
-    qualityTiers: RIGID_QUALITY_TIERS_3,
-    statsByTier: {
-      low: { sweetness: 2, hardness: 1, poisonResist: 1, stability: 0, flexibility: 1 },
-      mid: { sweetness: 3, hardness: 2, poisonResist: 2, stability: 1, flexibility: 2 },
-      high: { sweetness: 4, hardness: 3, poisonResist: 3, stability: 2, flexibility: 3 },
-    },
-  },
-  sorbetEternalIce: {
-    id: "sorbetEternalIce",
-    name: "ソルベ永久氷柱",
-    abbr: "ソ永",
-    qualityTiers: RIGID_QUALITY_TIERS_3,
-    statsByTier: {
-      low: { sweetness: 1, hardness: 1, poisonResist: 2, stability: 1, flexibility: 0 },
-      mid: { sweetness: 2, hardness: 2, poisonResist: 3, stability: 2, flexibility: 1 },
-      high: { sweetness: 3, hardness: 3, poisonResist: 4, stability: 3, flexibility: 2 },
-    },
+  amberSugarMineral: {
+    id: "amberSugarMineral",
+    name: "琥珀糖鉱石",
+    abbr: "琥珀",
+    variableStats: true,
   },
   sugarCaneFiber: {
     id: "sugarCaneFiber",
@@ -536,6 +541,29 @@ export const RIGID_RESOURCES = {
       highest: { sweetness: 4, hardness: 4, poisonResist: 4, stability: 4, flexibility: 4 },
     },
   },
+};
+
+// Lets a player see at a glance how many of the materials for a given
+// 能力値-flavored weapon upgrade they're holding: each rigid resource
+// shares a color with the one natural resource "on the same theme",
+// reusing the exact 能力値/性能値 hues from theme.css. 琥珀糖鉱石 and
+// 甘蔗繊維質 don't fit that pairing (their random/uniquely-flexible
+// stats don't line up with a single theme) and stay uncolored;
+// 高純度糖鉱 gets its own distinct color instead, to flag its rarity.
+export const RESOURCE_COLOR_CLASS = {
+  coarseSugarMineral: "stat-hp",
+  baseCream: "stat-hp",
+  dropSpiralOre: "stat-attack",
+  squeezedFructoseLiquid: "stat-attack",
+  cacaoLayeredRock: "stat-defense",
+  gummyElasticMaterial: "stat-defense",
+  sorbetEternalIce: "stat-destruction",
+  waferMembraneObject: "stat-destruction",
+  driedFructoseRock: "stat-wisdom",
+  sableSoftGravel: "stat-wisdom",
+  honeyCrystalOre: "stat-coordination",
+  electroMagneticGelatin: "stat-coordination",
+  highPuritySugar: "resource-premium",
 };
 
 // 琥珀糖鉱石 rolls fresh performance stats every time one turns up; the 5
@@ -644,92 +672,78 @@ function groupAmberInstances(instances) {
   return [...byModel.values()].sort((a, b) => b.sum - a.sum);
 }
 
-// 短縮表示 (used by the resource HUD corner on every screen but 部隊編成
-//画面): one line per held species, skipping anything not held at all.
-// A species with no quality variance (ベースクリーム/ザラメ鉱石) is just
+// 短縮表示 (resource HUD, every screen but 部隊編成画面/探索結果):
+// one entry per held species, skipping anything not held at all. A
+// species with no quality variance (ベースクリーム/ザラメ鉱石) is just
 // "abbr×qty"; every other species is "abbr×total(topTierQty)", read as
 // "qty total, of which the single best quality tier held accounts for
 // topTierQty" (see the user's own worked example for シボリ果糖液).
 // 琥珀糖鉱石 treats the 型番 group with the highest total stat points as
-// "the best quality tier" for that same parenthetical.
+// "the best quality tier" for that same parenthetical. Returns
+// {natural, rigid} (rigid shown above natural in the HUD) so the
+// caller can render them as two separate lines; each entry carries its
+// `speciesId` for RESOURCE_COLOR_CLASS lookups.
 export function describeResources(resources) {
-  if (!resources) return [];
-  const list = [];
+  if (!resources) return { natural: [], rigid: [] };
 
-  for (const [key, species] of Object.entries(NATURAL_RESOURCES)) {
-    const value = resources.natural[key];
-    if (!species.qualityTiers) {
-      if (value > 0) list.push({ id: key, text: `${species.abbr}×${value}` });
-      continue;
-    }
-    const total = sumTiers(value);
-    if (total === 0) continue;
-    const top = topNonZeroTier(value, species.qualityTiers);
-    list.push({ id: key, text: `${species.abbr}×${total}(${top.qty})` });
-  }
-
-  for (const [key, species] of Object.entries(RIGID_RESOURCES)) {
-    const value = resources.rigid[key];
+  function describeOne(key, species, value) {
     if (species.variableStats) {
-      if (!value.length) continue;
+      if (!value.length) return null;
       const best = groupAmberInstances(value)[0];
-      list.push({ id: key, text: `${species.abbr}×${value.length}(${best.qty})` });
-      continue;
+      return { speciesId: key, text: `${species.abbr}×${value.length}(${best.qty})` };
     }
     if (!species.qualityTiers) {
-      if (value > 0) list.push({ id: key, text: `${species.abbr}×${value}` });
-      continue;
+      return value > 0 ? { speciesId: key, text: `${species.abbr}×${value}` } : null;
     }
     const total = sumTiers(value);
-    if (total === 0) continue;
+    if (total === 0) return null;
     const top = topNonZeroTier(value, species.qualityTiers);
-    list.push({ id: key, text: `${species.abbr}×${total}(${top.qty})` });
+    return { speciesId: key, text: `${species.abbr}×${total}(${top.qty})` };
   }
 
-  return list;
+  const natural = Object.entries(NATURAL_RESOURCES)
+    .map(([key, species]) => describeOne(key, species, resources.natural[key]))
+    .filter(Boolean);
+  const rigid = Object.entries(RIGID_RESOURCES)
+    .map(([key, species]) => describeOne(key, species, resources.rigid[key]))
+    .filter(Boolean);
+  return { natural, rigid };
 }
 
-// 個別表示 (部隊編成画面のみ): every held quality/型番 counted and shown
-// separately, one line per species — a species with nothing held at all
-// is omitted entirely, as is any zero-count tier within a shown line.
-// Returns plain formatted strings; squadFormation.js turns each into a
-// <p>.
+// 個別表示 (部隊編成画面、探索結果画面): every held quality/型番 counted
+// and shown separately -- a species with nothing held at all is
+// omitted entirely, as is any zero-count tier within a shown entry.
+// Returns {natural, rigid} (natural section shown above rigid here --
+// the opposite order from describeResources' HUD, per spec). Each
+// entry is {speciesId, label, detail} rather than one flat string, so
+// the caller can color just the label portion (see
+// resourceDisplay.js's use of RESOURCE_COLOR_CLASS).
 export function describeResourcesIndividually(resources) {
-  if (!resources) return [];
-  const lines = [];
+  if (!resources) return { natural: [], rigid: [] };
 
-  function tieredLine(species, value, labels) {
-    const total = sumTiers(value);
-    if (total === 0) return;
-    const parts = species.qualityTiers.filter((tier) => value[tier] > 0).map((tier) => `${labels[tier]}: ${value[tier]}個`);
-    lines.push(`［${species.name}(${species.abbr})］計${total}個［${parts.join(" / ")}］`);
-  }
-
-  for (const [key, species] of Object.entries(NATURAL_RESOURCES)) {
-    const value = resources.natural[key];
-    if (!species.qualityTiers) {
-      if (value > 0) lines.push(`［${species.name}(${species.abbr})］${value}個`);
-      continue;
+  function describeOne(key, species, value, tierLabels) {
+    const label = `［${species.name}(${species.abbr})］`;
+    if (!species.variableStats && !species.qualityTiers) {
+      return value > 0 ? { speciesId: key, label, detail: `${value}個` } : null;
     }
-    tieredLine(species, value, NATURAL_QUALITY_LABELS);
-  }
-
-  for (const [key, species] of Object.entries(RIGID_RESOURCES)) {
-    const value = resources.rigid[key];
     if (species.variableStats) {
-      if (!value.length) continue;
+      if (!value.length) return null;
       const parts = groupAmberInstances(value).map((group) => `${group.modelNumber}: ${group.qty}個`);
-      lines.push(`［${species.name}(${species.abbr})］計${value.length}個［${parts.join(" / ")}］`);
-      continue;
+      return { speciesId: key, label, detail: `計${value.length}個［${parts.join(" / ")}］` };
     }
-    if (!species.qualityTiers) {
-      if (value > 0) lines.push(`［${species.name}(${species.abbr})］${value}個`);
-      continue;
-    }
-    tieredLine(species, value, RIGID_QUALITY_LABELS);
+    const total = sumTiers(value);
+    if (total === 0) return null;
+    const parts = species.qualityTiers.filter((tier) => value[tier] > 0).map((tier) => `${tierLabels[tier]}: ${value[tier]}個`);
+    return { speciesId: key, label, detail: `計${total}個［${parts.join(" / ")}］` };
   }
 
-  return lines;
+  const natural = Object.entries(NATURAL_RESOURCES)
+    .map(([key, species]) => describeOne(key, species, resources.natural[key], NATURAL_QUALITY_LABELS))
+    .filter(Boolean);
+  const rigid = Object.entries(RIGID_RESOURCES)
+    .map(([key, species]) => describeOne(key, species, resources.rigid[key], RIGID_QUALITY_LABELS))
+    .filter(Boolean);
+  return { natural, rigid };
 }
 
 // ---------------------------------------------------------------------

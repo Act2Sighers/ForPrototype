@@ -107,7 +107,16 @@ export function EpisodeScene(container, params, api) {
   function goto(beatId) {
     const beat = resolveBeat(script.beats[beatId]);
     if (beat.type === "end") {
-      effectDescriptions = (beat.effects ?? []).map((effect) => applyEffect(effect, context)).filter(Boolean);
+      const descriptions = (beat.effects ?? []).map((effect) => applyEffect(effect, context)).filter(Boolean);
+      if (descriptions.length === 0) {
+        // Nothing to show (e.g. the エンディング script, which has no
+        // effects since the run is already over) -- close right away
+        // instead of making the player click a second time just to
+        // dismiss an empty effect area.
+        api.closeScene();
+        return;
+      }
+      effectDescriptions = descriptions;
       render();
       return;
     }

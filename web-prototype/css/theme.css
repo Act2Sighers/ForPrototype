@@ -218,17 +218,17 @@ body {
 
 .hud-corner {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
 }
 
-.hud-tag {
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-line-strong);
-  background: var(--panel-raised);
-  white-space: nowrap;
+.hud-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-align: left;
 }
 
 .screen-title {
@@ -341,6 +341,28 @@ body {
 
 .btn--frost:hover:not(:disabled) {
   background: rgba(111, 168, 160, 0.12);
+}
+
+/* 探索イベントの割り当て画面: 採集/採掘担当ボタンが、その能力値と同じ
+   色でハイライトされる (see .ability-gather/.ability-mine). */
+.btn--gather {
+  background: var(--ability-gather);
+  border-color: var(--ability-gather);
+  color: var(--ember-ink);
+}
+
+.btn--gather:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.btn--mine {
+  background: var(--ability-mine);
+  border-color: var(--ability-mine);
+  color: var(--ember-ink);
+}
+
+.btn--mine:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
 .btn--block {
@@ -644,6 +666,10 @@ body {
 .ability-gather { color: var(--ability-gather); }
 .ability-mine { color: var(--ability-mine); }
 .ability-supervise { color: var(--ability-supervise); }
+
+/* 高純度糖鉱専用: 他の資源と組にならない稀少資源であることを強調する
+   白系の色 (資源名の色分けで使う唯一の新色 -- see RESOURCE_COLOR_CLASS). */
+.resource-premium { color: var(--ink); font-weight: 600; }
 
 /* Generic plus/minus coloring (episode effects, dice-judgement results)
    -- used only when the affected quantity has no dedicated stat color

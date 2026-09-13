@@ -10,9 +10,17 @@ export function computeGatherAbility(character) {
   return Math.max(s.defense, s.wisdom);
 }
 
+// トウド(攻撃力)'s base value sits 2 higher than シゲキ(破壊力)'s (see
+// CHARACTER_BASE), which without correction made 採掘能力 favor トウド
+// almost every time. Subtracting that gap back out here levels the two
+// stats; whenever トウド is the one actually used, the ability value
+// (and only the ability value -- growth still targets raw attack, see
+// mineGrowthStatKey) is this reduced figure too.
+const MINE_ATTACK_ADJUSTMENT = 2;
+
 export function computeMineAbility(character) {
   const s = computeStats(character);
-  return Math.max(s.attack, s.destruction);
+  return Math.max(s.attack - MINE_ATTACK_ADJUSTMENT, s.destruction);
 }
 
 export function computeSuperviseAbility(character) {
@@ -31,8 +39,9 @@ export function gatherGrowthStatKey(character) {
 
 export function mineGrowthStatKey(character) {
   const s = computeStats(character);
-  if (s.attack === s.destruction) return Math.random() < 0.5 ? "attack" : "destruction";
-  return s.attack > s.destruction ? "attack" : "destruction";
+  const adjustedAttack = s.attack - MINE_ATTACK_ADJUSTMENT;
+  if (adjustedAttack === s.destruction) return Math.random() < 0.5 ? "attack" : "destruction";
+  return adjustedAttack > s.destruction ? "attack" : "destruction";
 }
 
 // Quality-band tables: ordered worst-to-best, one entry per band, each
