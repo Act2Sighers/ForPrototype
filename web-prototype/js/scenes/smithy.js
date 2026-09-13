@@ -54,7 +54,10 @@ export function SmithyScene(container, params, api) {
       title: "鍛冶",
       subtitle: "製造したい武器種を選んでください。",
       body: [h("div", { class: "slot-list slot-list--grid" }, Object.keys(SYNERGIES).map(synergyRow))],
-      actions: [button("店を出る", { variant: "ghost", onClick: () => api.closeScene() })],
+      actions: [
+        button("店を出る", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("強化", { onClick: () => api.callScene("weaponEnhance") }),
+      ],
     });
   }
 

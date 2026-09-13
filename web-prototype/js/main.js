@@ -17,6 +17,7 @@ import { WeaponStorageScene } from "./scenes/weaponStorage.js";
 import { ResourceStorageScene } from "./scenes/resourceStorage.js";
 import { SmithyScene } from "./scenes/smithy.js";
 import { WeaponForgeScene } from "./scenes/weaponForge.js";
+import { WeaponEnhanceScene } from "./scenes/weaponEnhance.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { ResultScene } from "./scenes/result.js";
 
@@ -38,6 +39,7 @@ const registry = {
   resourceStorage: ResourceStorageScene,
   smithy: SmithyScene,
   weaponForge: WeaponForgeScene,
+  weaponEnhance: WeaponEnhanceScene,
   hiring: HiringScene,
   result: ResultScene,
 };

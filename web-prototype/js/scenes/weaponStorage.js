@@ -6,7 +6,24 @@ function weaponSynergyNames(weapon) {
   return WEAPON_TYPES[weapon.baseTypeId].synergies.map((id) => SYNERGIES[id].name).join(" / ");
 }
 
-// 武器置き場画面. Two modes:
+// 隊員名は「ファーストネーム・ラストネーム」形式 (見た目上「・」区切り)
+// なので、その前半だけを取り出す。
+function firstName(fullName) {
+  return fullName.split("・")[0];
+}
+
+// Every weapon the player owns, stored or currently equipped -- unlike
+// "normal" mode (未装備武器 only), 強化選択 needs the whole armory since
+// any owned weapon can be enhanced regardless of who's holding it.
+function allOwnedWeaponEntries() {
+  const entries = state.storedWeapons.map((weapon) => ({ weapon, ownerName: null }));
+  for (const character of [...state.formationSlots, ...state.standbySlots]) {
+    if (character.weapon) entries.push({ weapon: character.weapon, ownerName: character.name });
+  }
+  return entries;
+}
+
+// 武器置き場画面. Three modes:
 //  - "normal" (default): every 未装備武器 (state.storedWeapons), with a
 //    詳細表示 toggle (性能値+武器評価+シナジー) per weapon. Callable
 //    directly from map.js/trade.js, or reached via a sibling-swap from
@@ -21,8 +38,15 @@ function weaponSynergyNames(weapon) {
 //    resourceCatalog.js's canEquip); 選択→confirm equips it (their
 //    previous weapon, if any, comes back here) and returns to
 //    squadFormation.
+//  - "enhance" (強化選択): called from weaponEnhance.js when the player
+//    clicks its 武器 box. Shows every weapon the player owns --
+//    未装備武器 AND whatever's currently equipped, each labeled
+//    "（<ファーストネーム>が装備）" when it belongs to someone -- since
+//    enhancement doesn't care who's holding the weapon. "選択" returns
+//    the weapon straight to weaponEnhance.js; "強化画面に戻る" returns
+//    without picking.
 export function WeaponStorageScene(container, params, api) {
-  const mode = params.mode === "swap" ? "swap" : "normal";
+  const mode = params.mode === "swap" ? "swap" : params.mode === "enhance" ? "enhance" : "normal";
   const swapCharacter = mode === "swap" ? params.character : null;
 
   const expandedIds = new Set();
@@ -104,9 +128,36 @@ export function WeaponStorageScene(container, params, api) {
     });
   }
 
+  function enhanceSelectRow(entry) {
+    const label = getWeaponDisplayName(entry.weapon) + (entry.ownerName ? `（${firstName(entry.ownerName)}が装備）` : "");
+    return h("div", { class: "slot" }, [
+      h("div", { class: "slot__meta" }, [h("span", { class: "slot__name", text: label })]),
+      h("div", { class: "slot__actions" }, [button("選択", { variant: "primary", onClick: () => api.closeScene(entry.weapon) })]),
+    ]);
+  }
+
+  function renderEnhanceSelect() {
+    const entries = allOwnedWeaponEntries();
+    renderScreen(container, {
+      eyebrow: "WEAPON STORAGE / ENHANCE",
+      title: "武器置き場（強化選択）",
+      subtitle: "強化する武器を選んでください。",
+      body: [
+        entries.length
+          ? h("div", { class: "slot-list slot-list--grid" }, entries.map(enhanceSelectRow))
+          : h("p", { class: "lead", text: "所持している武器がありません。" }),
+      ],
+      actions: [button("強化画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+    });
+  }
+
   function render() {
     if (mode === "swap") {
       renderSwap();
+      return;
+    }
+    if (mode === "enhance") {
+      renderEnhanceSelect();
       return;
     }
     renderScreen(container, {

@@ -365,6 +365,30 @@ body {
   filter: brightness(1.08);
 }
 
+/* 武器強化画面: 性能値ごとの「強化」ボタンが、その性能値と同じ色で
+   ハイライトされる (see .stat-* text colors, same --stat-* variables). */
+.btn--stat-attack,
+.btn--stat-defense,
+.btn--stat-destruction,
+.btn--stat-wisdom,
+.btn--stat-coordination {
+  color: var(--ember-ink);
+}
+
+.btn--stat-attack { background: var(--stat-attack); border-color: var(--stat-attack); }
+.btn--stat-defense { background: var(--stat-defense); border-color: var(--stat-defense); }
+.btn--stat-destruction { background: var(--stat-destruction); border-color: var(--stat-destruction); }
+.btn--stat-wisdom { background: var(--stat-wisdom); border-color: var(--stat-wisdom); }
+.btn--stat-coordination { background: var(--stat-coordination); border-color: var(--stat-coordination); }
+
+.btn--stat-attack:hover:not(:disabled),
+.btn--stat-defense:hover:not(:disabled),
+.btn--stat-destruction:hover:not(:disabled),
+.btn--stat-wisdom:hover:not(:disabled),
+.btn--stat-coordination:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
 .btn--block {
   width: 100%;
   text-align: left;
@@ -419,6 +443,65 @@ body {
   color: var(--ink-faint);
   flex: 0 0 auto;
 }
+
+/* 武器強化画面's 武器／強化状況詳細 boxes -- wraps to a single stacked
+   column (武器 above 強化状況詳細, per the user's own request) on a
+   narrow screen instead of squeezing both side by side. */
+.enhance-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.enhance-layout > .forge-box:first-child {
+  flex: 1 1 200px;
+}
+
+.enhance-layout > .forge-box:last-child {
+  flex: 2 1 320px;
+}
+
+.enhance-detail-sub {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* One 性能値's 5-level progress gauge: a row of dots connected by
+   short lines, the filled prefix (dots 0..value, and the lines between
+   them) colored to match that 性能値's own stat-* color, the rest a
+   plain neutral gray. */
+.enhance-gauge {
+  display: flex;
+  align-items: center;
+}
+
+.enhance-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--panel-line-strong);
+  flex: 0 0 auto;
+}
+
+.enhance-dot.stat-attack { background: var(--stat-attack); }
+.enhance-dot.stat-defense { background: var(--stat-defense); }
+.enhance-dot.stat-destruction { background: var(--stat-destruction); }
+.enhance-dot.stat-wisdom { background: var(--stat-wisdom); }
+.enhance-dot.stat-coordination { background: var(--stat-coordination); }
+
+.enhance-line {
+  width: 20px;
+  height: 2px;
+  background: var(--panel-line-strong);
+  flex: 0 0 auto;
+}
+
+.enhance-line.stat-attack { background: var(--stat-attack); }
+.enhance-line.stat-defense { background: var(--stat-defense); }
+.enhance-line.stat-destruction { background: var(--stat-destruction); }
+.enhance-line.stat-wisdom { background: var(--stat-wisdom); }
+.enhance-line.stat-coordination { background: var(--stat-coordination); }
 
 .field-group {
   display: flex;

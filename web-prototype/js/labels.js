@@ -18,6 +18,7 @@ export const SCENE_LABELS = {
   resourceStorage: "資源置き場画面",
   smithy: "鍛冶画面",
   weaponForge: "武器製造画面",
+  weaponEnhance: "武器強化画面",
   hiring: "雇用画面",
   result: "リザルト画面",
 };

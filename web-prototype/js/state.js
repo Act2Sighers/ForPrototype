@@ -10,6 +10,8 @@ import {
   createAmberSugarMineralInstance,
   RIGID_RESOURCES,
   craftWeapon,
+  resolveEnhancePlan,
+  refreshWeaponPrefix,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -254,6 +256,23 @@ export function craftAndStoreWeapon(weaponTypeId, frameReservation, modulePick) 
   const weapon = craftWeapon(weaponTypeId, modulePick.stats);
   state.storedWeapons.push(weapon);
   return weapon;
+}
+
+// 武器強化画面's own "強化" button: applies exactly the plan
+// resolveEnhancePlan already resolved (that same function is also what
+// the UI calls to decide whether a stat's button is enabled, so there
+// is nothing left to validate here) -- pays the natural-resource tier
+// and ベースクリーム, raises the stat by one, and re-rolls the weapon's
+// prefix if this crosses into a new tier (see refreshWeaponPrefix's own
+// comment, which already anticipated this exact use). No-op if the
+// enhancement isn't actually affordable (stale UI state).
+export function enhanceWeaponStat(weapon, statKey) {
+  const plan = resolveEnhancePlan(state.run.resources, weapon, statKey);
+  if (!plan) return;
+  state.run.resources.natural[plan.speciesId][plan.tier] -= plan.naturalCost;
+  state.run.resources.natural.baseCream -= plan.baseCreamCost;
+  weapon.stats[statKey] += 1;
+  refreshWeaponPrefix(weapon);
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run

@@ -868,6 +868,79 @@ export function craftWeapon(weaponTypeId, moduleStats) {
   });
 }
 
+// ---------------------------------------------------------------------
+// 武器強化画面
+// ---------------------------------------------------------------------
+
+// Which single 自然資源 species a 性能値's enhancement draws from --
+// this happens to already match RESOURCE_COLOR_CLASS's own pairing
+// (シボリ果糖液=red=attack/糖度, 口香弾性質=blue=defense/硬性, etc.),
+// so the same `stat-${charKey}` color classes used everywhere else
+// double as this screen's gauge/button colors with no new palette.
+export const NATURAL_SPECIES_BY_WEAPON_STAT = {
+  sweetness: "squeezedFructoseLiquid",
+  hardness: "gummyElasticMaterial",
+  poisonResist: "waferMembraneObject",
+  stability: "sableSoftGravel",
+  flexibility: "electroMagneticGelatin",
+};
+
+// Index i = the cost to raise a 性能値 from level i to i+1 (0->1,
+// 1->2, 2->3, 3->4), as the natural-resource quantity needed from
+// EACH quality tier (only one tier's worth is actually spent -- see
+// affordableEnhanceTier below).
+const WEAPON_STAT_UPGRADE_COST = [
+  { mid: 1, high: 1, premium: 1 },
+  { mid: 3, high: 1, premium: 1 },
+  { mid: 10, high: 3, premium: 1 },
+  { mid: 30, high: 10, premium: 3 },
+];
+
+const ENHANCE_BASECREAM_COST_BY_RATING = { D: 1, C: 1, B: 3, A: 10, S: 30 };
+
+// Which quality tier of `bucket` a `cost` can actually be paid from,
+// preferring the lowest (least valuable) tier the player can afford --
+// the same "spend the cheapest stock first" preference
+// pickLowestQualityFrame applies to フレーム material. null if none of
+// the three tiers alone cover the cost.
+function affordableEnhanceTier(bucket, cost) {
+  if (bucket.mid >= cost.mid) return "mid";
+  if (bucket.high >= cost.high) return "high";
+  if (bucket.premium >= cost.premium) return "premium";
+  return null;
+}
+
+// The exact plan (which tier, how much of it, how much ベースクリーム)
+// for raising one 性能値 by one level, or null if the player can't
+// currently afford it (already maxed out, lacking the natural resource
+// in any single tier, or lacking ベースクリーム at the weapon's current
+// 武器評価 -- see ENHANCE_BASECREAM_COST_BY_RATING). Pure: state.js's
+// enhanceWeaponStat applies exactly this plan; weaponEnhance.js's own
+// canEnhanceWeaponStat below just checks whether one exists.
+export function resolveEnhancePlan(resources, weapon, statKey) {
+  const value = weapon.stats[statKey];
+  if (value >= 4) return null;
+  const speciesId = NATURAL_SPECIES_BY_WEAPON_STAT[statKey];
+  const cost = WEAPON_STAT_UPGRADE_COST[value];
+  const tier = affordableEnhanceTier(resources.natural[speciesId], cost);
+  if (!tier) return null;
+  const baseCreamCost = ENHANCE_BASECREAM_COST_BY_RATING[computeWeaponRating(weapon.stats)];
+  if ((resources.natural.baseCream ?? 0) < baseCreamCost) return null;
+  return { speciesId, tier, naturalCost: cost[tier], baseCreamCost };
+}
+
+export function canEnhanceWeaponStat(resources, weapon, statKey) {
+  return resolveEnhancePlan(resources, weapon, statKey) !== null;
+}
+
+// The ベースクリーム a weapon's NEXT enhancement (of any 性能値) would
+// cost at its current 武器評価 -- shown once up front on
+// 武器強化画面 ("強化のたびにベースクリームを N 消費"), rather than
+// recomputed per-stat since it only depends on the weapon as a whole.
+export function enhanceBaseCreamCost(weapon) {
+  return ENHANCE_BASECREAM_COST_BY_RATING[computeWeaponRating(weapon.stats)];
+}
+
 // These species stay in the 短縮表示 (HUD) even at zero count, so the
 // player can always see how stocked up they are on upgrade materials at
 // a glance; a zero-count entry among them renders in the default text
