@@ -170,6 +170,18 @@ async function handleCall(group, supervisor, call, onUpdate, delayMs) {
   resolve(finalCount);
 }
 
+// How much of the supervisor's own remaining capacity (5 - their
+// progress) is left over once the worst case of every remaining
+// non-supervisor work unit resulting in a call is accounted for. When
+// this is >=1 the supervisor can safely spend a round on their own
+// 採集/採掘 work without risking being unable to answer every future
+// call; see runSupervisorLoop's use of this for the idle-filler-work
+// behavior.
+function computeStandbyMargin(supervisor, others) {
+  const othersRemaining = others.length * 5 - others.reduce((sum, m) => sum + m.progress, 0);
+  return 5 - supervisor.progress - othersRemaining;
+}
+
 async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
   const supervisor = group.supervisor;
   const others = group.members.filter((m) => m !== supervisor);
@@ -178,15 +190,29 @@ async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
   while (!allOthersDone() && supervisor.progress < 5) {
     if (group.callQueue.length > 0) {
       await handleCall(group, supervisor, group.callQueue.shift(), onUpdate, delayMs);
-    } else {
-      supervisor.statusText = "担当区分からの連絡待機中…";
-      onUpdate();
-      await sleep(delayMs);
+      continue;
     }
+    // Nobody's currently calling -- if there's enough slack left in the
+    // supervisor's own capacity (see computeStandbyMargin), spend the
+    // otherwise-idle time on a round of their own group's work instead
+    // of just waiting, so the pacing doesn't stall until every
+    // non-supervisor happens to finish all 5 rounds untouched.
+    if (computeStandbyMargin(supervisor, others) >= 1) {
+      await runWorkerRound(group, supervisor, environment, onUpdate, delayMs, haul);
+      continue;
+    }
+    supervisor.statusText = "担当区分からの連絡待機中…";
+    onUpdate();
+    await sleep(delayMs);
   }
 
   if (supervisor.progress >= 5) {
     supervisor.done = true;
+    // The supervisor's own final round (whether it was answering a call
+    // or their own filler work above) may have left a status line that
+    // doesn't read as "finished" (e.g. handleCall's "待機所に移動") --
+    // force it to match every other finished worker's text.
+    supervisor.statusText = "作業終了。他の隊員の作業完了を待機中…";
     // Anyone already queued when the supervisor hit progress 5 can't be
     // left hanging forever -- answer them with their own result
     // unmodified (the supervisor genuinely can't help anymore). No new

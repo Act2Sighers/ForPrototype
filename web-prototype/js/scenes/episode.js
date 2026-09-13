@@ -194,7 +194,13 @@ export function EpisodeScene(container, params, api) {
     if (isFinished) {
       actions.push(button("閉じる", { variant: "primary", onClick: () => api.closeScene() }));
     } else if (current.next && !current.choices && current.type !== "characterSelect") {
-      actions.push(button("すすめる", { variant: "primary", onClick: () => goto(current.next) }));
+      // If advancing leads straight into an effect-less "end" beat, this
+      // click will close the scene immediately (see goto() above) rather
+      // than show an effects screen -- so label it "閉じる" rather than
+      // "すすめる" to match what it actually does.
+      const nextBeat = script.beats[current.next];
+      const nextClosesImmediately = nextBeat?.type === "end" && !(nextBeat.effects ?? []).length;
+      actions.push(button(nextClosesImmediately ? "閉じる" : "すすめる", { variant: "primary", onClick: () => goto(current.next) }));
     }
 
     renderScreen(container, {

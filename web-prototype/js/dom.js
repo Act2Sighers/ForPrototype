@@ -93,7 +93,7 @@ function hudLine(label, entries) {
   const children = [`${label}: `];
   entries.forEach((entry, index) => {
     if (index > 0) children.push(" / ");
-    const colorClass = RESOURCE_COLOR_CLASS[entry.speciesId];
+    const colorClass = entry.zero ? null : RESOURCE_COLOR_CLASS[entry.speciesId];
     children.push(colorClass ? h("span", { class: colorClass, text: entry.text }) : entry.text);
   });
   return h("p", { class: "hud-line" }, children);

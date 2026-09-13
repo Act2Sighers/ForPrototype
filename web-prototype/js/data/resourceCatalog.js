@@ -672,40 +672,70 @@ function groupAmberInstances(instances) {
   return [...byModel.values()].sort((a, b) => b.sum - a.sum);
 }
 
+// These species stay in the 短縮表示 (HUD) even at zero count, so the
+// player can always see how stocked up they are on upgrade materials at
+// a glance; a zero-count entry among them renders in the default text
+// color instead of its usual RESOURCE_COLOR_CLASS (see the `zero` flag
+// below and dom.js's hudLine). Every other species (琥珀糖鉱石, 甘蔗繊維
+// 質, 高純度糖鉱) keeps the old skip-when-empty behavior. 個別表示
+// (describeResourcesIndividually) is unaffected by this and always
+// skips zero-count entries regardless of species.
+const ALWAYS_SHOW_SHORT_NATURAL = new Set([
+  "baseCream",
+  "squeezedFructoseLiquid",
+  "gummyElasticMaterial",
+  "waferMembraneObject",
+  "sableSoftGravel",
+  "electroMagneticGelatin",
+]);
+const ALWAYS_SHOW_SHORT_RIGID = new Set([
+  "coarseSugarMineral",
+  "dropSpiralOre",
+  "cacaoLayeredRock",
+  "sorbetEternalIce",
+  "driedFructoseRock",
+  "honeyCrystalOre",
+]);
+
 // 短縮表示 (resource HUD, every screen but 部隊編成画面/探索結果):
-// one entry per held species, skipping anything not held at all. A
-// species with no quality variance (ベースクリーム/ザラメ鉱石) is just
-// "abbr×qty"; every other species is "abbr×total(topTierQty)", read as
-// "qty total, of which the single best quality tier held accounts for
-// topTierQty" (see the user's own worked example for シボリ果糖液).
-// 琥珀糖鉱石 treats the 型番 group with the highest total stat points as
-// "the best quality tier" for that same parenthetical. Returns
-// {natural, rigid} (rigid shown above natural in the HUD) so the
-// caller can render them as two separate lines; each entry carries its
-// `speciesId` for RESOURCE_COLOR_CLASS lookups.
+// one entry per held species, skipping anything not held at all unless
+// it's in the always-show sets above. A species with no quality
+// variance (ベースクリーム/ザラメ鉱石) is just "abbr×qty"; every other
+// species is "abbr×total(topTierQty)", read as "qty total, of which the
+// single best quality tier held accounts for topTierQty" (see the
+// user's own worked example for シボリ果糖液). 琥珀糖鉱石 treats the
+// 型番 group with the highest total stat points as "the best quality
+// tier" for that same parenthetical. Returns {natural, rigid} (rigid
+// shown above natural in the HUD) so the caller can render them as two
+// separate lines; each entry carries its `speciesId` for
+// RESOURCE_COLOR_CLASS lookups, plus `zero: true` when it's an
+// always-shown entry with nothing held (so the caller skips coloring).
 export function describeResources(resources) {
   if (!resources) return { natural: [], rigid: [] };
 
-  function describeOne(key, species, value) {
+  function describeOne(key, species, value, alwaysShow) {
     if (species.variableStats) {
       if (!value.length) return null;
       const best = groupAmberInstances(value)[0];
       return { speciesId: key, text: `${species.abbr}×${value.length}(${best.qty})` };
     }
     if (!species.qualityTiers) {
-      return value > 0 ? { speciesId: key, text: `${species.abbr}×${value}` } : null;
+      if (value > 0) return { speciesId: key, text: `${species.abbr}×${value}` };
+      return alwaysShow ? { speciesId: key, text: `${species.abbr}×0`, zero: true } : null;
     }
     const total = sumTiers(value);
-    if (total === 0) return null;
+    if (total === 0) {
+      return alwaysShow ? { speciesId: key, text: `${species.abbr}×0`, zero: true } : null;
+    }
     const top = topNonZeroTier(value, species.qualityTiers);
     return { speciesId: key, text: `${species.abbr}×${total}(${top.qty})` };
   }
 
   const natural = Object.entries(NATURAL_RESOURCES)
-    .map(([key, species]) => describeOne(key, species, resources.natural[key]))
+    .map(([key, species]) => describeOne(key, species, resources.natural[key], ALWAYS_SHOW_SHORT_NATURAL.has(key)))
     .filter(Boolean);
   const rigid = Object.entries(RIGID_RESOURCES)
-    .map(([key, species]) => describeOne(key, species, resources.rigid[key]))
+    .map(([key, species]) => describeOne(key, species, resources.rigid[key], ALWAYS_SHOW_SHORT_RIGID.has(key)))
     .filter(Boolean);
   return { natural, rigid };
 }
