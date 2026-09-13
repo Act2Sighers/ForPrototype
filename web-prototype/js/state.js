@@ -33,10 +33,9 @@ function freshProfile() {
     standbySlots: [],
     retiredSlots: [],
     // 武器置き場: player-owned weapons not currently equipped by any
-    // formation/standby member -- see squadFormation.js. Nothing
-    // produces one yet (this is placeholder plumbing ahead of future
-    // weapon forging/enhancement and the planned 持ち替え feature), so
-    // this stays empty for now.
+    // formation/standby member -- see weaponStorage.js. Populated by
+    // equipStoredWeapon() swapping a character's old weapon in here;
+    // future weapon forging/enhancement will add to it too.
     storedWeapons: [],
   };
 }
@@ -188,6 +187,20 @@ export function dischargeCharacter(characterId) {
   state.run.resources.rigid.coarseSugarMineral += reward;
   state.retiredSlots.push(character);
   return { character, reward };
+}
+
+// Equips `character` with the 武器置き場 weapon identified by
+// `weaponId` (see weaponStorage.js/squadFormation.js's 持ち替え flows),
+// swapping their previous weapon (if any) back into storedWeapons in
+// its place. No-op if that weapon id isn't actually in storedWeapons
+// (already equipped by a concurrent action, e.g. a stale UI state).
+export function equipStoredWeapon(character, weaponId) {
+  const idx = state.storedWeapons.findIndex((w) => w.id === weaponId);
+  if (idx === -1) return;
+  const [newWeapon] = state.storedWeapons.splice(idx, 1);
+  const oldWeapon = character.weapon;
+  character.weapon = newWeapon;
+  if (oldWeapon) state.storedWeapons.push(oldWeapon);
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run

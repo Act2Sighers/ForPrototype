@@ -570,6 +570,27 @@ export const RIGID_RESOURCES = {
   },
 };
 
+// Flavor text shown in 資源置き場画面's 内訳表示 -- one entry per
+// natural/rigid species (never shown for anything else, so no
+// per-quality variants needed).
+export const RESOURCE_DESCRIPTIONS = {
+  baseCream: "カトラリーやオブラートを製造・強化するための下地となる。",
+  squeezedFructoseLiquid: "高い糖度を有する液体。あらゆる物体と親和する。",
+  gummyElasticMaterial: "溶解させて精製した液体がコーティングに適する。",
+  waferMembraneObject: "起源不明の透明な膜。毒の侵食を遅延させる効果がある。",
+  sableSoftGravel: "とても細かく砕ける、ヤスリや型抜きなどに適する砂礫。",
+  electroMagneticGelatin: "微弱な磁性を帯びたゲル質。なじませた物体を柔軟にする。",
+  coarseSugarMineral: "入手しやすく加工もしやすい。貨幣や保護材への使用に適している。",
+  amberSugarMineral: "性質や品質の振れ幅が大きい、採掘や加工の精度次第で評価が変わる。",
+  cacaoLayeredRock: "瞬間的な衝撃に耐え得る素材として優秀。",
+  driedFructoseRock: "結合度がとても高く、紙にも加工できる。",
+  honeyCrystalOre: "しなるような構造への利用に最も適している。",
+  dropSpiralOre: "鋭利な構造への利用に最も適している。",
+  sorbetEternalIce: "魔術組成を必要とする道具などに使われる。",
+  sugarCaneFiber: "緻密な構造への利用に最も適している。企業需要が高くとても高価。",
+  highPuritySugar: "奇跡の鉱石。最も純度の高いものは、毒に対する完全な免疫を持つという。",
+};
+
 // Lets a player see at a glance how many of the materials for a given
 // 能力値-flavored weapon upgrade they're holding: each rigid resource
 // shares a color with the one natural resource "on the same theme",

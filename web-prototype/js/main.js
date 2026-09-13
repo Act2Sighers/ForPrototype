@@ -13,6 +13,8 @@ import { TradeScene } from "./scenes/trade.js";
 import { WarehouseScene } from "./scenes/warehouse.js";
 import { GalleryScene } from "./scenes/gallery.js";
 import { SquadFormationScene } from "./scenes/squadFormation.js";
+import { WeaponStorageScene } from "./scenes/weaponStorage.js";
+import { ResourceStorageScene } from "./scenes/resourceStorage.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { ResultScene } from "./scenes/result.js";
 
@@ -30,6 +32,8 @@ const registry = {
   warehouse: WarehouseScene,
   gallery: GalleryScene,
   squadFormation: SquadFormationScene,
+  weaponStorage: WeaponStorageScene,
+  resourceStorage: ResourceStorageScene,
   hiring: HiringScene,
   result: ResultScene,
 };

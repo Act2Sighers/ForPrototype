@@ -1,8 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
 import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine } from "../characterCard.js";
-import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter } from "../state.js";
-import { computeWeaponRating, describeWeapon } from "../data/resourceCatalog.js";
-import { resourceIndividualNodes } from "../resourceDisplay.js";
+import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon } from "../state.js";
+import { computeWeaponRating, canEquip, getWeaponDisplayName } from "../data/resourceCatalog.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
 
@@ -17,23 +16,35 @@ function formationWarning(formationList, standbyList) {
   return null;
 }
 
-// 部隊編成画面. Two modes:
+// 部隊編成画面. Three modes:
 //  - "normal" (default): view the squad, or edit it -- move members
 //    freely between formation/standby one at a time. "編成完了" is
 //    disabled (with a warning explaining why) if that leaves formation
 //    empty or either list over its 6-person capacity; moving people
-//    back the other way clears it.
+//    back the other way clears it. Also the entry point into 武器置き場
+//    (via "武器"/"資源", a sibling-swap -- see api.closeScene's
+//    {openNext} convention below and map.js/trade.js's handling of it)
+//    and, per-member, into a weapon 持ち替え (via "武器変更", a nested
+//    call into weaponStorage's own "swap" mode).
 //  - "discharge": called from the 雇用画面's 除隊 button. Every member
 //    gets a 除隊 button that retires them for a resource reward (see
 //    state.js's dischargeCharacter). The sole remaining formation
 //    member can't be discharged.
+//  - "swap" (持ち替えモード): called from weaponStorage.js's own
+//    "装備させる" button, with params.weapon set to the specific
+//    未装備武器 being equipped. Shows only the members who share a
+//    シナジー with that weapon (see resourceCatalog.js's canEquip);
+//    選択→confirm swaps it onto the chosen member (their previous
+//    weapon, if any, returns to 武器置き場) and returns to the caller.
 export function SquadFormationScene(container, params, api) {
-  const mode = params.mode === "discharge" ? "discharge" : "normal";
+  const mode = params.mode === "discharge" ? "discharge" : params.mode === "swap" ? "swap" : "normal";
+  const swapWeapon = mode === "swap" ? params.weapon : null;
 
   let editing = false;
   let draftFormation = [];
   let draftStandby = [];
   let pendingDischargeId = null;
+  let pendingEquipId = null;
   const expandedIds = new Set();
 
   function toggleDetail(id) {
@@ -88,6 +99,50 @@ export function SquadFormationScene(container, params, api) {
     render();
   }
 
+  function handleEquipClick(id) {
+    pendingEquipId = id;
+    render();
+  }
+
+  function confirmEquip(character) {
+    equipStoredWeapon(character, swapWeapon.id);
+    api.closeScene();
+  }
+
+  function cancelEquip() {
+    pendingEquipId = null;
+    render();
+  }
+
+  function swapRow(character, locationLabel) {
+    const isPending = pendingEquipId === character.id;
+    if (isPending) {
+      return h("div", { class: "slot" }, [
+        h("div", { class: "slot__meta" }, [
+          h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+          h("span", { class: "slot__name", text: `${character.name}（${locationLabel}）` }),
+        ]),
+        h("div", { class: "confirm-row" }, [
+          h("span", {
+            class: "confirm-row__text",
+            text: `${character.name}に${getWeaponDisplayName(swapWeapon)}を装備させます。よろしいですか？`,
+          }),
+          button("実行する", { variant: "primary", onClick: () => confirmEquip(character) }),
+          button("キャンセル", { variant: "ghost", onClick: cancelEquip }),
+        ]),
+      ]);
+    }
+    return h("div", { class: "slot" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+        h("span", { class: "slot__name", text: `${character.name}（${locationLabel}）` }),
+      ]),
+      h("div", { class: "slot__actions" }, [
+        button("選択", { variant: "primary", onClick: () => handleEquipClick(character.id) }),
+      ]),
+    ]);
+  }
+
   function dischargeRow(character, listKey, sourceLen) {
     const isPending = pendingDischargeId === character.id;
     const rating = character.weapon ? computeWeaponRating(character.weapon.stats) : null;
@@ -130,6 +185,10 @@ export function SquadFormationScene(container, params, api) {
     if (editing) {
       const label = listKey === "formation" ? "待機へ" : "編成へ";
       actions.push(button(label, { variant: "frost", onClick: () => moveCharacter(character.id, listKey) }));
+    } else {
+      actions.push(
+        button("武器変更", { variant: "ghost", onClick: () => api.callScene("weaponStorage", { mode: "swap", character }) })
+      );
     }
 
     if (listKey !== "formation") {
@@ -168,22 +227,33 @@ export function SquadFormationScene(container, params, api) {
     return h("div", { class: "panel" }, rowChildren);
   }
 
-  // 武器置き場: player-owned weapons not currently equipped by anyone in
-  // formation/standby (see state.js's storedWeapons). Nothing produces
-  // one yet -- this is placeholder plumbing for future weapon
-  // forging/enhancement and the planned 持ち替え (re-equip) feature --
-  // so it's view-only for now, same as 所持資源.
-  function storedWeaponRow(weapon) {
-    return h("div", { class: "slot" }, [h("span", { class: "slot__name", text: describeWeapon(weapon) })]);
+  function renderSwap() {
+    const candidates = [
+      ...state.formationSlots.map((c) => ({ character: c, location: "編成中" })),
+      ...state.standbySlots.map((c) => ({ character: c, location: "待機中" })),
+    ].filter((entry) => canEquip(entry.character, swapWeapon));
+
+    renderScreen(container, {
+      eyebrow: "SQUAD / SWAP",
+      title: "部隊編成（持ち替え）",
+      subtitle: "装備させる隊員を選んでください。",
+      body: [
+        candidates.length
+          ? h("div", { class: "slot-list slot-list--grid" }, candidates.map((entry) => swapRow(entry.character, entry.location)))
+          : h("p", { class: "lead", text: "共通のシナジーを持つ隊員がいません。" }),
+      ],
+      actions: [button("キャンセル", { variant: "ghost", onClick: () => api.closeScene() })],
+    });
   }
 
   function render() {
+    if (mode === "swap") {
+      renderSwap();
+      return;
+    }
+
     const formationList = mode === "discharge" ? state.formationSlots : editing ? draftFormation : state.formationSlots;
     const standbyList = mode === "discharge" ? state.standbySlots : editing ? draftStandby : state.standbySlots;
-
-    // 部隊編成画面だけは「個別表示」: 品質/型番ごとに全て別計上して見せる
-    // (他の画面の資源HUDは「短縮表示」のresourceHudを使う)。
-    const resourceNodes = resourceIndividualNodes(state.run?.resources);
 
     const body = [
       h("div", { class: "field-group" }, [
@@ -197,18 +267,6 @@ export function SquadFormationScene(container, params, api) {
         standbyList.length
           ? h("div", { class: "slot-list slot-list--grid" }, standbyList.map((c) => characterRow(c, "standby")))
           : h("p", { class: "lead", text: "待機中の隊員はいません。" }),
-      ]),
-      h("div", { class: "field-group" }, [
-        h("p", { class: "field-label", text: "武器置き場" }),
-        state.storedWeapons.length
-          ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(storedWeaponRow))
-          : h("p", { class: "lead", text: "使用していない武器はありません。" }),
-      ]),
-      h("div", { class: "field-group" }, [
-        h("p", { class: "field-label", text: "所持資源" }),
-        resourceNodes.length
-          ? h("div", { class: "resource-list" }, resourceNodes)
-          : h("p", { class: "lead", text: "資源を所持していません。" }),
       ]),
     ];
 
@@ -231,6 +289,8 @@ export function SquadFormationScene(container, params, api) {
       actions = [
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("編成を変える", { variant: "primary", onClick: enterEdit }),
+        button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
+        button("資源", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ];
       subtitle = "編成スロットの隊員が戦闘に参加します。";
     }
@@ -245,5 +305,5 @@ export function SquadFormationScene(container, params, api) {
   }
 
   render();
-  return {};
+  return { onResume: () => render() };
 }
