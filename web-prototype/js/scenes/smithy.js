@@ -12,8 +12,19 @@ import { SYNERGIES, WEAPON_TYPES, hasEnoughFrame } from "../data/resourceCatalog
 // button is disabled whenever the player doesn't hold enough of its
 // フレーム species in aggregate (hasEnoughFrame) -- ベースクリーム
 // isn't checked here at all, only on 武器製造画面's own "製造開始！".
+//
+// weaponTradeCandidates is threaded through exactly like trade.js's own
+// hiringCandidates: trade.js passes its remembered value in as
+// params.weaponTradeCandidates, this scene hands it to weaponTrade.js
+// as params.candidates and remembers whatever comes back in onResume,
+// and relays its current value back up to trade.js (tagged, so
+// trade.js's own onResume can tell it apart from a plain hiring-
+// candidates array or an {openNext} sibling-swap payload) when this
+// screen itself closes via "店を出る" -- so the weapon shop's stock and
+// purchases survive re-entering 鍛冶屋 for the whole 取引イベント.
 export function SmithyScene(container, params, api) {
   const expandedSynergyIds = new Set();
+  let weaponTradeCandidates = params.weaponTradeCandidates ?? null;
 
   function toggle(id) {
     if (expandedSynergyIds.has(id)) expandedSynergyIds.delete(id);
@@ -55,12 +66,18 @@ export function SmithyScene(container, params, api) {
       subtitle: "製造したい武器種を選んでください。",
       body: [h("div", { class: "slot-list slot-list--grid" }, Object.keys(SYNERGIES).map(synergyRow))],
       actions: [
-        button("店を出る", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("店を出る", { variant: "ghost", onClick: () => api.closeScene({ weaponTradeCandidates }) }),
         button("強化", { onClick: () => api.callScene("weaponEnhance") }),
+        button("取引", { onClick: () => api.callScene("weaponTrade", { candidates: weaponTradeCandidates }) }),
       ],
     });
   }
 
   render();
-  return { onResume: () => render() };
+  return {
+    onResume: (result) => {
+      if (Array.isArray(result)) weaponTradeCandidates = result;
+      render();
+    },
+  };
 }

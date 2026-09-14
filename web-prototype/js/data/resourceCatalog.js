@@ -424,6 +424,31 @@ export function createHiringCandidate(employmentId, { flatCost } = {}) {
 }
 
 // ---------------------------------------------------------------------
+// 武器取引画面 / 武器置き場画面（売却モード）
+// ---------------------------------------------------------------------
+// Placeholder pricing per the user's own instruction: both buy and sell
+// price are just ザラメ鉱石×(性能値合計), with no regard yet for ラン
+// 進捗率 (deferred across every event, not just this one, until more of
+// 取引/戦闘 exists) or which specific 武器評価/prefix the weapon has.
+
+export function computeWeaponMarketPrice(weapon) {
+  return sumStatValues(weapon.stats);
+}
+
+export function pickRandomWeaponTypeIds(count) {
+  return shuffledCopy(Object.keys(WEAPON_TYPES)).slice(0, count);
+}
+
+// A 武器取引画面 candidate: always forged from ザラメ鉱石 for now (see
+// this section's own note above) -- weaponTrade.js forges it once, up
+// front, so the price shown matches what buying it actually grants,
+// the same way createHiringCandidate does for 雇用画面.
+export function createWeaponTradeCandidate(weaponTypeId) {
+  const weapon = forgeWeapon(weaponTypeId, "coarseSugarMineral");
+  return { weapon, price: computeWeaponMarketPrice(weapon), purchased: false };
+}
+
+// ---------------------------------------------------------------------
 // 資源 (materials / currency — the natural/rigid split has no mechanical
 // difference, only different stat shapes; "currency" vs "material" is
 // purely how the player is using a given resource, not a system

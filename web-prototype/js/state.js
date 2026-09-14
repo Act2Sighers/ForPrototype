@@ -12,6 +12,7 @@ import {
   craftWeapon,
   resolveEnhancePlan,
   refreshWeaponPrefix,
+  computeWeaponMarketPrice,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -273,6 +274,30 @@ export function enhanceWeaponStat(weapon, statKey) {
   state.run.resources.natural.baseCream -= plan.baseCreamCost;
   weapon.stats[statKey] += 1;
   refreshWeaponPrefix(weapon);
+}
+
+// 武器取引画面's own "購入" confirm: pays the candidate's already-
+// computed price (ザラメ鉱石, see computeWeaponMarketPrice) and drops
+// the weapon into 武器置き場 (storedWeapons) -- same destination as any
+// other unequipped weapon. Mirrors hireCharacter's own shape.
+export function purchaseWeapon(weapon, price) {
+  state.run.resources.rigid.coarseSugarMineral -= price;
+  state.storedWeapons.push(weapon);
+}
+
+// 武器置き場画面（売却モード）'s own "まとめて売る" confirm: removes
+// every storedWeapons entry whose id is in `weaponIds` and grants their
+// combined ザラメ鉱石 value. Returns the total granted, for display.
+export function sellStoredWeapons(weaponIds) {
+  const idSet = new Set(weaponIds);
+  let total = 0;
+  state.storedWeapons = state.storedWeapons.filter((weapon) => {
+    if (!idSet.has(weapon.id)) return true;
+    total += computeWeaponMarketPrice(weapon);
+    return false;
+  });
+  state.run.resources.rigid.coarseSugarMineral += total;
+  return total;
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run

@@ -1,6 +1,16 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { equipStoredWeapon } from "../state.js";
-import { describeWeapon, getWeaponDisplayName, canEquip, WEAPON_TYPES, SYNERGIES } from "../data/resourceCatalog.js";
+import state, { equipStoredWeapon, sellStoredWeapons } from "../state.js";
+import {
+  describeWeapon,
+  getWeaponDisplayName,
+  canEquip,
+  WEAPON_TYPES,
+  SYNERGIES,
+  RIGID_RESOURCES,
+  computeWeaponMarketPrice,
+} from "../data/resourceCatalog.js";
+
+const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 
 function weaponSynergyNames(weapon) {
   return WEAPON_TYPES[weapon.baseTypeId].synergies.map((id) => SYNERGIES[id].name).join(" / ");
@@ -45,12 +55,24 @@ function allOwnedWeaponEntries() {
 //    enhancement doesn't care who's holding the weapon. "選択" returns
 //    the weapon straight to weaponEnhance.js; "強化画面に戻る" returns
 //    without picking.
+//  - "sell" (売却モード): called from weaponTrade.js's own "売却"
+//    button. Every 未装備武器 gets a 選択/外す toggle (highlighting its
+//    whole row while selected) instead of a single-pick "選択" --
+//    multi-select is the default gesture here, confirmed in one batch
+//    via "まとめて売る" (shows the running ザラメ鉱石 total once
+//    anything's selected). state.js's sellStoredWeapons applies exactly
+//    that batch. "取引画面に戻る" returns with nothing further to
+//    relay -- unlike swap/enhance, selling mutates real state directly
+//    rather than handing a pick back to the caller.
 export function WeaponStorageScene(container, params, api) {
-  const mode = params.mode === "swap" ? "swap" : params.mode === "enhance" ? "enhance" : "normal";
+  const mode =
+    params.mode === "swap" ? "swap" : params.mode === "enhance" ? "enhance" : params.mode === "sell" ? "sell" : "normal";
   const swapCharacter = mode === "swap" ? params.character : null;
 
   const expandedIds = new Set();
+  const selectedIds = new Set();
   let pendingWeaponId = null;
+  let pendingSell = false;
 
   function toggleDetail(id) {
     if (expandedIds.has(id)) expandedIds.delete(id);
@@ -151,6 +173,82 @@ export function WeaponStorageScene(container, params, api) {
     });
   }
 
+  function toggleSelect(id) {
+    if (selectedIds.has(id)) selectedIds.delete(id);
+    else selectedIds.add(id);
+    render();
+  }
+
+  function confirmSell() {
+    sellStoredWeapons([...selectedIds]);
+    selectedIds.clear();
+    pendingSell = false;
+    render();
+  }
+
+  function sellRow(weapon) {
+    const isSelected = selectedIds.has(weapon.id);
+    const isExpanded = expandedIds.has(weapon.id);
+    const children = [
+      h("div", { class: "slot__meta" }, [h("span", { class: "slot__name", text: getWeaponDisplayName(weapon) })]),
+      h("div", { class: "slot__actions" }, [
+        button(isExpanded ? "詳細を隠す" : "詳細表示", { variant: "ghost", onClick: () => toggleDetail(weapon.id) }),
+        button(isSelected ? "外す" : "選択", {
+          variant: isSelected ? "frost" : "ghost",
+          disabled: pendingSell,
+          onClick: () => toggleSelect(weapon.id),
+        }),
+      ]),
+    ];
+    if (isExpanded) {
+      children.push(h("p", { class: "lead", text: describeWeapon(weapon) }));
+      children.push(h("p", { class: "lead", text: `シナジー：${weaponSynergyNames(weapon)}` }));
+    }
+    return h("div", { class: `panel${isSelected ? " panel--selected" : ""}` }, children);
+  }
+
+  function renderSell() {
+    const selectedTotal = state.storedWeapons
+      .filter((weapon) => selectedIds.has(weapon.id))
+      .reduce((sum, weapon) => sum + computeWeaponMarketPrice(weapon), 0);
+
+    const body = [h("p", { class: "lead", text: "売却したい武器を1つ以上選択し、「まとめて売る」で一括売却を行います。" })];
+    if (selectedIds.size > 0) {
+      body.push(h("p", { class: "lead", text: `売値総額：${COST_ABBR}×${selectedTotal}` }));
+    }
+    if (pendingSell) {
+      body.push(
+        h("div", { class: "confirm-row" }, [
+          h("span", {
+            class: "confirm-row__text",
+            text: `選択した${selectedIds.size}個の武器を売却します（獲得：${COST_ABBR}×${selectedTotal}）。よろしいですか？`,
+          }),
+          button("実行する", { variant: "primary", onClick: confirmSell }),
+          button("キャンセル", { variant: "ghost", onClick: () => { pendingSell = false; render(); } }),
+        ])
+      );
+    }
+    body.push(
+      state.storedWeapons.length
+        ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(sellRow))
+        : h("p", { class: "lead", text: "使用していない武器はありません。" })
+    );
+
+    renderScreen(container, {
+      eyebrow: "WEAPON STORAGE / SELL",
+      title: "武器置き場（売却）",
+      body,
+      actions: [
+        button("取引画面に戻る", { variant: "ghost", onClick: () => api.closeScene() }),
+        button(selectedIds.size ? `まとめて売る（${selectedIds.size}）` : "まとめて売る", {
+          variant: "primary",
+          disabled: selectedIds.size === 0 || pendingSell,
+          onClick: () => { pendingSell = true; render(); },
+        }),
+      ],
+    });
+  }
+
   function render() {
     if (mode === "swap") {
       renderSwap();
@@ -158,6 +256,10 @@ export function WeaponStorageScene(container, params, api) {
     }
     if (mode === "enhance") {
       renderEnhanceSelect();
+      return;
+    }
+    if (mode === "sell") {
+      renderSell();
       return;
     }
     renderScreen(container, {

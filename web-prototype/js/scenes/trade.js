@@ -9,6 +9,11 @@ export function TradeScene(container, params, api) {
   // within the same visit shows the same candidates (hired flags and
   // all) instead of drawing a fresh pool every time.
   let hiringCandidates = null;
+  // Same idea for 鍛冶屋's own 武器取引 candidates -- smithy.js relays
+  // its current value back tagged as {weaponTradeCandidates} (see its
+  // own comment) so it can't be confused with hiringCandidates' plain
+  // array or an {openNext} sibling-swap payload below.
+  let weaponTradeCandidates = null;
 
   function render() {
     renderScreen(container, {
@@ -28,7 +33,7 @@ export function TradeScene(container, params, api) {
             h("button", {
               class: "chip",
               text: "鍛冶屋",
-              onClick: () => api.callScene("smithy"),
+              onClick: () => api.callScene("smithy", { weaponTradeCandidates }),
             }),
           ]),
         ]),
@@ -54,6 +59,11 @@ export function TradeScene(container, params, api) {
       // the scene stack.
       if (result?.openNext) {
         api.callScene(result.openNext);
+        return;
+      }
+      if (result?.weaponTradeCandidates) {
+        weaponTradeCandidates = result.weaponTradeCandidates;
+        render();
         return;
       }
       if (result) hiringCandidates = result;

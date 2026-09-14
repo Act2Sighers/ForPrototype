@@ -410,6 +410,13 @@ body {
   overflow: hidden;
 }
 
+/* 武器置き場画面（売却モード）: a selected-for-sale weapon's whole row
+   highlights, same visual language as .chip.is-selected. */
+.panel--selected {
+  border-color: var(--frost);
+  background: rgba(111, 168, 160, 0.08);
+}
+
 /* 武器製造画面's "原料１×原料２＝製造結果" layout. Wraps to a single
    column on a narrow screen instead of squeezing 3 boxes + 2 operators
    into one row. */
