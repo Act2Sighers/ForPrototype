@@ -1,6 +1,6 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
-import { computeStats, computeMaxHp } from "../data/resourceCatalog.js";
+import { computeStats, computeMaxHp, createCharacterFromData } from "../data/resourceCatalog.js";
 
 // Layout-only pass: the actual turn/phase engine doesn't exist yet (see
 // the user's replacement battle-system design, still to be built up
@@ -92,12 +92,12 @@ function battleUnitCard(character) {
   ]);
 }
 
-// 敵陣営のデータはまだ存在しないため、6枠分の未実装プレースホルダーを
-// 置いておく。
-function emptyEnemySlot() {
-  return h("div", { class: "battle-unit battle-unit--empty" }, [
-    h("span", { class: "battle-unit__empty-label", text: "（未実装）" }),
-  ]);
+// 敵陣営もまだ本当のデータモデルは無いため、レイアウト確認用として
+// ビスケット・ベーカーの初期雇用データを編成人数分だけその場で生成
+// する（保存はされない、描画のたびに使い捨て）。枠のレイアウトは
+// battleUnitCard をそのまま流用し、味方枠と完全に同じにする。
+function createLayoutEnemies(count) {
+  return Array.from({ length: count }, () => createCharacterFromData("biscuitBaker"));
 }
 
 // 行動内容／行動対象を選ぶプルダウン2つ。中身の選択肢はフェイズや
@@ -152,17 +152,17 @@ function battleCenter() {
   ]);
 }
 
-// ワイドモード：味方ステータス列／味方の行動選択列／中央情報／敵ステー
-// タス列（未実装プレースホルダー）の4列。行動選択列を割り込ませる分、
-// 敵列が多少圧縮されるのは許容する、との指示どおりの配分。
+// ワイドモード：味方の行動選択列（左端）／味方ステータス列／中央情報
+// （矢印表示部）／敵ステータス列、の4列。中央の矢印表示部を味方・敵
+// 両ステータス列に挟ませるため、行動選択列は一番外側に置く。
 function battleArena() {
   const allies = state.formationSlots;
-  const enemies = Array.from({ length: 6 }, () => emptyEnemySlot());
+  const enemies = createLayoutEnemies(allies.length);
   return h("div", { class: "battle-arena" }, [
-    h("div", { class: "battle-column battle-column--ally" }, allies.map(battleUnitCard)),
     h("div", { class: "battle-column battle-column--action" }, allies.map(actionSelectBox)),
+    h("div", { class: "battle-column battle-column--ally" }, allies.map(battleUnitCard)),
     battleCenter(),
-    h("div", { class: "battle-column battle-column--enemy" }, enemies),
+    h("div", { class: "battle-column battle-column--enemy" }, enemies.map(battleUnitCard)),
   ]);
 }
 

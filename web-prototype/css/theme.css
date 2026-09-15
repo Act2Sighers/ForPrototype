@@ -1049,19 +1049,21 @@ body {
   width: 100%;
 }
 
-/* 視覚的な戦場スペース：味方ステータス列／味方の行動選択列／中央の
-   ターン・フェイズ表示／敵ステータス列（右）。十分な表示幅がある端末
-   （PCなど＝ワイドモード）でのみ表示し、狭い場合（携帯モード）は
-   .battle-mobile-roster に切り替わる。行動選択列が増えた分、この
-   しきい値は3列だった頃の720pxより少し引き上げてある。 */
+/* 視覚的な戦場スペース：味方の行動選択列（左端）／味方ステータス列／
+   中央のターン・フェイズ・矢印表示／敵ステータス列（右）、の4列。
+   敵ステータス列も味方と全く同じ内容量の枠になったため、十分な表示幅
+   がある端末（PCなど＝ワイドモード）でのみ表示し、狭い場合（携帯
+   モード）は .battle-mobile-roster に切り替わる。敵列が実データ入りの
+   フルサイズ枠になった分、このしきい値は820pxからさらに引き上げて
+   ある。 */
 .battle-arena {
   display: grid;
-  grid-template-columns: 1.3fr 0.9fr auto 1fr;
+  grid-template-columns: 0.9fr 1.3fr auto 1.3fr;
   gap: 8px;
   align-items: center;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .battle-arena {
     display: none;
   }
@@ -1075,7 +1077,7 @@ body {
   gap: 8px;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .battle-mobile-roster {
     display: flex;
   }
@@ -1147,21 +1149,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-/* 敵データがまだ無い間の未実装プレースホルダー。 */
-.battle-unit--empty {
-  border-style: dashed;
-  border-color: var(--panel-line);
-  background: transparent;
-  align-items: center;
-  justify-content: center;
-  min-height: 74px;
-}
-
-.battle-unit__empty-label {
-  color: var(--ink-faint);
-  font-size: 12px;
 }
 
 .battle-unit__head {
