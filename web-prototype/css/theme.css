@@ -1032,7 +1032,6 @@ body {
   padding: 8px 10px;
   height: 96px;
   overflow-y: auto;
-  margin-bottom: 12px;
 }
 
 .battle-log__line {
@@ -1043,20 +1042,59 @@ body {
   color: #fff;
 }
 
-/* 視覚的な戦場スペース：味方6体（左）／中央のターン・フェイズ表示／
-   敵6体（右）。十分な表示幅がある端末（PCなど）でのみ表示し、狭い
-   場合はテキストログだけで戦況を追える設計にする。 */
+/* テキストログ直下の実行ボタン。携帯モード・ワイドモード共通で、
+   ログ枠と同じ幅になるよう画面本文の他の要素同様フルブロックで置く。
+   行動内容・行動対象がまだ無いので今は常に無効。 */
+.battle-execute-btn {
+  width: 100%;
+}
+
+/* 視覚的な戦場スペース：味方ステータス列／味方の行動選択列／中央の
+   ターン・フェイズ表示／敵ステータス列（右）。十分な表示幅がある端末
+   （PCなど＝ワイドモード）でのみ表示し、狭い場合（携帯モード）は
+   .battle-mobile-roster に切り替わる。行動選択列が増えた分、この
+   しきい値は3列だった頃の720pxより少し引き上げてある。 */
 .battle-arena {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 10px;
+  grid-template-columns: 1.3fr 0.9fr auto 1fr;
+  gap: 8px;
   align-items: center;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .battle-arena {
     display: none;
   }
+}
+
+/* 携帯モード用の縦並びロースター。ワイドモードのアリーナが隠れる幅
+   でのみ表示する（アリーナと表裏の関係）。 */
+.battle-mobile-roster {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 820px) {
+  .battle-mobile-roster {
+    display: flex;
+  }
+}
+
+.battle-mobile-unit {
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.battle-mobile-unit__name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .battle-column {
@@ -1165,13 +1203,21 @@ body {
 .battle-stat--boost { color: var(--stat-coordination); }
 .battle-stat--drop { color: var(--stat-wisdom); }
 
+/* IN は左、PT＋ランプは右揃え（体幹の表示位置と同じ考え方）。 */
 .battle-unit__footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   font-size: 11px;
   color: var(--ink-dim);
   flex-wrap: wrap;
+}
+
+.battle-unit__pt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* 残りPTを示すランプ。 */
@@ -1191,4 +1237,52 @@ body {
 .pt-lamp__dot--filled {
   background: var(--frost);
   border-color: var(--frost);
+}
+
+/* 行動内容／行動対象を選ぶプルダウン2つの組。ワイドモードの味方行動
+   選択列、携帯モードのロースター行のどちらからも使う共通部品。 */
+.battle-action-select {
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battle-action-select__name {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.battle-action-select__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battle-action-select__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.battle-action-select__dropdown {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  border-radius: 6px;
+  padding: 3px 4px;
+}
+
+.battle-action-select__dropdown:disabled {
+  opacity: 0.5;
 }

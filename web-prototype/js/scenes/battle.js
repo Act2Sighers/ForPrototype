@@ -1,7 +1,6 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
-import { computeStats } from "../data/resourceCatalog.js";
-import { characterHpGauge } from "../characterCard.js";
+import { computeStats, computeMaxHp } from "../data/resourceCatalog.js";
 
 // Layout-only pass: the actual turn/phase engine doesn't exist yet (see
 // the user's replacement battle-system design, still to be built up
@@ -9,9 +8,10 @@ import { characterHpGauge } from "../characterCard.js";
 // live battle state is a fixed stand-in for "what a fresh battle's
 // first moment looks like" -- IN reset to 0, PT at its round-start max
 // of 3, 体幹 at its neutral baseline of 0, no 能力値 corrections active
-// yet. A future round wires real per-unit battle state through here
-// instead of these constants; the rendering shape (colors, lamp,
-// grayout-readiness) is already built to expect it.
+// yet, and the 行動内容/行動対象 dropdowns have nothing real to offer
+// (hence 行動実行！ staying disabled). A future round wires real
+// per-unit battle state and real dropdown options through here instead
+// of these constants; the rendering shape is already built to expect it.
 const ROUND_START_PT = 3;
 
 const BATTLE_STAT_ORDER = ["attack", "defense", "destruction", "wisdom", "coordination"];
@@ -60,18 +60,34 @@ function ptLamp(current, max) {
   return h("div", { class: "pt-lamp" }, dots);
 }
 
+// 隊員情報カード（characterCard.js）の HP ゲージと同じ構造だが、
+// 戦闘画面の枠は横幅が厳しいので「カロリー(HP)」ではなく「HP」だけ
+// のラベルにした専用版。
+function battleHpGauge(character) {
+  const maxHp = computeMaxHp(character.growth);
+  const currentHp = character.currentHp ?? maxHp;
+  const pct = maxHp > 0 ? Math.max(0, Math.min(100, (currentHp / maxHp) * 100)) : 0;
+  return h("div", { class: "hp-line" }, [
+    h("span", { class: "hp-line__label stat-hp", text: "HP" }),
+    h("span", { class: "hp-line__value", text: `${currentHp} / ${maxHp}` }),
+    h("div", { class: "hp-gauge" }, [h("div", { class: "hp-gauge__fill", style: `width:${pct}%` })]),
+  ]);
+}
+
 function battleUnitCard(character) {
   return h("div", { class: "battle-unit" }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: character.name }),
       staminaSpan(),
     ]),
-    characterHpGauge(character),
+    battleHpGauge(character),
     battleStatsLine(character),
     h("div", { class: "battle-unit__footer" }, [
       h("span", { text: "IN: 0" }),
-      h("span", { text: `PT: ${ROUND_START_PT} / ${ROUND_START_PT}` }),
-      ptLamp(ROUND_START_PT, ROUND_START_PT),
+      h("div", { class: "battle-unit__pt" }, [
+        h("span", { text: `PT: ${ROUND_START_PT} / ${ROUND_START_PT}` }),
+        ptLamp(ROUND_START_PT, ROUND_START_PT),
+      ]),
     ]),
   ]);
 }
@@ -84,6 +100,31 @@ function emptyEnemySlot() {
   ]);
 }
 
+// 行動内容／行動対象を選ぶプルダウン2つ。中身の選択肢はフェイズや
+// 戦況によって将来変わる想定だが、今はまだどちらも実データが無いので
+// プレースホルダー1件だけを入れて無効化しておく（行動実行！ボタンが
+// 無効なのと同じ理由）。
+function actionSelectRow(labelText) {
+  return h("div", { class: "battle-action-select__row" }, [
+    h("span", { class: "battle-action-select__label", text: labelText }),
+    h("select", { class: "battle-action-select__dropdown", disabled: true }, [h("option", { text: "－" })]),
+  ]);
+}
+
+function actionSelectFields() {
+  return h("div", { class: "battle-action-select__fields" }, [actionSelectRow("行動内容"), actionSelectRow("行動対象")]);
+}
+
+// ワイドモードの専用列に並ぶ、隊員名付きの版。味方ステータス列とは
+// 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
+// 名前を添えている。
+function actionSelectBox(character) {
+  return h("div", { class: "battle-action-select" }, [
+    h("p", { class: "battle-action-select__name", text: character.name }),
+    actionSelectFields(),
+  ]);
+}
+
 function battleLog() {
   const lines = ["（テキストログ：戦闘の経過がここに表示されます）"];
   return h(
@@ -91,6 +132,12 @@ function battleLog() {
     { class: "battle-log" },
     lines.map((line) => h("p", { class: "battle-log__line", text: line }))
   );
+}
+
+// 携帯モードでもワイドモードでも共通の、テキストログ直下の実行ボタン。
+// 行動内容も行動対象もまだ無いので常時無効。
+function actionExecuteButton() {
+  return h("button", { class: "btn btn--primary battle-execute-btn", disabled: true, text: "行動実行！" });
 }
 
 function battleCenter() {
@@ -105,14 +152,32 @@ function battleCenter() {
   ]);
 }
 
+// ワイドモード：味方ステータス列／味方の行動選択列／中央情報／敵ステー
+// タス列（未実装プレースホルダー）の4列。行動選択列を割り込ませる分、
+// 敵列が多少圧縮されるのは許容する、との指示どおりの配分。
 function battleArena() {
-  const allies = state.formationSlots.map(battleUnitCard);
+  const allies = state.formationSlots;
   const enemies = Array.from({ length: 6 }, () => emptyEnemySlot());
   return h("div", { class: "battle-arena" }, [
-    h("div", { class: "battle-column battle-column--ally" }, allies),
+    h("div", { class: "battle-column battle-column--ally" }, allies.map(battleUnitCard)),
+    h("div", { class: "battle-column battle-column--action" }, allies.map(actionSelectBox)),
     battleCenter(),
     h("div", { class: "battle-column battle-column--enemy" }, enemies),
   ]);
+}
+
+// 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
+// ・行動選択プルダウンだけの縦並びリストを出す。
+function mobileUnitRow(character) {
+  return h("div", { class: "battle-mobile-unit" }, [
+    h("p", { class: "battle-mobile-unit__name", text: character.name }),
+    battleHpGauge(character),
+    actionSelectFields(),
+  ]);
+}
+
+function battleMobileRoster() {
+  return h("div", { class: "battle-mobile-roster" }, state.formationSlots.map(mobileUnitRow));
 }
 
 // レイアウトのみの実装 -- 中身（行動決定・実行フェイズ・勝敗判定など）
@@ -121,7 +186,7 @@ export function BattleScene(container, params, api) {
   renderScreen(container, {
     eyebrow: "BATTLE",
     title: "戦闘",
-    body: [battleLog(), battleArena()],
+    body: [battleLog(), actionExecuteButton(), battleArena(), battleMobileRoster()],
     actions: [
       button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
       button("全滅（テスト用）", {
