@@ -1018,3 +1018,177 @@ body {
     width: 100%;
   }
 }
+
+/* ---------------------------------------------------------
+   Battle screen (battle.js) -- レイアウトのみ、中身の処理は未実装
+   --------------------------------------------------------- */
+
+/* 画面最上部のテキストログ。スマホなど視覚的な戦場スペースを表示でき
+   ない端末でも、最低限これだけは常に見える。 */
+.battle-log {
+  background: #000;
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  height: 96px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+
+.battle-log__line {
+  margin: 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: #fff;
+}
+
+/* 視覚的な戦場スペース：味方6体（左）／中央のターン・フェイズ表示／
+   敵6体（右）。十分な表示幅がある端末（PCなど）でのみ表示し、狭い
+   場合はテキストログだけで戦況を追える設計にする。 */
+.battle-arena {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .battle-arena {
+    display: none;
+  }
+}
+
+.battle-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.battle-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  text-align: center;
+}
+
+.battle-center__turn {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.battle-center__phase {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  color: var(--ember-strong);
+}
+
+/* 特定ユニット間のやり取りが発生している間だけ矢印(SVGなど)が差し
+   込まれる想定の予約スペース。相手陣営への矢印は直線、自陣営への矢印
+   はUターン形状になる予定 -- 今は常に空。 */
+.battle-center__arrow {
+  width: 100%;
+  min-height: 24px;
+}
+
+.battle-center__vs {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.battle-unit {
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 敵データがまだ無い間の未実装プレースホルダー。 */
+.battle-unit--empty {
+  border-style: dashed;
+  border-color: var(--panel-line);
+  background: transparent;
+  align-items: center;
+  justify-content: center;
+  min-height: 74px;
+}
+
+.battle-unit__empty-label {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.battle-unit__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.battle-unit__name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* 体幹: 0基準の正負整数。正は「装甲」で防御力と同じ青、負は「脆弱性」
+   で破壊力と同じ黄色、0は無色のまま。 */
+.battle-unit__stamina {
+  font-size: 11px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.battle-unit__stamina--armor { color: var(--stat-defense); }
+.battle-unit__stamina--fragile { color: var(--stat-destruction); }
+
+.battle-unit__stats {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* 能力値の補正表示: 無補正は無色、プラス補正は協調性と同じ紫、
+   マイナス補正は賢さと同じ緑（能力値ごとの色分けではなく、補正の向き
+   だけで色が決まる点に注意）。 */
+.battle-stat {
+  color: var(--ink-dim);
+}
+
+.battle-stat--boost { color: var(--stat-coordination); }
+.battle-stat--drop { color: var(--stat-wisdom); }
+
+.battle-unit__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-dim);
+  flex-wrap: wrap;
+}
+
+/* 残りPTを示すランプ。 */
+.pt-lamp {
+  display: flex;
+  gap: 3px;
+}
+
+.pt-lamp__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--ink-faint);
+  background: transparent;
+}
+
+.pt-lamp__dot--filled {
+  background: var(--frost);
+  border-color: var(--frost);
+}
