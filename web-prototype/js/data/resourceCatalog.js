@@ -162,6 +162,15 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
   };
 }
 
+// モンスターの成長合計に対するレベルの付き方は隊員と同じ「base+growth」
+// の考え方を流用しつつも、隊員(growth合計-4)とは別の刻み: 下記
+// MONSTER_DATA の3体はどれもgrowth合計3で、これがレベル1にあたる
+// （computeLevelを流用しない理由）。今後レベルの高いモンスターを追加
+// する時も、このレベル1相当のデータを起点にgrowthを積み増す想定。
+export function computeMonsterLevel(growth) {
+  return growthSum(growth) - 2;
+}
+
 // モンスターデータ: 敵陣営用の同種テンプレート。隊員データと同じ
 // base+growth の考え方（CHARACTER_BASE＋growth＝表示される能力値、
 // growthの合計×12＝HP）を流用しているが、雇用候補には一切出ないよう
@@ -174,19 +183,80 @@ export const MONSTER_DATA = {
 };
 
 // createCharacterFromData と同じ形のインスタンスを、MONSTER_DATA から
-// 毎回新しい個体（idだけ別）として生成する。
+// 毎回新しい個体（idだけ別）として生成する。dataId はそのまま持たせて
+// おく（戦闘勝利報酬の算出時、MONSTER_REWARDSを引くのに使う）。
 export function createMonsterFromData(dataId) {
   const data = MONSTER_DATA[dataId];
   const growth = { ...data.growth };
   return {
     id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    dataId,
     name: data.name,
-    level: computeLevel(growth),
+    level: computeMonsterLevel(growth),
     growth,
     currentHp: computeMaxHp(growth),
     skills: [],
     weapon: null,
   };
+}
+
+// モンスターごとの固有報酬。category が "natural"/"rigid" のどちらの
+// カタログを見るかを示す（品質階層の有無は resourceId 側の
+// qualityTiers で判定するので、ここでは持たない）。
+export const MONSTER_REWARDS = {
+  karumeDog: { category: "rigid", resourceId: "coarseSugarMineral" },
+  chocoRock: { category: "rigid", resourceId: "cacaoLayeredRock" },
+  electricJelly: { category: "natural", resourceId: "electroMagneticGelatin" },
+};
+
+// L1(モンスターのレベル)を、報酬計算式のLH(10の位)/LM(3で割った商)/
+// LL(3で割った余り)に分解する。
+function splitMonsterLevel(level) {
+  const lh = Math.floor(level / 10);
+  const l2 = level % 10;
+  const lm = Math.floor(l2 / 3);
+  const ll = l2 % 3;
+  return { lh, lm, ll };
+}
+
+// 1体分のモンスター報酬（戦闘全体で1回だけ加算されるザラメ鉱石ボーナス
+// は含まない -- そちらはcomputeBattleRewards側で扱う）。
+// {category, resourceId, tier, amount} の配列を返す（tier: null は
+// 品質階層の無い資源＝固定数量での付与）。
+export function computeMonsterReward(monster) {
+  const reward = MONSTER_REWARDS[monster.dataId];
+  const species = reward.category === "natural" ? NATURAL_RESOURCES[reward.resourceId] : RIGID_RESOURCES[reward.resourceId];
+  const { lh, lm, ll } = splitMonsterLevel(monster.level);
+  if (!species.qualityTiers) {
+    return [{ category: reward.category, resourceId: reward.resourceId, tier: null, amount: 2 * monster.level }];
+  }
+  const tierOrder = reward.category === "natural" ? ["premium", "high", "mid"] : ["high", "mid", "low"];
+  return [
+    { category: reward.category, resourceId: reward.resourceId, tier: tierOrder[0], amount: lh },
+    { category: reward.category, resourceId: reward.resourceId, tier: tierOrder[1], amount: lm },
+    { category: reward.category, resourceId: reward.resourceId, tier: tierOrder[2], amount: ll },
+  ].filter((entry) => entry.amount > 0);
+}
+
+// 戦闘で相対した全モンスター分の戦闘勝利報酬: 各モンスターの
+// computeMonsterReward を合算した上で、最後に「ザラメ鉱石×
+// (全モンスターのレベル合計÷2を切り上げ)」を1回だけ加算する。同じ
+// 資源・品質の項目は1つにまとめて返す。
+export function computeBattleRewards(monsters) {
+  const merged = new Map();
+  const add = (category, resourceId, tier, amount) => {
+    if (amount <= 0) return;
+    const key = `${category}:${resourceId}:${tier ?? ""}`;
+    const entry = merged.get(key) ?? { category, resourceId, tier, amount: 0 };
+    entry.amount += amount;
+    merged.set(key, entry);
+  };
+  for (const monster of monsters) {
+    for (const entry of computeMonsterReward(monster)) add(entry.category, entry.resourceId, entry.tier, entry.amount);
+  }
+  const levelSum = monsters.reduce((total, monster) => total + monster.level, 0);
+  add("rigid", "coarseSugarMineral", null, Math.ceil(levelSum / 2));
+  return [...merged.values()];
 }
 
 // Permanently raises one of a character's five growth stats (not HP,

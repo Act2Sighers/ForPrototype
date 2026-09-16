@@ -1,6 +1,19 @@
 import { renderScreen, button, h } from "../dom.js";
-import state from "../state.js";
-import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData, applyHpDamage, applyHpHeal, CHARACTER_STAT_FULL_LABELS } from "../data/resourceCatalog.js";
+import state, { grantResource, grantTieredResource } from "../state.js";
+import {
+  computeStats,
+  computeMaxHp,
+  MONSTER_DATA,
+  createMonsterFromData,
+  applyHpDamage,
+  applyHpHeal,
+  CHARACTER_STAT_FULL_LABELS,
+  computeBattleRewards,
+  NATURAL_RESOURCES,
+  RIGID_RESOURCES,
+  NATURAL_QUALITY_LABELS,
+  RIGID_QUALITY_LABELS,
+} from "../data/resourceCatalog.js";
 import { rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -409,8 +422,11 @@ function statSnapshotText(unit, stat) {
 // Prepフェイズの行動順は常に「味方①→敵①→味方②→敵②→…」の固定、
 // Mainフェイズの行動順はINが高い順（同値はランダム）。HPが0以下の
 // ユニットは戦闘不能となり、行動できず行動対象にも選べなくなる。
-// 陣営が全滅した時点で勝敗が決し、敵全滅なら戦闘画面を閉じてマップへ、
-// 味方全滅なら結果画面（ゲームオーバー）へ自動的に遷移する。
+// 陣営が全滅した時点で勝敗が決し、ログに結果（勝利ならモンスターデータ
+// 由来の戦闘勝利報酬つき）を残して行動バーを「戦闘を終える」ボタン
+// 1つだけに切り替える。実際の画面遷移（勝利なら戦闘不能だった味方の
+// HP1/4復活を挟んでマップへ、敗北なら結果画面へ）はそのボタンを押した
+// 時点で行い、自動では進まない。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
   const monsterDataIds = Object.keys(MONSTER_DATA);
@@ -421,6 +437,7 @@ export function BattleScene(container, params, api) {
   let phase = "prep"; // "prep" | "main"
   let executing = false; // true for the whole duration of runPrepExecution/runMainExecution (blocks input)
   let activeArrow = null; // { actor, target } | null
+  let battleOutcome = null; // "victory" | "defeat" | null -- once set, the action bar swaps to a single 戦闘を終える button
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -556,15 +573,56 @@ export function BattleScene(container, params, api) {
     return null;
   }
 
-  // 勝敗が決した瞬間に呼ぶ：結果をログに残して少し見せてから、勝利なら
-  // 戦闘画面を閉じてマップへ戻り（「戦闘を終える」ボタンと同じ遷移）、
-  // 敗北なら結果画面へ（「全滅（テスト用）」ボタンと同じ遷移）。
-  async function concludeBattle(outcome) {
-    pushLog(outcome === "victory" ? "▼▼▼ 勝利！ ▼▼▼" : "▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
+  // 戦闘で相対した全モンスター分の戦闘勝利報酬を計算して実際に付与し、
+  // ログ表示用の文字列を返す（グラント自体もここで行う -- 演出は無く
+  // テキストログの表示だけで良いという指定のため）。
+  function grantBattleRewards() {
+    const rewards = computeBattleRewards(enemyUnits.map((u) => u.character));
+    for (const entry of rewards) {
+      if (entry.tier === null) grantResource(entry.category, entry.resourceId, entry.amount);
+      else grantTieredResource(entry.category, entry.resourceId, entry.tier, entry.amount);
+    }
+    const parts = rewards.map((entry) => {
+      const species = entry.category === "natural" ? NATURAL_RESOURCES[entry.resourceId] : RIGID_RESOURCES[entry.resourceId];
+      if (!entry.tier) return `${species.name}×${entry.amount}`;
+      const tierLabel = (entry.category === "natural" ? NATURAL_QUALITY_LABELS : RIGID_QUALITY_LABELS)[entry.tier];
+      return `${species.name}(${tierLabel})×${entry.amount}`;
+    });
+    return parts.join("、");
+  }
+
+  // 戦闘不能のまま勝利した味方を、最大HPの1/4（切り上げ）で復活させる。
+  // マップ画面に戻るタイミング（このボタンを押した瞬間）に行う。
+  function reviveIncapacitatedAllies() {
+    for (const unit of allyUnits) {
+      if (!isIncapacitated(unit)) continue;
+      const maxHp = computeMaxHp(unit.character.growth);
+      unit.character.currentHp = Math.ceil(maxHp / 4);
+    }
+  }
+
+  // 勝敗が決した瞬間に呼ぶ：結果と（勝利なら）報酬をログに残すだけで、
+  // 自動では遷移しない。以降はrender()が「戦闘を終える」ボタン1つだけ
+  // の行動バーを出し、それを押した時点で初めてマップ/結果画面へ移る
+  // （実際の遷移とHP復活はhandleBattleEndButton側）。
+  function concludeBattle(outcome) {
+    battleOutcome = outcome;
+    if (outcome === "victory") {
+      pushLog("▼▼▼ 勝利！ ▼▼▼", "phase");
+      pushLog(`戦闘勝利報酬：${grantBattleRewards()}`, "phase");
+    } else {
+      pushLog("▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
+    }
     render();
-    await sleep(MAIN_PHASE_WAIT_MS);
-    if (outcome === "victory") api.closeScene();
-    else api.navigateTo("result", { mode: "gameover" });
+  }
+
+  function handleBattleEndButton() {
+    if (battleOutcome === "victory") {
+      reviveIncapacitatedAllies();
+      api.closeScene();
+    } else {
+      api.navigateTo("result", { mode: "gameover" });
+    }
   }
 
   // 全ユニットの体幹を、毎ターン終了時に0へ向けて1だけ自然逓減させる。
@@ -717,7 +775,7 @@ export function BattleScene(container, params, api) {
       const outcome = checkBattleEnd();
       if (outcome) {
         activeArrow = null;
-        await concludeBattle(outcome);
+        concludeBattle(outcome);
         return;
       }
     }
@@ -726,7 +784,7 @@ export function BattleScene(container, params, api) {
     await applyContinuousHpTicks();
     const tickOutcome = checkBattleEnd();
     if (tickOutcome) {
-      await concludeBattle(tickOutcome);
+      concludeBattle(tickOutcome);
       return;
     }
 
@@ -911,19 +969,19 @@ export function BattleScene(container, params, api) {
     return h("div", { class: "battle-mobile-roster" }, allyUnits.map(mobileUnitRow));
   }
 
+  // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
+  // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
+  function battleActions() {
+    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton })];
+    return [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
+  }
+
   function render() {
     renderScreen(container, {
       eyebrow: "BATTLE",
       title: "戦闘",
       body: [battleLog(), actionExecuteButton(), battleArena(), battleMobileRoster()],
-      actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
-        button("全滅（テスト用）", {
-          variant: "danger",
-          onClick: () => api.navigateTo("result", { mode: "gameover" }),
-        }),
-        button("戦闘を終える", { variant: "primary", onClick: () => api.closeScene() }),
-      ],
+      actions: battleActions(),
     });
     // テキストログは常に最新行が見えるよう、描画のたびに一番下へ
     // スクロールする（.screen-frame自体のスクロール位置保持とは別)。

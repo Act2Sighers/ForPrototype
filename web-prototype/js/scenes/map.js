@@ -2,6 +2,18 @@ import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
+import { computeMaxHp } from "../data/resourceCatalog.js";
+
+// HPの現在値が最大値の1/3以下の隊員名一覧（何もいなければ空配列）。
+function exhaustedAllyNames() {
+  return state.formationSlots
+    .filter((c) => {
+      const maxHp = computeMaxHp(c.growth);
+      const hp = c.currentHp ?? maxHp;
+      return hp <= maxHp / 3;
+    })
+    .map((c) => c.name);
+}
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -28,7 +40,10 @@ export function MapScene(container, params, api) {
   let awaitingHiringAfterOpening = false;
   let awaitingResultAfterEnding = false;
 
-  function render() {
+  // exhaustedNames: イベントから戻った直後、消耗している隊員がいれば
+  // 一度だけ見せる注意書き用（渡さなければ何も出さない -- 初回入場時や
+  // openNext越しの遷移では呼ばない）。
+  function render(exhaustedNames) {
     const dungeon = getDungeon(state.run.dungeonId);
     const currentId = state.run.currentNodeId;
     const visited = state.run.visitedNodeIds;
@@ -113,12 +128,16 @@ export function MapScene(container, params, api) {
         ? "進むルートを選んでください。"
         : "進めるマスをクリックしてください（自動では進みません）。";
 
+    const alertBanner = exhaustedNames?.length
+      ? h("p", { class: "map-alert", text: `一部の隊員が消耗しています。（${exhaustedNames.join("、")}）` })
+      : null;
+
     renderScreen(container, {
       eyebrow: `MAP / ${dungeon.name}`,
       title: "マップ",
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
       corner: resourceHud(state.run.resources),
-      body: [mapScroll, h("p", { class: "map-hint", text: hint })],
+      body: [alertBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),
       actions: [
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
@@ -164,7 +183,7 @@ export function MapScene(container, params, api) {
         api.navigateTo("result", { mode: "clear" });
         return;
       }
-      render();
+      render(exhaustedAllyNames());
     },
   };
 }

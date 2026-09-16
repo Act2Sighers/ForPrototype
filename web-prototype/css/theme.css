@@ -714,6 +714,17 @@ body {
   color: var(--frost-strong);
 }
 
+/* イベントから戻った直後、消耗している隊員がいる時に一度だけ出す注意書き。 */
+.map-alert {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 77, 109, 0.12);
+  color: var(--danger-strong);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin: 0;
+}
+
 /* ---------------------------------------------------------
    Warehouse grid
    --------------------------------------------------------- */
