@@ -1172,6 +1172,26 @@ body {
   fill: var(--ember-strong);
 }
 
+/* 挑発で「釘付け」になっているユニットが、そのターンのMainフェイズ中
+   ずっと誰に釘付けられているかを示す薄い赤矢印。順次処理の矢印（上の
+   通常クラス）より先にDOMへ追加されるので、常にその下に描かれる。 */
+.battle-arrow-line--pin {
+  stroke: var(--danger);
+  opacity: 0.45;
+}
+
+.battle-arrow-head--pin {
+  fill: var(--danger);
+  opacity: 0.45;
+}
+
+/* 隠密状態のユニットのステータス枠の隣に出す、薄い青のバツ印。 */
+.battle-stealth-mark {
+  stroke: var(--stat-defense);
+  stroke-width: 2;
+  opacity: 0.5;
+}
+
 .battle-center__vs {
   margin: 0;
   font-size: 12px;

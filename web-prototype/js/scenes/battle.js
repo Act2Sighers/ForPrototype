@@ -57,8 +57,9 @@ function svg(tag, attrs = {}, children = []) {
 // 矢印はアリーナ全体を覆う1枚のオーバーレイSVGに、行動主体・行動対象
 // それぞれのステータス枠の「中央側の辺」の中点を実測して描く（DOM実測
 // が必要なので、この2つの生成関数はピクセル座標を直接受け取る）。
-// 相手陣営への矢印は直線＋矢じり。
-function crossArrowElements(a, b) {
+// 相手陣営への矢印は直線＋矢じり。variantを指定すると専用クラスが付き
+// （現状"pin"＝挑発の釘付け矢印のみ）、見た目（色）だけを差し替える。
+function crossArrowElements(a, b, variant) {
   const angle = Math.atan2(b.y - a.y, b.x - a.x);
   const headLen = 10;
   const headWidth = 6;
@@ -68,9 +69,24 @@ function crossArrowElements(a, b) {
   const leftY = baseY - headWidth * Math.cos(angle);
   const rightX = baseX - headWidth * Math.sin(angle);
   const rightY = baseY + headWidth * Math.cos(angle);
+  const lineClass = variant ? `battle-arrow-line battle-arrow-line--${variant}` : "battle-arrow-line";
+  const headClass = variant ? `battle-arrow-head battle-arrow-head--${variant}` : "battle-arrow-head";
   return [
-    svg("line", { x1: a.x, y1: a.y, x2: baseX, y2: baseY, class: "battle-arrow-line" }),
-    svg("polygon", { points: `${b.x},${b.y} ${leftX},${leftY} ${rightX},${rightY}`, class: "battle-arrow-head" }),
+    svg("line", { x1: a.x, y1: a.y, x2: baseX, y2: baseY, class: lineClass }),
+    svg("polygon", { points: `${b.x},${b.y} ${leftX},${leftY} ${rightX},${rightY}`, class: headClass }),
+  ];
+}
+
+// 「隠密」状態のユニットのステータス枠の隣（中央側、点edgeのさらに外側）
+// に描く薄い青のバツ印。
+function stealthMarkElements(edge, faction) {
+  const offset = 14;
+  const x = faction === "ally" ? edge.x + offset : edge.x - offset;
+  const y = edge.y;
+  const r = 6;
+  return [
+    svg("line", { x1: x - r, y1: y - r, x2: x + r, y2: y + r, class: "battle-stealth-mark" }),
+    svg("line", { x1: x - r, y1: y + r, x2: x + r, y2: y - r, class: "battle-stealth-mark" }),
   ];
 }
 
@@ -114,6 +130,28 @@ const PREP_MODULES = {
     stat: "pt",
     apply: (t) => { t.pt.current += 1; t.pt.max += 1; },
   },
+  provoke: {
+    id: "provoke",
+    label: "挑発",
+    targetFaction: "opposing",
+    statusLabel: "釘付け",
+    apply: (actor, target, allyUnits, enemyUnits) => {
+      if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
+      target.pinnedBy = actor;
+      return { applied: true };
+    },
+  },
+  stealth: {
+    id: "stealth",
+    label: "隠密",
+    targetFaction: "self",
+    statusLabel: "隠密",
+    apply: (actor, target, allyUnits, enemyUnits) => {
+      if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
+      target.stealthed = true;
+      return { applied: true };
+    },
+  },
   intimidate: {
     id: "intimidate",
     label: "威圧",
@@ -130,6 +168,13 @@ const PREP_MODULES = {
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
   return (unit.character.currentHp ?? computeMaxHp(unit.character.growth)) <= 0;
+}
+
+// 挑発/隠密の不発判定：自陣営で行動可能（戦闘不能になっていない）なのが
+// 自分自身しかいない場合に真を返す共通ヘルパー。
+function isSoleSurvivor(actor, allyUnits, enemyUnits) {
+  const own = actor.faction === "ally" ? allyUnits : enemyUnits;
+  return own.filter((u) => !isIncapacitated(u)).length <= 1;
 }
 
 // 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。強化魔法/
@@ -274,6 +319,18 @@ const MAIN_MODULES = {
       return applyContinuousStatus(target, 1, "heal", turns);
     },
   },
+  revive: {
+    id: "revive",
+    label: "蘇生",
+    targetFaction: "ownIncapacitated",
+    effect: "revive",
+    apply: (actor, target) => {
+      if (actor.faction === "enemy") return { applied: false };
+      const healedHp = correctedStat(actor, "coordination") * 2;
+      target.character.currentHp = healedHp;
+      return { applied: true, healedHp };
+    },
+  },
   dot: {
     id: "dot",
     label: "継続ダメージ",
@@ -303,6 +360,8 @@ function createBattleUnit(character, faction) {
     stamina: 0,
     corrections: { attack: null, defense: null, destruction: null, wisdom: null, coordination: null },
     continuousHp: null,
+    pinnedBy: null,
+    stealthed: false,
     action: null,
     displayName: character.name,
   };
@@ -470,13 +529,26 @@ export function BattleScene(container, params, api) {
     const module = currentModules()[moduleId];
     const own = actor.faction === "ally" ? allyUnits : enemyUnits;
     const opposing = actor.faction === "ally" ? enemyUnits : allyUnits;
-    const pool = module.targetFaction === "own" ? own : opposing;
-    return pool.filter((u) => !isIncapacitated(u));
+
+    if (module.targetFaction === "self") return [actor];
+    if (module.targetFaction === "ownIncapacitated") return own.filter(isIncapacitated);
+
+    if (module.targetFaction === "own") return own.filter((u) => !isIncapacitated(u));
+
+    // targetFaction === "opposing"：Mainフェイズに限り、釘付け（自身の
+    // pinnedBy優先）・隠密（相手候補から除外）の制限がかかる。
+    let pool = opposing.filter((u) => !isIncapacitated(u));
+    if (phase === "main") {
+      if (actor.pinnedBy) pool = pool.filter((u) => u === actor.pinnedBy);
+      else pool = pool.filter((u) => !u.stealthed);
+    }
+    return pool;
   }
 
   function randomEnemyAction(unit) {
     const modules = currentModules();
-    const moduleId = pickRandom(Object.keys(modules));
+    const viableModuleIds = Object.keys(modules).filter((id) => candidateUnits(unit, id).length > 0);
+    const moduleId = pickRandom(viableModuleIds);
     const targetUnit = pickRandom(candidateUnits(unit, moduleId));
     return { moduleId, targetUnit };
   }
@@ -488,6 +560,8 @@ export function BattleScene(container, params, api) {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       unit.in = 0;
       unit.pt = { current: PREP_START_PT, max: PREP_START_PT };
+      unit.pinnedBy = null;
+      unit.stealthed = false;
     }
     for (const unit of allyUnits) unit.action = null;
     for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : randomEnemyAction(unit);
@@ -643,10 +717,20 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
-    const before = statSnapshotText(targetUnit, module.stat);
-    module.apply(targetUnit);
-    const after = statSnapshotText(targetUnit, module.stat);
-    pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
+    if (module.statusLabel) {
+      const result = module.apply(unit, targetUnit, allyUnits, enemyUnits);
+      pushLog(
+        result.applied
+          ? `${targetUnit.displayName}が「${module.statusLabel}」状態になった！`
+          : `${unit.displayName}以外に自陣営の行動可能なユニットがいないため、効果は不発に終わった。`,
+        unit.faction
+      );
+    } else {
+      const before = statSnapshotText(targetUnit, module.stat);
+      module.apply(targetUnit);
+      const after = statSnapshotText(targetUnit, module.stat);
+      pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
+    }
     render();
     await sleep(ACTION_DELAY_MS);
   }
@@ -661,9 +745,17 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
-    // 選択時点では生きていたが、それより前に処理された別のユニットの
-    // 行動で対象が戦闘不能になっていた場合、効果は不発にする。
-    if (isIncapacitated(targetUnit)) {
+    // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
+    // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
+    if (module.effect === "revive") {
+      const result = module.apply(unit, targetUnit);
+      pushLog(
+        result.applied
+          ? `${targetUnit.displayName}が復活した！（HP：0 → ${result.healedHp}）`
+          : `${unit.displayName}は敵陣営のため、効果は不発に終わった。`,
+        unit.faction
+      );
+    } else if (isIncapacitated(targetUnit)) {
       pushLog(`${targetUnit.displayName}は戦闘不能のため、効果は不発に終わった。`, unit.faction);
     } else if (module.effect === "stamina") {
       const before = targetUnit.stamina;
@@ -932,24 +1024,54 @@ export function BattleScene(container, params, api) {
     const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
     if (!overlay) return;
     while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
-    if (!activeArrow) return;
 
     const arenaRect = arenaEl.getBoundingClientRect();
     if (!arenaRect.width || !arenaRect.height) return; // 携帯モードでアリーナ自体が非表示の間は何もしない
     overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
 
-    const actorEl = arenaEl.querySelector(`[data-unit-id="${activeArrow.actor.character.id}"]`);
-    const targetEl = arenaEl.querySelector(`[data-unit-id="${activeArrow.target.character.id}"]`);
-    if (!actorEl || !targetEl) return;
+    // ユニットのステータス枠の「中央側の辺」の中点をDOM実測する。枠が
+    // 見つからない（携帯モードなど）場合はnullを返す。
+    function unitEdge(unit) {
+      const el = arenaEl.querySelector(`[data-unit-id="${unit.character.id}"]`);
+      if (!el) return null;
+      return edgePoint(el.getBoundingClientRect(), arenaRect, unit.faction);
+    }
 
-    const a = edgePoint(actorEl.getBoundingClientRect(), arenaRect, activeArrow.actor.faction);
-    const b = edgePoint(targetEl.getBoundingClientRect(), arenaRect, activeArrow.target.faction);
+    // (1) 釘付けの薄い赤矢印：Mainフェイズのみ、釘付けた側・られた側の
+    // どちらも戦闘不能でない場合のみ描く。
+    if (phase === "main") {
+      for (const unit of [...allyUnits, ...enemyUnits]) {
+        if (!unit.pinnedBy || isIncapacitated(unit) || isIncapacitated(unit.pinnedBy)) continue;
+        const a = unitEdge(unit.pinnedBy);
+        const b = unitEdge(unit);
+        if (!a || !b) continue;
+        for (const el of crossArrowElements(a, b, "pin")) overlay.appendChild(el);
+      }
+    }
 
-    const elements =
-      activeArrow.actor.faction !== activeArrow.target.faction
-        ? crossArrowElements(a, b)
-        : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
-    for (const el of elements) overlay.appendChild(el);
+    // (2) 隠密の薄い青バツ印：Mainフェイズのみ、戦闘不能でない場合のみ。
+    if (phase === "main") {
+      for (const unit of [...allyUnits, ...enemyUnits]) {
+        if (!unit.stealthed || isIncapacitated(unit)) continue;
+        const edge = unitEdge(unit);
+        if (!edge) continue;
+        for (const el of stealthMarkElements(edge, unit.faction)) overlay.appendChild(el);
+      }
+    }
+
+    // (3) 順次処理の一時的な矢印。上記2つより後に追加することで、常に
+    // それらより表側（手前）に描かれる。
+    if (activeArrow) {
+      const a = unitEdge(activeArrow.actor);
+      const b = unitEdge(activeArrow.target);
+      if (a && b) {
+        const elements =
+          activeArrow.actor.faction !== activeArrow.target.faction
+            ? crossArrowElements(a, b)
+            : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
+        for (const el of elements) overlay.appendChild(el);
+      }
+    }
   }
 
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
