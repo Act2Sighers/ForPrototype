@@ -1,6 +1,6 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
-import { computeStats, computeMaxHp, createCharacterFromData } from "../data/resourceCatalog.js";
+import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData } from "../data/resourceCatalog.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
 // exploration.js's own __EXPLORATION_FAST__ hook. window.__BATTLE_FAST__
@@ -187,11 +187,13 @@ function battleHpGauge(character) {
 
 // 味方・敵どちらのステータス枠もこの1つを共有する。IN/PTは戦闘用ラッパ
 // (unit) から、HP/能力値は隊員本体(unit.character)から読む。
-// highlightClass: 矢印表示中の行動主体/行動対象を示す追加クラス、無い
-// 時はnull。data-unit-id は矢印オーバーレイがDOM実測で枠を探すためのキー。
-function battleUnitCard(unit, highlightClass) {
-  const classes = highlightClass ? `battle-unit ${highlightClass}` : "battle-unit";
-  return h("div", { class: classes, "data-unit-id": unit.character.id }, [
+// extraClass: 矢印表示中の行動主体/行動対象、または行動対象選択中の
+// クリック可能表示を示す追加クラス、無い時はnull。onClickはワイド
+// モードでのステータス枠クリックによる行動対象指定用。data-unit-id は
+// 矢印オーバーレイがDOM実測で枠を探すためのキー。
+function battleUnitCard(unit, extraClass, onClick) {
+  const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
+  return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: unit.displayName }),
       staminaSpan(),
@@ -222,7 +224,8 @@ function statSnapshotText(unit, stat) {
 // まだ空実装で、表示とウェイトだけを行う。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
-  const enemyUnits = Array.from({ length: allyUnits.length }, () => createBattleUnit(createCharacterFromData("biscuitBaker"), "enemy"));
+  const monsterDataIds = Object.keys(MONSTER_DATA);
+  const enemyUnits = Array.from({ length: allyUnits.length }, () => createBattleUnit(createMonsterFromData(pickRandom(monsterDataIds)), "enemy"));
   assignDisplayNames([...allyUnits, ...enemyUnits]);
 
   let turn = 1;
@@ -296,6 +299,34 @@ export function BattleScene(container, params, api) {
   function handleTargetChange(unit, targetUnit) {
     if (unit.action) unit.action.targetUnit = targetUnit;
     render();
+  }
+
+  // 行動内容は確定済みだが行動対象が未確定な選択枠を全て返す。
+  function pendingTargetUnits() {
+    return allyUnits.filter((u) => u.action && !u.action.targetUnit);
+  }
+
+  // ワイドモード限定：ステータス枠を直接クリックした時の行動対象指定。
+  // 行動対象未確定の選択枠のうち、そのユニットが候補に含まれるもの
+  // 全てに同時に反映する（候補に無ければその枠には何もしない）。
+  function handleStatusCardClick(clickedUnit) {
+    if (!isInteractive()) return;
+    let changed = false;
+    for (const unit of pendingTargetUnits()) {
+      if (candidateUnits(unit, unit.action.moduleId).includes(clickedUnit)) {
+        unit.action.targetUnit = clickedUnit;
+        changed = true;
+      }
+    }
+    if (changed) render();
+  }
+
+  // このステータス枠をクリックすることで、行動対象未確定のどれかの
+  // 選択枠に指定できるか（見た目の手がかり用。実際の判定は
+  // handleStatusCardClick 内でも改めて行う）。
+  function isClickableAsTarget(unit) {
+    if (!isInteractive()) return false;
+    return pendingTargetUnits().some((u) => candidateUnits(u, u.action.moduleId).includes(unit));
   }
 
   // Prepフェイズの行動順は必ず「味方①→敵①→味方②→敵②→…」で、INとは
@@ -382,9 +413,11 @@ export function BattleScene(container, params, api) {
 
   // ワイドモードの専用列に並ぶ、隊員名付きの版。味方ステータス列とは
   // 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
-  // 名前を添えている。
+  // 名前を添えている。行動内容・行動対象のどちらかが未確定の間はハイ
+  // ライトし、両方確定すると解除する。順次処理中は全て一律グレーアウト。
   function actionSelectBox(unit) {
-    return h("div", { class: "battle-action-select" }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
+    const modifier = executing ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
+    return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
   }
 
   function battleLog() {
@@ -415,25 +448,37 @@ export function BattleScene(container, params, api) {
     ]);
   }
 
-  // 矢印表示中、その行動主体・行動対象のステータス枠に付与する追加
-  // クラス（無関係なユニットにはnull）。
-  function highlightFor(unit) {
-    if (!activeArrow) return null;
-    if (unit === activeArrow.actor) return "battle-unit--actor";
-    if (unit === activeArrow.target) return "battle-unit--target";
-    return null;
+  // 矢印表示中はその行動主体・行動対象のステータス枠を、そうでなく
+  // 行動対象選択中はクリックで指定できる枠を、それぞれ追加クラスで
+  // 示す（両者は時間的に排他なので競合しない）。
+  function statusCardClass(unit) {
+    if (activeArrow) {
+      if (unit === activeArrow.actor) return "battle-unit--actor";
+      if (unit === activeArrow.target) return "battle-unit--target";
+      return null;
+    }
+    return isClickableAsTarget(unit) ? "battle-unit--clickable-target" : null;
   }
 
   // ワイドモード：味方の行動選択列（左端）／味方ステータス列／中央情報
   // ／敵ステータス列、の4列。矢印は各ステータス枠の中央側の辺を実測し
   // て描く1枚のオーバーレイSVG（アリーナ全体に重ねる）で、中央の
-  // フェイズ表示や「vs」の上を横切ることもある。
+  // フェイズ表示や「vs」の上を横切ることもある。ステータス枠は行動対象
+  // 選択中、直接クリックすることでも指定できる（ワイドモード限定）。
   function battleArena() {
     return h("div", { class: "battle-arena" }, [
       h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
-      h("div", { class: "battle-column battle-column--ally" }, allyUnits.map((u) => battleUnitCard(u, highlightFor(u)))),
+      h(
+        "div",
+        { class: "battle-column battle-column--ally" },
+        allyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
+      ),
       battleCenter(),
-      h("div", { class: "battle-column battle-column--enemy" }, enemyUnits.map((u) => battleUnitCard(u, highlightFor(u)))),
+      h(
+        "div",
+        { class: "battle-column battle-column--enemy" },
+        enemyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
+      ),
       svg("svg", { class: "battle-arrow-overlay" }),
     ]);
   }

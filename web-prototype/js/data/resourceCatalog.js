@@ -162,6 +162,33 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
   };
 }
 
+// モンスターデータ: 敵陣営用の同種テンプレート。隊員データと同じ
+// base+growth の考え方（CHARACTER_BASE＋growth＝表示される能力値、
+// growthの合計×12＝HP）を流用しているが、雇用候補には一切出ないよう
+// CHARACTER_DATAとは別カタログにしてある。プレイヤーの操作で成長する
+// ことは無いので bonusGrowth の概念は無い。
+export const MONSTER_DATA = {
+  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
+  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 } },
+};
+
+// createCharacterFromData と同じ形のインスタンスを、MONSTER_DATA から
+// 毎回新しい個体（idだけ別）として生成する。
+export function createMonsterFromData(dataId) {
+  const data = MONSTER_DATA[dataId];
+  const growth = { ...data.growth };
+  return {
+    id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name: data.name,
+    level: computeLevel(growth),
+    growth,
+    currentHp: computeMaxHp(growth),
+    skills: [],
+    weapon: null,
+  };
+}
+
 // Permanently raises one of a character's five growth stats (not HP,
 // which is derived, not stored) by `amount`, recomputing level to match
 // (see computeLevel). Returns {before, after} of the raw growth value,

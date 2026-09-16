@@ -1155,18 +1155,6 @@ body {
   fill: var(--ember-strong);
 }
 
-/* 矢印表示中、行動主体は水色、行動対象は赤系でステータス枠をハイラ
-   イトする。 */
-.battle-unit--actor {
-  border-color: var(--frost);
-  box-shadow: 0 0 0 2px var(--frost) inset;
-}
-
-.battle-unit--target {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 2px var(--danger) inset;
-}
-
 .battle-center__vs {
   margin: 0;
   font-size: 12px;
@@ -1181,6 +1169,27 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* 矢印表示中、行動主体は水色、行動対象は赤系でステータス枠をハイラ
+   イトする。.battle-unit の border 一括指定より後ろに置かないと、
+   border-color の上書きがそちらに打ち消されてしまう点に注意
+   （box-shadowだけなら影響されないが、意図通りborderも変えたい）。 */
+.battle-unit--actor {
+  border-color: var(--frost);
+  box-shadow: 0 0 0 2px var(--frost) inset;
+}
+
+.battle-unit--target {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger) inset;
+}
+
+/* 行動対象選択中、クリックで指定できるステータス枠（ワイドモード限定）。 */
+.battle-unit--clickable-target {
+  cursor: pointer;
+  border-style: dashed;
+  border-color: var(--ember);
 }
 
 .battle-unit__head {
@@ -1268,6 +1277,17 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* 行動内容・行動対象のどちらかが未確定の間のハイライト。 */
+.battle-action-select--pending {
+  border-color: var(--ember);
+  box-shadow: 0 0 0 2px var(--ember) inset;
+}
+
+/* 順次処理中は全ての選択枠を一律グレーアウト。 */
+.battle-action-select--disabled {
+  opacity: 0.5;
 }
 
 .battle-action-select__name {
