@@ -103,16 +103,20 @@ const PREP_MODULES = {
   },
 };
 
-// Mainフェイズの行動。今回はまず基本の3つ（攻撃・貫通攻撃・回復）だけ
-// 実装する（プロテクト/スマッシュ/強化魔法/弱体化魔法/継続回復/継続
+// Mainフェイズの行動。攻撃・貫通攻撃・回復（HP増減）に加え、プロテクト・
+// スマッシュ（体幹増減）を実装済み（強化魔法/弱体化魔法/継続回復/継続
 // ダメージは後続の回で追加予定）。モジュール本来はPTを消費しない
 // （消費するのは将来の「スキル」側）ので、ここでも一切PTを扱わない。
-// apply() は {magnitude, label} を返し、ログの効果行に使う。
+// effect: "hp"のものはapply()が{magnitude, label}を返しHPログに使う。
+// effect: "stamina"のものはapply()が対象の体幹を直接増減するだけで、
+// ログ表示はresolveMainAction側でunit.staminaのbefore/afterを見る
+// （PrepフェイズのIN/PTログと同じ組み立て）。
 const MAIN_MODULES = {
   attack: {
     id: "attack",
     label: "攻撃",
     targetFaction: "opposing",
+    effect: "hp",
     apply: (actor, target) => {
       const a = rollSum(computeStats(actor.character).attack);
       const d = rollSum(computeStats(target.character).defense);
@@ -126,6 +130,7 @@ const MAIN_MODULES = {
     id: "pierceAttack",
     label: "貫通攻撃",
     targetFaction: "opposing",
+    effect: "hp",
     apply: (actor, target) => {
       const a = rollSum(computeStats(actor.character).attack);
       const c = Math.pow(2, -0.5 * target.stamina);
@@ -138,12 +143,35 @@ const MAIN_MODULES = {
     id: "heal",
     label: "回復",
     targetFaction: "own",
+    effect: "hp",
     apply: (actor, target) => {
       const { successCount } = rollJudgement(computeStats(actor.character).coordination);
       const healPower = successCountToR(successCount);
       const healAmount = rollSum(healPower);
       applyHpHeal(target.character, healAmount);
       return { magnitude: healAmount, label: "回復" };
+    },
+  },
+  protect: {
+    id: "protect",
+    label: "プロテクト",
+    targetFaction: "own",
+    effect: "stamina",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(computeStats(actor.character).defense);
+      const x = successCountToR(successCount);
+      target.stamina += x;
+    },
+  },
+  smash: {
+    id: "smash",
+    label: "スマッシュ",
+    targetFaction: "opposing",
+    effect: "stamina",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(computeStats(actor.character).destruction);
+      const x = successCountToR(successCount);
+      target.stamina -= x;
     },
   },
 };
@@ -199,7 +227,7 @@ function battleStatsLine(character) {
 
 // 体幹: 0 基準の正負整数。正なら「装甲」で青く、負なら「脆弱性」で
 // 黄色く表示し、0（補正なし）はどちらのラベルも付けず素のまま表示する。
-// 毎ターン終了時に0へ向けて1ずつ自然逓減する（applyEndOfTurnDecay）。
+// 毎ターン終了時に0へ向けて1ずつ自然逓減する（applyEndOfTurnStaminaDecay）。
 function staminaSpan(stamina) {
   if (stamina > 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--armor", text: `装甲${stamina}` });
   if (stamina < 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--fragile", text: `脆弱性${-stamina}` });
@@ -265,9 +293,9 @@ function statSnapshotText(unit, stat) {
 
 // Prep/Mainどちらのフェイズも、CPUのランダム行動選択・プレイヤーの
 // 手動選択・ウェイト付き順次処理・矢印の一時表示という同じ流れを持つ。
-// Mainフェイズはまだ攻撃/貫通攻撃/回復の3行動のみ（プロテクト/スマッ
-// シュ/強化魔法/弱体化魔法/継続回復/継続ダメージ、IN順の行動順、戦闘
-// 不能・勝敗判定は後続の回で追加予定）。
+// Mainフェイズは攻撃/貫通攻撃/回復/プロテクト/スマッシュの5行動まで
+// 実装済み（強化魔法/弱体化魔法/継続回復/継続ダメージ、IN順の行動順、
+// 戦闘不能・勝敗判定は後続の回で追加予定）。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
   const monsterDataIds = Object.keys(MONSTER_DATA);
@@ -417,7 +445,8 @@ export function BattleScene(container, params, api) {
   }
 
   // Mainフェイズの1ユニット分：Prepと同じ流れだが、効果がHPの増減
-  // （ダメージ/回復）である点が異なる。
+  // （攻撃/貫通攻撃/回復）か体幹の増減（プロテクト/スマッシュ）かで
+  // 結果ログの組み立てが分岐する。
   async function resolveMainAction(unit) {
     const { moduleId, targetUnit } = unit.action;
     const module = MAIN_MODULES[moduleId];
@@ -426,10 +455,17 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
-    const beforeHp = targetUnit.character.currentHp;
-    const { magnitude, label } = module.apply(unit, targetUnit);
-    const afterHp = targetUnit.character.currentHp;
-    pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
+    if (module.effect === "stamina") {
+      const before = targetUnit.stamina;
+      module.apply(unit, targetUnit);
+      const after = targetUnit.stamina;
+      pushLog(`${targetUnit.displayName}の体幹：${before} → ${after}`, unit.faction);
+    } else {
+      const beforeHp = targetUnit.character.currentHp;
+      const { magnitude, label } = module.apply(unit, targetUnit);
+      const afterHp = targetUnit.character.currentHp;
+      pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
+    }
     render();
     await sleep(ACTION_DELAY_MS);
   }
