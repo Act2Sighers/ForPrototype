@@ -1,6 +1,6 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
-import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData, applyHpDamage, applyHpHeal } from "../data/resourceCatalog.js";
+import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData, applyHpDamage, applyHpHeal, CHARACTER_STAT_FULL_LABELS } from "../data/resourceCatalog.js";
 import { rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -103,14 +103,53 @@ const PREP_MODULES = {
   },
 };
 
-// Mainフェイズの行動。攻撃・貫通攻撃・回復（HP増減）に加え、プロテクト・
-// スマッシュ（体幹増減）を実装済み（強化魔法/弱体化魔法/継続回復/継続
-// ダメージは後続の回で追加予定）。モジュール本来はPTを消費しない
-// （消費するのは将来の「スキル」側）ので、ここでも一切PTを扱わない。
+// 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。強化魔法/
+// 弱体化魔法自身の発動判定（X用ダイス数）だけはこちらを使う。
+function rawStat(unit, key) {
+  return computeStats(unit.character)[key];
+}
+
+// 実効能力値：unit.correctionsに補正がかかっていればそれを加味した値。
+// 上記以外の全モジュール（攻撃/貫通攻撃/回復/プロテクト/スマッシュ/
+// 継続回復/継続ダメージのダイス数）はこちらを使う。0未満にはしない。
+function correctedStat(unit, key) {
+  const c = unit.corrections[key];
+  return Math.max(0, rawStat(unit, key) + (c ? c.sign * c.n : 0));
+}
+
+// 能力値補正の適用：同じ能力値に既存の補正があれば、強さ(n)を比較して
+// n以上なら上書き、n未満なら不発（既存の補正はそのまま残る）。
+function applyCorrection(target, statKey, n, sign, turns) {
+  const existing = target.corrections[statKey];
+  if (existing && n < existing.n) return { applied: false, statKey, n, sign, turns, existingN: existing.n };
+  target.corrections[statKey] = { n, sign, turnsRemaining: turns };
+  return { applied: true, statKey, n, sign, turns };
+}
+
+// 継続回復/継続ダメージの適用：対象のHP継続効果は共有の単一枠なので、
+// 既存の効果（回復/ダメージ問わず）と強さ(n)を比較して同じルールで
+// 上書きするか不発にする。
+function applyContinuousStatus(target, n, type, turns) {
+  const existing = target.continuousHp;
+  if (existing && n < existing.n) return { applied: false, n, type, turns, existingN: existing.n };
+  target.continuousHp = { n, type, turnsRemaining: turns };
+  return { applied: true, n, type, turns };
+}
+
+// Mainフェイズの行動。攻撃/貫通攻撃/回復（HP増減）、プロテクト/スマッシュ
+// （体幹増減）に加え、強化魔法/弱体化魔法（能力値補正）、継続回復/継続
+// ダメージ（HP継続増減）を実装済み（IN順の行動順、戦闘不能・勝敗判定は
+// 後続の回で追加予定）。モジュール本来はPTを消費しない（消費するのは
+// 将来の「スキル」側）ので、ここでも一切PTを扱わない。強化魔法/弱体化
+// 魔法は本来t（対象の能力値）を指定するが、テスト用にt=攻撃力へ固定
+// している。n（補正/効果の強さ）もUI未実装のため全モジュールでデフォ
+// ルトの1を使う。
 // effect: "hp"のものはapply()が{magnitude, label}を返しHPログに使う。
 // effect: "stamina"のものはapply()が対象の体幹を直接増減するだけで、
 // ログ表示はresolveMainAction側でunit.staminaのbefore/afterを見る
 // （PrepフェイズのIN/PTログと同じ組み立て）。
+// effect: "correction"/"continuous"のものはapply()が
+// {applied, ...}（不発ならapplied:false）を返す。
 const MAIN_MODULES = {
   attack: {
     id: "attack",
@@ -118,8 +157,8 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "hp",
     apply: (actor, target) => {
-      const a = rollSum(computeStats(actor.character).attack);
-      const d = rollSum(computeStats(target.character).defense);
+      const a = rollSum(correctedStat(actor, "attack"));
+      const d = rollSum(correctedStat(target, "defense"));
       const c = Math.pow(2, -0.5 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
@@ -132,7 +171,7 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "hp",
     apply: (actor, target) => {
-      const a = rollSum(computeStats(actor.character).attack);
+      const a = rollSum(correctedStat(actor, "attack"));
       const c = Math.pow(2, -0.5 * target.stamina);
       const damage = Math.ceil(a * c);
       applyHpDamage(target.character, damage);
@@ -145,7 +184,7 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "hp",
     apply: (actor, target) => {
-      const { successCount } = rollJudgement(computeStats(actor.character).coordination);
+      const { successCount } = rollJudgement(correctedStat(actor, "coordination"));
       const healPower = successCountToR(successCount);
       const healAmount = rollSum(healPower);
       applyHpHeal(target.character, healAmount);
@@ -158,7 +197,7 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "stamina",
     apply: (actor, target) => {
-      const { successCount } = rollJudgement(computeStats(actor.character).defense);
+      const { successCount } = rollJudgement(correctedStat(actor, "defense"));
       const x = successCountToR(successCount);
       target.stamina += x;
     },
@@ -169,9 +208,53 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "stamina",
     apply: (actor, target) => {
-      const { successCount } = rollJudgement(computeStats(actor.character).destruction);
+      const { successCount } = rollJudgement(correctedStat(actor, "destruction"));
       const x = successCountToR(successCount);
       target.stamina -= x;
+    },
+  },
+  enhance: {
+    id: "enhance",
+    label: "強化魔法",
+    targetFaction: "own",
+    effect: "correction",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(rawStat(actor, "coordination"));
+      const turns = successCountToR(successCount);
+      return applyCorrection(target, "attack", 1, 1, turns);
+    },
+  },
+  weaken: {
+    id: "weaken",
+    label: "弱体化魔法",
+    targetFaction: "opposing",
+    effect: "correction",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(rawStat(actor, "wisdom"));
+      const turns = successCountToR(successCount);
+      return applyCorrection(target, "attack", 1, -1, turns);
+    },
+  },
+  regen: {
+    id: "regen",
+    label: "継続回復",
+    targetFaction: "own",
+    effect: "continuous",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(correctedStat(actor, "coordination"));
+      const turns = successCountToR(successCount);
+      return applyContinuousStatus(target, 1, "heal", turns);
+    },
+  },
+  dot: {
+    id: "dot",
+    label: "継続ダメージ",
+    targetFaction: "opposing",
+    effect: "continuous",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
+      const turns = successCountToR(successCount);
+      return applyContinuousStatus(target, 1, "damage", turns);
     },
   },
 };
@@ -180,9 +263,21 @@ const PREP_START_PT = 3;
 
 // 陣営ごとの隊員をラップする、戦闘限定の使い捨てデータ。IN/PT/行動選択
 // はここにだけ持たせ、隊員本体（state.formationSlots の実オブジェクト）
-// には一切書き込まない。
+// には一切書き込まない。corrections: 能力値ごとの補正枠（無ければ
+// null）。continuousHp: 継続回復/継続ダメージの単一共有枠（無ければ
+// null）。
 function createBattleUnit(character, faction) {
-  return { character, faction, in: 0, pt: { current: PREP_START_PT, max: PREP_START_PT }, stamina: 0, action: null, displayName: character.name };
+  return {
+    character,
+    faction,
+    in: 0,
+    pt: { current: PREP_START_PT, max: PREP_START_PT },
+    stamina: 0,
+    corrections: { attack: null, defense: null, destruction: null, wisdom: null, coordination: null },
+    continuousHp: null,
+    action: null,
+    displayName: character.name,
+  };
 }
 
 // 戦闘開始時、陣営を問わず同名のユニットがいる場合、2体目以降の名前に
@@ -201,25 +296,24 @@ function assignDisplayNames(units) {
 const BATTLE_STAT_ORDER = ["attack", "defense", "destruction", "wisdom", "coordination"];
 const BATTLE_STAT_ABBR = { attack: "攻", defense: "防", destruction: "破", wisdom: "賢", coordination: "協" };
 
-// 能力値の補正状態 -- "positive" | "negative" | null. No corrections
-// mechanic exists yet, so this always returns null (uncolored) for now;
-// see the module comment above.
-function getStatCorrection() {
-  return null;
+// 能力値の補正状態 -- "positive" | "negative" | null。強化魔法/弱体化
+// 魔法でその能力値に補正がかかっていれば符号を返す（表示の色分け用）。
+function getStatCorrection(unit, key) {
+  const c = unit.corrections[key];
+  if (!c) return null;
+  return c.sign > 0 ? "positive" : "negative";
 }
 
-function statAbbrSpan(key, value) {
-  const correction = getStatCorrection();
+function statAbbrSpan(key, value, correction) {
   const cls = correction === "positive" ? "battle-stat battle-stat--boost" : correction === "negative" ? "battle-stat battle-stat--drop" : "battle-stat";
   return h("span", { class: cls, text: `${BATTLE_STAT_ABBR[key]}${value}` });
 }
 
-function battleStatsLine(character) {
-  const s = computeStats(character);
+function battleStatsLine(unit) {
   const parts = ["能力値: [ "];
   BATTLE_STAT_ORDER.forEach((key, i) => {
     if (i > 0) parts.push(" / ");
-    parts.push(statAbbrSpan(key, s[key]));
+    parts.push(statAbbrSpan(key, correctedStat(unit, key), getStatCorrection(unit, key)));
   });
   parts.push(" ]");
   return h("p", { class: "battle-unit__stats" }, parts);
@@ -246,13 +340,17 @@ function ptLamp(current, max) {
 
 // 隊員情報カード（characterCard.js）の HP ゲージと同じ構造だが、
 // 戦闘画面の枠は横幅が厳しいので「カロリー(HP)」ではなく「HP」だけ
-// のラベルにした専用版。
-function battleHpGauge(character) {
+// のラベルにした専用版。継続回復/継続ダメージがかかっている間は、
+// ラベルを「HP(↑n)」「HP(↓n)」に変えてその存在を示す。
+function battleHpGauge(unit) {
+  const character = unit.character;
   const maxHp = computeMaxHp(character.growth);
   const currentHp = character.currentHp ?? maxHp;
   const pct = maxHp > 0 ? Math.max(0, Math.min(100, (currentHp / maxHp) * 100)) : 0;
+  const c = unit.continuousHp;
+  const label = c ? `HP(${c.type === "heal" ? "↑" : "↓"}${c.n})` : "HP";
   return h("div", { class: "hp-line" }, [
-    h("span", { class: "hp-line__label stat-hp", text: "HP" }),
+    h("span", { class: "hp-line__label stat-hp", text: label }),
     h("span", { class: "hp-line__value", text: `${currentHp} / ${maxHp}` }),
     h("div", { class: "hp-gauge" }, [h("div", { class: "hp-gauge__fill", style: `width:${pct}%` })]),
   ]);
@@ -271,8 +369,8 @@ function battleUnitCard(unit, extraClass, onClick) {
       h("span", { class: "battle-unit__name", text: unit.displayName }),
       staminaSpan(unit.stamina),
     ]),
-    battleHpGauge(unit.character),
-    battleStatsLine(unit.character),
+    battleHpGauge(unit),
+    battleStatsLine(unit),
     h("div", { class: "battle-unit__footer" }, [
       h("span", { text: `IN: ${unit.in}` }),
       h("div", { class: "battle-unit__pt" }, [
@@ -293,8 +391,8 @@ function statSnapshotText(unit, stat) {
 
 // Prep/Mainどちらのフェイズも、CPUのランダム行動選択・プレイヤーの
 // 手動選択・ウェイト付き順次処理・矢印の一時表示という同じ流れを持つ。
-// Mainフェイズは攻撃/貫通攻撃/回復/プロテクト/スマッシュの5行動まで
-// 実装済み（強化魔法/弱体化魔法/継続回復/継続ダメージ、IN順の行動順、
+// Mainフェイズは攻撃/貫通攻撃/回復/プロテクト/スマッシュ/強化魔法/
+// 弱体化魔法/継続回復/継続ダメージの9行動まで実装済み（IN順の行動順、
 // 戦闘不能・勝敗判定は後続の回で追加予定）。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
@@ -444,9 +542,8 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
-  // Mainフェイズの1ユニット分：Prepと同じ流れだが、効果がHPの増減
-  // （攻撃/貫通攻撃/回復）か体幹の増減（プロテクト/スマッシュ）かで
-  // 結果ログの組み立てが分岐する。
+  // Mainフェイズの1ユニット分：Prepと同じ流れだが、効果の種類（HP増減/
+  // 体幹増減/能力値補正/継続効果）で結果ログの組み立てが分岐する。
   async function resolveMainAction(unit) {
     const { moduleId, targetUnit } = unit.action;
     const module = MAIN_MODULES[moduleId];
@@ -460,6 +557,24 @@ export function BattleScene(container, params, api) {
       module.apply(unit, targetUnit);
       const after = targetUnit.stamina;
       pushLog(`${targetUnit.displayName}の体幹：${before} → ${after}`, unit.faction);
+    } else if (module.effect === "correction") {
+      const result = module.apply(unit, targetUnit);
+      const statLabel = CHARACTER_STAT_FULL_LABELS[result.statKey];
+      pushLog(
+        result.applied
+          ? `${targetUnit.displayName}の${statLabel}に${result.sign > 0 ? "+" : "-"}${result.n}の補正（${result.turns}ターン）！`
+          : `${targetUnit.displayName}の${statLabel}への補正は不発（既存の補正 ${result.existingN} 以上ではない）`,
+        unit.faction
+      );
+    } else if (module.effect === "continuous") {
+      const result = module.apply(unit, targetUnit);
+      const effectLabel = result.type === "heal" ? "継続回復" : "継続ダメージ";
+      pushLog(
+        result.applied
+          ? `${targetUnit.displayName}に${effectLabel} ${result.n}（${result.turns}ターン）！`
+          : `${targetUnit.displayName}への${effectLabel}は不発（既存の効果 ${result.existingN} 以上ではない）`,
+        unit.faction
+      );
     } else {
       const beforeHp = targetUnit.character.currentHp;
       const { magnitude, label } = module.apply(unit, targetUnit);
@@ -468,6 +583,40 @@ export function BattleScene(container, params, api) {
     }
     render();
     await sleep(ACTION_DELAY_MS);
+  }
+
+  // 継続回復/継続ダメージを持つ全ユニットについて、Mainフェイズの終わり
+  // に一度だけHPを増減させ（n D6合計÷2 を切り上げ）、残りターン数を1
+  // 減らす。0になったらそのユニットの継続効果枠を解除する。
+  async function applyContinuousHpTicks() {
+    for (const unit of [...allyUnits, ...enemyUnits]) {
+      const c = unit.continuousHp;
+      if (!c) continue;
+      const amount = Math.ceil(rollSum(c.n) / 2);
+      const before = unit.character.currentHp;
+      if (c.type === "heal") applyHpHeal(unit.character, amount);
+      else applyHpDamage(unit.character, amount);
+      const after = unit.character.currentHp;
+      const effectLabel = c.type === "heal" ? "継続回復" : "継続ダメージ";
+      pushLog(`${unit.displayName}のHP：${before} → ${after}（${effectLabel} ${amount}）`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+      c.turnsRemaining -= 1;
+      if (c.turnsRemaining <= 0) unit.continuousHp = null;
+    }
+  }
+
+  // 全ユニットの能力値補正について、毎ターン終了時に残りターン数を1
+  // 減らし、0になったものは解除する。
+  function applyEndOfTurnCorrectionDecay() {
+    for (const unit of [...allyUnits, ...enemyUnits]) {
+      for (const key of BATTLE_STAT_ORDER) {
+        const c = unit.corrections[key];
+        if (!c) continue;
+        c.turnsRemaining -= 1;
+        if (c.turnsRemaining <= 0) unit.corrections[key] = null;
+      }
+    }
   }
 
   // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：CPU
@@ -505,7 +654,9 @@ export function BattleScene(container, params, api) {
     }
 
     activeArrow = null;
+    await applyContinuousHpTicks();
     applyEndOfTurnStaminaDecay();
+    applyEndOfTurnCorrectionDecay();
     turn += 1;
     phase = "prep";
     resetForNewPrepPhase();
@@ -661,7 +812,7 @@ export function BattleScene(container, params, api) {
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
   // ・行動選択プルダウンだけの縦並びリストを出す。
   function mobileUnitRow(unit) {
-    return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), battleHpGauge(unit.character), actionSelectFields(unit)]);
+    return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), battleHpGauge(unit), actionSelectFields(unit)]);
   }
 
   function battleMobileRoster() {
