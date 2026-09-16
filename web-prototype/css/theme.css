@@ -1057,6 +1057,7 @@ body {
    フルサイズ枠になった分、このしきい値は820pxからさらに引き上げて
    ある。 */
 .battle-arena {
+  position: relative;
   display: grid;
   grid-template-columns: 0.9fr 1.3fr auto 1.3fr;
   gap: 8px;
@@ -1127,18 +1128,16 @@ body {
   color: var(--ember-strong);
 }
 
-/* 特定ユニット間のやり取りが発生している間だけ矢印(SVGなど)が差し
-   込まれる想定の予約スペース。相手陣営への矢印は直線、自陣営への矢印
-   はUターン形状になる予定 -- 今は常に空。 */
-.battle-center__arrow {
+/* 矢印はアリーナ全体を覆う1枚のオーバーレイに描く。各ステータス枠の
+   実測座標を使うため、他の列やフェイズ表示の上に重なることもある。 */
+.battle-arrow-overlay {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  min-height: 40px;
-}
-
-.battle-arrow-svg {
-  display: block;
-  width: 100%;
-  height: 40px;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3;
 }
 
 .battle-arrow-line {
@@ -1148,6 +1147,18 @@ body {
 
 .battle-arrow-head {
   fill: var(--ember-strong);
+}
+
+/* 矢印表示中、行動主体は水色、行動対象は赤系でステータス枠をハイラ
+   イトする。 */
+.battle-unit--actor {
+  border-color: var(--frost);
+  box-shadow: 0 0 0 2px var(--frost) inset;
+}
+
+.battle-unit--target {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px var(--danger) inset;
 }
 
 .battle-center__vs {

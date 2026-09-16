@@ -30,30 +30,49 @@ function svg(tag, attrs = {}, children = []) {
   return el;
 }
 
-// 相手陣営へ向かう矢印は直線。ally→enemy は右向き、enemy→ally は左向き。
-function crossArrowSvg(direction) {
-  const [x1, x2, headPoints] =
-    direction === "right" ? [6, 84, "84,10 100,20 84,30"] : [94, 16, "16,10 0,20 16,30"];
-  return svg("svg", { class: "battle-arrow-svg", viewBox: "0 0 100 40", preserveAspectRatio: "none" }, [
-    svg("line", { x1, y1: 20, x2, y2: 20, class: "battle-arrow-line" }),
-    svg("polygon", { points: headPoints, class: "battle-arrow-head" }),
-  ]);
+// 矢印はアリーナ全体を覆う1枚のオーバーレイSVGに、行動主体・行動対象
+// それぞれのステータス枠の「中央側の辺」の中点を実測して描く（DOM実測
+// が必要なので、この2つの生成関数はピクセル座標を直接受け取る）。
+// 相手陣営への矢印は直線＋矢じり。
+function crossArrowElements(a, b) {
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+  const headLen = 10;
+  const headWidth = 6;
+  const baseX = b.x - headLen * Math.cos(angle);
+  const baseY = b.y - headLen * Math.sin(angle);
+  const leftX = baseX + headWidth * Math.sin(angle);
+  const leftY = baseY - headWidth * Math.cos(angle);
+  const rightX = baseX - headWidth * Math.sin(angle);
+  const rightY = baseY + headWidth * Math.cos(angle);
+  return [
+    svg("line", { x1: a.x, y1: a.y, x2: baseX, y2: baseY, class: "battle-arrow-line" }),
+    svg("polygon", { points: `${b.x},${b.y} ${leftX},${leftY} ${rightX},${rightY}`, class: "battle-arrow-head" }),
+  ];
 }
 
-// 自陣営（自分自身を含む）へ向かう矢印はUターン、実際にはコの字型。
-// 中央スペースの、行動主体側の半分だけを使って描く。
-function loopArrowSvg(side) {
-  const outerX = side === "left" ? 14 : 86;
-  const headPoints = side === "left" ? "50,26 62,32 50,38" : "50,26 38,32 50,38";
-  return svg("svg", { class: "battle-arrow-svg", viewBox: "0 0 100 40", preserveAspectRatio: "none" }, [
-    svg("path", { d: `M50,6 L${outerX},6 L${outerX},34 L50,34`, class: "battle-arrow-line", fill: "none" }),
-    svg("polygon", { points: headPoints, class: "battle-arrow-head" }),
-  ]);
+// 自陣営（自分自身を含む）への矢印はUターン、実際にはコの字型。行動
+// 主体・対象それぞれの辺の中点(同じx座標のはず)を、行動主体側の外側
+// （味方なら左、敵なら右）へ膨らませて繋ぐ。自分自身が対象の場合は
+// 幅の狭いコの字にする。矢じりは対象側の辺の中点に、内向きに付く。
+function loopArrowElements(x, yStart, yEnd, faction, isSelf) {
+  const outwardSign = faction === "ally" ? -1 : 1;
+  const offset = isSelf ? 14 : 26;
+  const y0 = isSelf ? yStart - 10 : yStart;
+  const y1 = isSelf ? yStart + 10 : yEnd;
+  const xOuter = x + outwardSign * offset;
+  const path = svg("path", { d: `M${x},${y0} L${xOuter},${y0} L${xOuter},${y1} L${x},${y1}`, class: "battle-arrow-line", fill: "none" });
+  const headLen = 8;
+  const headWidth = 6;
+  const baseX = xOuter > x ? x + headLen : x - headLen;
+  const head = svg("polygon", { points: `${x},${y1} ${baseX},${y1 - headWidth} ${baseX},${y1 + headWidth}`, class: "battle-arrow-head" });
+  return [path, head];
 }
 
-function arrowSvgFor(actor, target) {
-  if (actor.faction !== target.faction) return crossArrowSvg(actor.faction === "ally" ? "right" : "left");
-  return loopArrowSvg(actor.faction === "ally" ? "left" : "right");
+// ステータス枠の「中央側の辺」の中点：味方は右辺、敵は左辺。
+function edgePoint(rect, arenaRect, faction) {
+  const x = (faction === "ally" ? rect.right : rect.left) - arenaRect.left;
+  const y = rect.top - arenaRect.top + rect.height / 2;
+  return { x, y };
 }
 
 // Prepフェイズの4行動。いずれも「モジュール」(内部識別用の符丁で、実際
@@ -89,7 +108,20 @@ const PREP_START_PT = 3;
 // はここにだけ持たせ、隊員本体（state.formationSlots の実オブジェクト）
 // には一切書き込まない。
 function createBattleUnit(character, faction) {
-  return { character, faction, in: 0, pt: { current: PREP_START_PT, max: PREP_START_PT }, action: null };
+  return { character, faction, in: 0, pt: { current: PREP_START_PT, max: PREP_START_PT }, action: null, displayName: character.name };
+}
+
+// 戦闘開始時、陣営を問わず同名のユニットがいる場合、2体目以降の名前に
+// 「 (2)」のように連番を振る（1体目はそのまま）。武器や隊員本体の
+// name は一切書き換えず、戦闘画面だけが使う displayName に持たせる。
+function assignDisplayNames(units) {
+  const counts = new Map();
+  for (const unit of units) {
+    const name = unit.character.name;
+    const count = (counts.get(name) ?? 0) + 1;
+    counts.set(name, count);
+    unit.displayName = count === 1 ? name : `${name} (${count})`;
+  }
 }
 
 const BATTLE_STAT_ORDER = ["attack", "defense", "destruction", "wisdom", "coordination"];
@@ -155,10 +187,13 @@ function battleHpGauge(character) {
 
 // 味方・敵どちらのステータス枠もこの1つを共有する。IN/PTは戦闘用ラッパ
 // (unit) から、HP/能力値は隊員本体(unit.character)から読む。
-function battleUnitCard(unit) {
-  return h("div", { class: "battle-unit" }, [
+// highlightClass: 矢印表示中の行動主体/行動対象を示す追加クラス、無い
+// 時はnull。data-unit-id は矢印オーバーレイがDOM実測で枠を探すためのキー。
+function battleUnitCard(unit, highlightClass) {
+  const classes = highlightClass ? `battle-unit ${highlightClass}` : "battle-unit";
+  return h("div", { class: classes, "data-unit-id": unit.character.id }, [
     h("div", { class: "battle-unit__head" }, [
-      h("span", { class: "battle-unit__name", text: unit.character.name }),
+      h("span", { class: "battle-unit__name", text: unit.displayName }),
       staminaSpan(),
     ]),
     battleHpGauge(unit.character),
@@ -174,7 +209,7 @@ function battleUnitCard(unit) {
 }
 
 function targetDisplayName(actor, target) {
-  return target === actor ? `${target.character.name}（自分自身）` : target.character.name;
+  return target === actor ? `${target.displayName}（自分自身）` : target.displayName;
 }
 
 function statSnapshotText(unit, stat) {
@@ -188,6 +223,7 @@ function statSnapshotText(unit, stat) {
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
   const enemyUnits = Array.from({ length: allyUnits.length }, () => createBattleUnit(createCharacterFromData("biscuitBaker"), "enemy"));
+  assignDisplayNames([...allyUnits, ...enemyUnits]);
 
   let turn = 1;
   let phase = "prep"; // "prep" | "main"
@@ -256,14 +292,14 @@ export function BattleScene(container, params, api) {
       const { moduleId, targetUnit } = unit.action;
       const module = PREP_MODULES[moduleId];
       activeArrow = { actor: unit, target: targetUnit };
-      pushLog(`${unit.character.name}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`);
+      pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`);
       render();
       await sleep(ACTION_DELAY_MS);
 
       const before = statSnapshotText(targetUnit, module.stat);
       module.apply(targetUnit);
       const after = statSnapshotText(targetUnit, module.stat);
-      pushLog(`${targetUnit.character.name}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`);
+      pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`);
       render();
       await sleep(ACTION_DELAY_MS);
     }
@@ -312,7 +348,7 @@ export function BattleScene(container, params, api) {
       },
       [
         h("option", { value: "", text: "－" }),
-        ...candidates.map((c) => h("option", { value: c.character.id, text: c === unit ? `${c.character.name}（自分）` : c.character.name })),
+        ...candidates.map((c) => h("option", { value: c.character.id, text: c === unit ? `${c.displayName}（自分）` : c.displayName })),
       ]
     );
     select.value = unit.action?.targetUnit?.character.id ?? "";
@@ -330,7 +366,7 @@ export function BattleScene(container, params, api) {
   // 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
   // 名前を添えている。
   function actionSelectBox(unit) {
-    return h("div", { class: "battle-action-select" }, [h("p", { class: "battle-action-select__name", text: unit.character.name }), actionSelectFields(unit)]);
+    return h("div", { class: "battle-action-select" }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
   }
 
   function battleLog() {
@@ -357,30 +393,66 @@ export function BattleScene(container, params, api) {
     return h("div", { class: "battle-center" }, [
       h("p", { class: "battle-center__turn", text: `${turn}ターン目` }),
       h("p", { class: "battle-center__phase", text: phase === "prep" ? "オードブル！" : "メインディッシュ！" }),
-      // 特定ユニット間のやり取りが発生している間だけ、ここに矢印が差し
-      // 込まれる。相手陣営への矢印は直線、自陣営への矢印はUターン
-      // （コの字型）。
-      h("div", { class: "battle-center__arrow" }, activeArrow ? [arrowSvgFor(activeArrow.actor, activeArrow.target)] : []),
       h("p", { class: "battle-center__vs", text: "vs" }),
     ]);
   }
 
+  // 矢印表示中、その行動主体・行動対象のステータス枠に付与する追加
+  // クラス（無関係なユニットにはnull）。
+  function highlightFor(unit) {
+    if (!activeArrow) return null;
+    if (unit === activeArrow.actor) return "battle-unit--actor";
+    if (unit === activeArrow.target) return "battle-unit--target";
+    return null;
+  }
+
   // ワイドモード：味方の行動選択列（左端）／味方ステータス列／中央情報
-  // （矢印表示部）／敵ステータス列、の4列。中央の矢印表示部を味方・敵
-  // 両ステータス列に挟ませるため、行動選択列は一番外側に置く。
+  // ／敵ステータス列、の4列。矢印は各ステータス枠の中央側の辺を実測し
+  // て描く1枚のオーバーレイSVG（アリーナ全体に重ねる）で、中央の
+  // フェイズ表示や「vs」の上を横切ることもある。
   function battleArena() {
     return h("div", { class: "battle-arena" }, [
       h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
-      h("div", { class: "battle-column battle-column--ally" }, allyUnits.map(battleUnitCard)),
+      h("div", { class: "battle-column battle-column--ally" }, allyUnits.map((u) => battleUnitCard(u, highlightFor(u)))),
       battleCenter(),
-      h("div", { class: "battle-column battle-column--enemy" }, enemyUnits.map(battleUnitCard)),
+      h("div", { class: "battle-column battle-column--enemy" }, enemyUnits.map((u) => battleUnitCard(u, highlightFor(u)))),
+      svg("svg", { class: "battle-arrow-overlay" }),
     ]);
+  }
+
+  // battleArena()がDOMに実際に挿入された後（render()内でrenderScreen
+  // 呼び出し直後）に呼ぶ。activeArrowが無ければ何も描かない。DOM実測
+  // (getBoundingClientRect)が必要なので、ここだけは仮想DOM的な組み立て
+  // ではなく直接DOM操作している。
+  function updateArrowOverlay() {
+    const arenaEl = container.querySelector(".battle-arena");
+    const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
+    if (!overlay) return;
+    while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+    if (!activeArrow) return;
+
+    const arenaRect = arenaEl.getBoundingClientRect();
+    if (!arenaRect.width || !arenaRect.height) return; // 携帯モードでアリーナ自体が非表示の間は何もしない
+    overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
+
+    const actorEl = arenaEl.querySelector(`[data-unit-id="${activeArrow.actor.character.id}"]`);
+    const targetEl = arenaEl.querySelector(`[data-unit-id="${activeArrow.target.character.id}"]`);
+    if (!actorEl || !targetEl) return;
+
+    const a = edgePoint(actorEl.getBoundingClientRect(), arenaRect, activeArrow.actor.faction);
+    const b = edgePoint(targetEl.getBoundingClientRect(), arenaRect, activeArrow.target.faction);
+
+    const elements =
+      activeArrow.actor.faction !== activeArrow.target.faction
+        ? crossArrowElements(a, b)
+        : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
+    for (const el of elements) overlay.appendChild(el);
   }
 
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
   // ・行動選択プルダウンだけの縦並びリストを出す。
   function mobileUnitRow(unit) {
-    return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.character.name }), battleHpGauge(unit.character), actionSelectFields(unit)]);
+    return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), battleHpGauge(unit.character), actionSelectFields(unit)]);
   }
 
   function battleMobileRoster() {
@@ -405,6 +477,7 @@ export function BattleScene(container, params, api) {
     // スクロールする（.screen-frame自体のスクロール位置保持とは別)。
     const logEl = container.querySelector(".battle-log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
+    updateArrowOverlay();
   }
 
   render();
