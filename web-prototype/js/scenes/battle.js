@@ -1,6 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
 import state from "../state.js";
-import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData } from "../data/resourceCatalog.js";
+import { computeStats, computeMaxHp, MONSTER_DATA, createMonsterFromData, applyHpDamage, applyHpHeal } from "../data/resourceCatalog.js";
+import { rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
 // exploration.js's own __EXPLORATION_FAST__ hook. window.__BATTLE_FAST__
@@ -102,13 +103,58 @@ const PREP_MODULES = {
   },
 };
 
+// Mainフェイズの行動。今回はまず基本の3つ（攻撃・貫通攻撃・回復）だけ
+// 実装する（プロテクト/スマッシュ/強化魔法/弱体化魔法/継続回復/継続
+// ダメージは後続の回で追加予定）。モジュール本来はPTを消費しない
+// （消費するのは将来の「スキル」側）ので、ここでも一切PTを扱わない。
+// apply() は {magnitude, label} を返し、ログの効果行に使う。
+const MAIN_MODULES = {
+  attack: {
+    id: "attack",
+    label: "攻撃",
+    targetFaction: "opposing",
+    apply: (actor, target) => {
+      const a = rollSum(computeStats(actor.character).attack);
+      const d = rollSum(computeStats(target.character).defense);
+      const c = Math.pow(2, -0.5 * target.stamina);
+      const damage = Math.ceil(((a * a) / (a + d)) * c);
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  pierceAttack: {
+    id: "pierceAttack",
+    label: "貫通攻撃",
+    targetFaction: "opposing",
+    apply: (actor, target) => {
+      const a = rollSum(computeStats(actor.character).attack);
+      const c = Math.pow(2, -0.5 * target.stamina);
+      const damage = Math.ceil(a * c);
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  heal: {
+    id: "heal",
+    label: "回復",
+    targetFaction: "own",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(computeStats(actor.character).coordination);
+      const healPower = successCountToR(successCount);
+      const healAmount = rollSum(healPower);
+      applyHpHeal(target.character, healAmount);
+      return { magnitude: healAmount, label: "回復" };
+    },
+  },
+};
+
 const PREP_START_PT = 3;
 
 // 陣営ごとの隊員をラップする、戦闘限定の使い捨てデータ。IN/PT/行動選択
 // はここにだけ持たせ、隊員本体（state.formationSlots の実オブジェクト）
 // には一切書き込まない。
 function createBattleUnit(character, faction) {
-  return { character, faction, in: 0, pt: { current: PREP_START_PT, max: PREP_START_PT }, action: null, displayName: character.name };
+  return { character, faction, in: 0, pt: { current: PREP_START_PT, max: PREP_START_PT }, stamina: 0, action: null, displayName: character.name };
 }
 
 // 戦闘開始時、陣営を問わず同名のユニットがいる場合、2体目以降の名前に
@@ -153,9 +199,8 @@ function battleStatsLine(character) {
 
 // 体幹: 0 基準の正負整数。正なら「装甲」で青く、負なら「脆弱性」で
 // 黄色く表示し、0（補正なし）はどちらのラベルも付けず素のまま表示する。
-// 体幹そのものを動かす行動はまだ無いので、常に0のプレースホルダー。
-function staminaSpan() {
-  const stamina = 0;
+// 毎ターン終了時に0へ向けて1ずつ自然逓減する（applyEndOfTurnDecay）。
+function staminaSpan(stamina) {
   if (stamina > 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--armor", text: `装甲${stamina}` });
   if (stamina < 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--fragile", text: `脆弱性${-stamina}` });
   return h("span", { class: "battle-unit__stamina", text: "体幹: 0" });
@@ -196,7 +241,7 @@ function battleUnitCard(unit, extraClass, onClick) {
   return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: unit.displayName }),
-      staminaSpan(),
+      staminaSpan(unit.stamina),
     ]),
     battleHpGauge(unit.character),
     battleStatsLine(unit.character),
@@ -218,10 +263,11 @@ function statSnapshotText(unit, stat) {
   return stat === "in" ? String(unit.in) : `${unit.pt.current}/${unit.pt.max}`;
 }
 
-// レイアウトのみだった前回までと異なり、今回からPrepフェイズの実際の
-// 進行（CPUのランダム行動選択、プレイヤーの手動選択、ウェイト付き
-// 順次処理によるIN/PT増減、矢印の一時表示）を持つ。Mainフェイズは
-// まだ空実装で、表示とウェイトだけを行う。
+// Prep/Mainどちらのフェイズも、CPUのランダム行動選択・プレイヤーの
+// 手動選択・ウェイト付き順次処理・矢印の一時表示という同じ流れを持つ。
+// Mainフェイズはまだ攻撃/貫通攻撃/回復の3行動のみ（プロテクト/スマッ
+// シュ/強化魔法/弱体化魔法/継続回復/継続ダメージ、IN順の行動順、戦闘
+// 不能・勝敗判定は後続の回で追加予定）。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
   const monsterDataIds = Object.keys(MONSTER_DATA);
@@ -230,7 +276,7 @@ export function BattleScene(container, params, api) {
 
   let turn = 1;
   let phase = "prep"; // "prep" | "main"
-  let executing = false; // true for the whole duration of runPrepExecution (blocks input)
+  let executing = false; // true for the whole duration of runPrepExecution/runMainExecution (blocks input)
   let activeArrow = null; // { actor, target } | null
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
@@ -256,15 +302,21 @@ export function BattleScene(container, params, api) {
     pushLog(enemyHpRosterLine(), "roster");
   }
 
+  // フェイズに応じてPrep/Mainどちらのモジュール表を見るか。
+  function currentModules() {
+    return phase === "prep" ? PREP_MODULES : MAIN_MODULES;
+  }
+
   function candidateUnits(actor, moduleId) {
-    const module = PREP_MODULES[moduleId];
+    const module = currentModules()[moduleId];
     const own = actor.faction === "ally" ? allyUnits : enemyUnits;
     const opposing = actor.faction === "ally" ? enemyUnits : allyUnits;
     return module.targetFaction === "own" ? own : opposing;
   }
 
   function randomEnemyAction(unit) {
-    const moduleId = pickRandom(Object.keys(PREP_MODULES));
+    const modules = currentModules();
+    const moduleId = pickRandom(Object.keys(modules));
     const targetUnit = pickRandom(candidateUnits(unit, moduleId));
     return { moduleId, targetUnit };
   }
@@ -283,8 +335,10 @@ export function BattleScene(container, params, api) {
   for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
   pushPhaseHeader("オードブル！");
 
+  // PrepフェイズもMainフェイズも同じ形（プレイヤー選択→行動実行）に
+  // なったので、処理中でなければ常に操作可能。
   function isInteractive() {
-    return phase === "prep" && !executing;
+    return !executing;
   }
 
   function allAlliesReady() {
@@ -329,40 +383,96 @@ export function BattleScene(container, params, api) {
     return pendingTargetUnits().some((u) => candidateUnits(u, u.action.moduleId).includes(unit));
   }
 
-  // Prepフェイズの行動順は必ず「味方①→敵①→味方②→敵②→…」で、INとは
-  // 無関係。1ユニットにつき「宣言（矢印表示）→ウェイト→効果適用＋結果
-  // ログ→ウェイト」の順で進む。
+  // Prep/Mainどちらも同じ「味方①→敵①→味方②→敵②→…」の順で処理する
+  // （Mainフェイズ本来のIN順・同値ランダムは、行動順・戦闘不能・勝敗
+  // 判定をまとめて実装する後続の回で差し替える予定の仮の順序）。
+  function buildAlternatingOrder() {
+    return allyUnits.flatMap((_, i) => [allyUnits[i], enemyUnits[i]]);
+  }
+
+  // 全ユニットの体幹を、毎ターン終了時に0へ向けて1だけ自然逓減させる。
+  function applyEndOfTurnStaminaDecay() {
+    for (const unit of [...allyUnits, ...enemyUnits]) {
+      if (unit.stamina > 0) unit.stamina -= 1;
+      else if (unit.stamina < 0) unit.stamina += 1;
+    }
+  }
+
+  // Prepフェイズの1ユニット分：宣言（矢印表示）→ウェイト→効果適用＋
+  // 結果ログ→ウェイト。
+  async function resolvePrepAction(unit) {
+    const { moduleId, targetUnit } = unit.action;
+    const module = PREP_MODULES[moduleId];
+    activeArrow = { actor: unit, target: targetUnit };
+    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+
+    const before = statSnapshotText(targetUnit, module.stat);
+    module.apply(targetUnit);
+    const after = statSnapshotText(targetUnit, module.stat);
+    pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
+  // Mainフェイズの1ユニット分：Prepと同じ流れだが、効果がHPの増減
+  // （ダメージ/回復）である点が異なる。
+  async function resolveMainAction(unit) {
+    const { moduleId, targetUnit } = unit.action;
+    const module = MAIN_MODULES[moduleId];
+    activeArrow = { actor: unit, target: targetUnit };
+    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+
+    const beforeHp = targetUnit.character.currentHp;
+    const { magnitude, label } = module.apply(unit, targetUnit);
+    const afterHp = targetUnit.character.currentHp;
+    pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
+  // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：CPU
+  // が敵の行動を選び直し（非公開）、味方の選択は空に戻し、見出し＋敵HP
+  // 一覧をログに出す。ここではまだ実行しない（プレイヤーの選択待ち）。
+  function startMainPhase() {
+    phase = "main";
+    for (const unit of allyUnits) unit.action = null;
+    for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
+    pushPhaseHeader("メインディッシュ！");
+  }
+
   async function runPrepExecution() {
     executing = true;
     render();
 
-    const order = allyUnits.flatMap((_, i) => [allyUnits[i], enemyUnits[i]]);
-    for (const unit of order) {
-      const { moduleId, targetUnit } = unit.action;
-      const module = PREP_MODULES[moduleId];
-      activeArrow = { actor: unit, target: targetUnit };
-      pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
-      render();
-      await sleep(ACTION_DELAY_MS);
-
-      const before = statSnapshotText(targetUnit, module.stat);
-      module.apply(targetUnit);
-      const after = statSnapshotText(targetUnit, module.stat);
-      pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
-      render();
-      await sleep(ACTION_DELAY_MS);
+    for (const unit of buildAlternatingOrder()) {
+      await resolvePrepAction(unit);
     }
 
     activeArrow = null;
-    for (const unit of allyUnits) unit.action = null;
-    phase = "main";
-    pushPhaseHeader("メインディッシュ！");
+    startMainPhase();
     render();
     await sleep(MAIN_PHASE_WAIT_MS);
+    executing = false;
+    render();
+  }
 
+  async function runMainExecution() {
+    executing = true;
+    render();
+
+    for (const unit of buildAlternatingOrder()) {
+      await resolveMainAction(unit);
+    }
+
+    activeArrow = null;
+    applyEndOfTurnStaminaDecay();
     turn += 1;
-    resetForNewPrepPhase();
     phase = "prep";
+    resetForNewPrepPhase();
     executing = false;
     pushPhaseHeader("オードブル！");
     render();
@@ -376,7 +486,7 @@ export function BattleScene(container, params, api) {
         disabled: !isInteractive(),
         onChange: (e) => handleModuleChange(unit, e.target.value),
       },
-      [h("option", { value: "", text: "－" }), ...Object.values(PREP_MODULES).map((m) => h("option", { value: m.id, text: m.label }))]
+      [h("option", { value: "", text: "－" }), ...Object.values(currentModules()).map((m) => h("option", { value: m.id, text: m.label }))]
     );
     select.value = unit.action?.moduleId ?? "";
     return select;
@@ -429,13 +539,13 @@ export function BattleScene(container, params, api) {
   }
 
   // 携帯モードでもワイドモードでも共通の、テキストログ直下の実行ボタン。
-  // 全味方の行動内容・行動対象が確定するまで、またPrepフェイズ以外・
-  // 処理中は無効。
+  // 全味方の行動内容・行動対象が確定するまで、また処理中は無効。
+  // Prep/Mainどちらのフェイズ中かで実行する処理を切り替える。
   function actionExecuteButton() {
     return h("button", {
       class: "btn btn--primary battle-execute-btn",
       disabled: !isInteractive() || !allAlliesReady(),
-      onClick: runPrepExecution,
+      onClick: phase === "prep" ? runPrepExecution : runMainExecution,
       text: "行動実行！",
     });
   }

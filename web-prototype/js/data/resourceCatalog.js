@@ -220,13 +220,21 @@ export function pickHighestStatCharacter(characters, statKey) {
   return ties[Math.floor(Math.random() * ties.length)];
 }
 
-// Lowers a character's currentHp by `amount`, floored at 0. No battle
-// system exists yet to consume or heal it further -- for now this is
-// only ever called by episode outcomes (see data/scripts.js).
+// Lowers a character's currentHp by `amount`, floored at 0. Used by both
+// episode outcomes (see data/scripts.js) and the battle screen's
+// 攻撃/貫通攻撃 modules.
 export function applyHpDamage(character, amount) {
   const maxHp = computeMaxHp(character.growth);
   const current = character.currentHp ?? maxHp;
   character.currentHp = Math.max(0, current - amount);
+}
+
+// Raises a character's currentHp by `amount`, capped at their max HP.
+// Used by the battle screen's 回復 module.
+export function applyHpHeal(character, amount) {
+  const maxHp = computeMaxHp(character.growth);
+  const current = character.currentHp ?? maxHp;
+  character.currentHp = Math.min(maxHp, current + amount);
 }
 
 // ---------------------------------------------------------------------
