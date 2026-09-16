@@ -1132,7 +1132,22 @@ body {
    はUターン形状になる予定 -- 今は常に空。 */
 .battle-center__arrow {
   width: 100%;
-  min-height: 24px;
+  min-height: 40px;
+}
+
+.battle-arrow-svg {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+
+.battle-arrow-line {
+  stroke: var(--ember-strong);
+  stroke-width: 3;
+}
+
+.battle-arrow-head {
+  fill: var(--ember-strong);
 }
 
 .battle-center__vs {
