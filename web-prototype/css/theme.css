@@ -1106,6 +1106,12 @@ body {
   font-weight: 700;
 }
 
+/* 戦闘不能のユニット行：グレーアウトする（ステータス枠の
+   .battle-unit--down と同じ考え方）。 */
+.battle-mobile-unit--down {
+  opacity: 0.5;
+}
+
 .battle-column {
   display: flex;
   flex-direction: column;
@@ -1190,6 +1196,18 @@ body {
   cursor: pointer;
   border-style: dashed;
   border-color: var(--ember);
+}
+
+/* 戦闘不能：枠全体を薄くグレーアウトする。 */
+.battle-unit--down {
+  opacity: 0.45;
+}
+
+.battle-unit__down-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--danger);
+  white-space: nowrap;
 }
 
 .battle-unit__head {
@@ -1288,6 +1306,18 @@ body {
 /* 順次処理中は全ての選択枠を一律グレーアウト。 */
 .battle-action-select--disabled {
   opacity: 0.5;
+}
+
+/* 戦闘不能のユニットの枠：プルダウンの代わりに「戦闘不能」だけ出す。 */
+.battle-action-select--down {
+  opacity: 0.5;
+}
+
+.battle-action-select__down-label {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
 }
 
 .battle-action-select__name {

@@ -18,6 +18,16 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// Fisher-Yatesでlistをその場でシャッフルする（Mainフェイズの同IN内
+// ランダム順を決めるのに使う）。
+function shuffleInPlace(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 function svg(tag, attrs = {}, children = []) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -103,6 +113,12 @@ const PREP_MODULES = {
   },
 };
 
+// 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
+// Main/Prepどちらの行動順からも除外される。
+function isIncapacitated(unit) {
+  return (unit.character.currentHp ?? computeMaxHp(unit.character.growth)) <= 0;
+}
+
 // 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。強化魔法/
 // 弱体化魔法自身の発動判定（X用ダイス数）だけはこちらを使う。
 function rawStat(unit, key) {
@@ -137,9 +153,8 @@ function applyContinuousStatus(target, n, type, turns) {
 }
 
 // Mainフェイズの行動。攻撃/貫通攻撃/回復（HP増減）、プロテクト/スマッシュ
-// （体幹増減）に加え、強化魔法/弱体化魔法（能力値補正）、継続回復/継続
-// ダメージ（HP継続増減）を実装済み（IN順の行動順、戦闘不能・勝敗判定は
-// 後続の回で追加予定）。モジュール本来はPTを消費しない（消費するのは
+// （体幹増減）、強化魔法/弱体化魔法（能力値補正）、継続回復/継続ダメージ
+// （HP継続増減）の9種類。モジュール本来はPTを消費しない（消費するのは
 // 将来の「スキル」側）ので、ここでも一切PTを扱わない。強化魔法/弱体化
 // 魔法は本来t（対象の能力値）を指定するが、テスト用にt=攻撃力へ固定
 // している。n（補正/効果の強さ）もUI未実装のため全モジュールでデフォ
@@ -367,7 +382,7 @@ function battleUnitCard(unit, extraClass, onClick) {
   return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: unit.displayName }),
-      staminaSpan(unit.stamina),
+      isIncapacitated(unit) ? h("span", { class: "battle-unit__down-badge", text: "戦闘不能" }) : staminaSpan(unit.stamina),
     ]),
     battleHpGauge(unit),
     battleStatsLine(unit),
@@ -391,9 +406,11 @@ function statSnapshotText(unit, stat) {
 
 // Prep/Mainどちらのフェイズも、CPUのランダム行動選択・プレイヤーの
 // 手動選択・ウェイト付き順次処理・矢印の一時表示という同じ流れを持つ。
-// Mainフェイズは攻撃/貫通攻撃/回復/プロテクト/スマッシュ/強化魔法/
-// 弱体化魔法/継続回復/継続ダメージの9行動まで実装済み（IN順の行動順、
-// 戦闘不能・勝敗判定は後続の回で追加予定）。
+// Prepフェイズの行動順は常に「味方①→敵①→味方②→敵②→…」の固定、
+// Mainフェイズの行動順はINが高い順（同値はランダム）。HPが0以下の
+// ユニットは戦闘不能となり、行動できず行動対象にも選べなくなる。
+// 陣営が全滅した時点で勝敗が決し、敵全滅なら戦闘画面を閉じてマップへ、
+// 味方全滅なら結果画面（ゲームオーバー）へ自動的に遷移する。
 export function BattleScene(container, params, api) {
   const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
   const monsterDataIds = Object.keys(MONSTER_DATA);
@@ -411,11 +428,10 @@ export function BattleScene(container, params, api) {
   }
 
   // 敵ユニットの残りHP一覧（携帯モードで戦場が見えなくても敵の状況が
-  // 分かるように）。戦闘不能（HP0）のユニットは省略する -- ダメージ処理
-  // 自体はまだ無いので、今のところ全員省略されない。
+  // 分かるように）。戦闘不能のユニットは省略する。
   function enemyHpRosterLine() {
     return enemyUnits
-      .filter((u) => (u.character.currentHp ?? computeMaxHp(u.character.growth)) > 0)
+      .filter((u) => !isIncapacitated(u))
       .map((u) => `${u.displayName}: ${u.character.currentHp ?? computeMaxHp(u.character.growth)}/${computeMaxHp(u.character.growth)}`)
       .join(" _ ");
   }
@@ -437,7 +453,8 @@ export function BattleScene(container, params, api) {
     const module = currentModules()[moduleId];
     const own = actor.faction === "ally" ? allyUnits : enemyUnits;
     const opposing = actor.faction === "ally" ? enemyUnits : allyUnits;
-    return module.targetFaction === "own" ? own : opposing;
+    const pool = module.targetFaction === "own" ? own : opposing;
+    return pool.filter((u) => !isIncapacitated(u));
   }
 
   function randomEnemyAction(unit) {
@@ -449,13 +466,14 @@ export function BattleScene(container, params, api) {
 
   // 毎ターンのPrepフェイズ開始時: 全ユニットのIN/PTをリセットし、味方の
   // 行動選択は空に、敵の行動選択はCPUがランダムに選び直す（非公開）。
+  // 戦闘不能の敵には行動を割り当てない（動けないため）。
   function resetForNewPrepPhase() {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       unit.in = 0;
       unit.pt = { current: PREP_START_PT, max: PREP_START_PT };
     }
     for (const unit of allyUnits) unit.action = null;
-    for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
+    for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : randomEnemyAction(unit);
   }
 
   for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
@@ -468,7 +486,7 @@ export function BattleScene(container, params, api) {
   }
 
   function allAlliesReady() {
-    return allyUnits.every((u) => u.action && u.action.targetUnit);
+    return allyUnits.filter((u) => !isIncapacitated(u)).every((u) => u.action && u.action.targetUnit);
   }
 
   function handleModuleChange(unit, moduleId) {
@@ -509,11 +527,44 @@ export function BattleScene(container, params, api) {
     return pendingTargetUnits().some((u) => candidateUnits(u, u.action.moduleId).includes(unit));
   }
 
-  // Prep/Mainどちらも同じ「味方①→敵①→味方②→敵②→…」の順で処理する
-  // （Mainフェイズ本来のIN順・同値ランダムは、行動順・戦闘不能・勝敗
-  // 判定をまとめて実装する後続の回で差し替える予定の仮の順序）。
+  // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
+  // 自体はMainフェイズと違い最初からの確定仕様で、以下の変更の対象外）。
+  // 戦闘不能のユニットはここで除外し、行動順に含めない。
   function buildAlternatingOrder() {
-    return allyUnits.flatMap((_, i) => [allyUnits[i], enemyUnits[i]]);
+    return allyUnits.flatMap((_, i) => [allyUnits[i], enemyUnits[i]]).filter((u) => !isIncapacitated(u));
+  }
+
+  // MainフェイズはINが高いユニットから順に行動する。IN同値のユニットが
+  // 複数いる場合は、その中でランダムに順序を決める。戦闘不能のユニット
+  // は除外する。
+  function buildMainOrder() {
+    const living = [...allyUnits, ...enemyUnits].filter((u) => !isIncapacitated(u));
+    const groups = new Map();
+    for (const unit of living) {
+      const list = groups.get(unit.in) ?? [];
+      list.push(unit);
+      groups.set(unit.in, list);
+    }
+    const inValuesDesc = [...groups.keys()].sort((a, b) => b - a);
+    return inValuesDesc.flatMap((inValue) => shuffleInPlace(groups.get(inValue)));
+  }
+
+  // 味方全滅（敗北）／敵全滅（勝利）のどちらかが成立していれば返す。
+  function checkBattleEnd() {
+    if (allyUnits.every(isIncapacitated)) return "defeat";
+    if (enemyUnits.every(isIncapacitated)) return "victory";
+    return null;
+  }
+
+  // 勝敗が決した瞬間に呼ぶ：結果をログに残して少し見せてから、勝利なら
+  // 戦闘画面を閉じてマップへ戻り（「戦闘を終える」ボタンと同じ遷移）、
+  // 敗北なら結果画面へ（「全滅（テスト用）」ボタンと同じ遷移）。
+  async function concludeBattle(outcome) {
+    pushLog(outcome === "victory" ? "▼▼▼ 勝利！ ▼▼▼" : "▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
+    render();
+    await sleep(MAIN_PHASE_WAIT_MS);
+    if (outcome === "victory") api.closeScene();
+    else api.navigateTo("result", { mode: "gameover" });
   }
 
   // 全ユニットの体幹を、毎ターン終了時に0へ向けて1だけ自然逓減させる。
@@ -552,7 +603,11 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
-    if (module.effect === "stamina") {
+    // 選択時点では生きていたが、それより前に処理された別のユニットの
+    // 行動で対象が戦闘不能になっていた場合、効果は不発にする。
+    if (isIncapacitated(targetUnit)) {
+      pushLog(`${targetUnit.displayName}は戦闘不能のため、効果は不発に終わった。`, unit.faction);
+    } else if (module.effect === "stamina") {
       const before = targetUnit.stamina;
       module.apply(unit, targetUnit);
       const after = targetUnit.stamina;
@@ -587,11 +642,14 @@ export function BattleScene(container, params, api) {
 
   // 継続回復/継続ダメージを持つ全ユニットについて、Mainフェイズの終わり
   // に一度だけHPを増減させ（n D6合計÷2 を切り上げ）、残りターン数を1
-  // 減らす。0になったらそのユニットの継続効果枠を解除する。
+  // 減らす。0になったらそのユニットの継続効果枠を解除する。既に戦闘
+  // 不能のユニットはスキップする -- そうしないと、このターン中の行動
+  // で倒された後でも、倒れる前からかかっていた継続回復がHPを0より上に
+  // 戻してしまい、実質的に蘇生になってしまう。
   async function applyContinuousHpTicks() {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       const c = unit.continuousHp;
-      if (!c) continue;
+      if (!c || isIncapacitated(unit)) continue;
       const amount = Math.ceil(rollSum(c.n) / 2);
       const before = unit.character.currentHp;
       if (c.type === "heal") applyHpHeal(unit.character, amount);
@@ -620,12 +678,13 @@ export function BattleScene(container, params, api) {
   }
 
   // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：CPU
-  // が敵の行動を選び直し（非公開）、味方の選択は空に戻し、見出し＋敵HP
-  // 一覧をログに出す。ここではまだ実行しない（プレイヤーの選択待ち）。
+  // が敵の行動を選び直し（非公開、戦闘不能の敵は除く）、味方の選択は
+  // 空に戻し、見出し＋敵HP一覧をログに出す。ここではまだ実行しない
+  // （プレイヤーの選択待ち）。
   function startMainPhase() {
     phase = "main";
     for (const unit of allyUnits) unit.action = null;
-    for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
+    for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : randomEnemyAction(unit);
     pushPhaseHeader("メインディッシュ！");
   }
 
@@ -649,12 +708,28 @@ export function BattleScene(container, params, api) {
     executing = true;
     render();
 
-    for (const unit of buildAlternatingOrder()) {
+    for (const unit of buildMainOrder()) {
+      // 同じフェイズ内で自分より先に動いた誰かに倒されていたら、この
+      // ユニットの番はスキップする（行動順はフェイズ開始時点の生存者
+      // で組んでいるため、途中で戦闘不能になることがある）。
+      if (isIncapacitated(unit)) continue;
       await resolveMainAction(unit);
+      const outcome = checkBattleEnd();
+      if (outcome) {
+        activeArrow = null;
+        await concludeBattle(outcome);
+        return;
+      }
     }
 
     activeArrow = null;
     await applyContinuousHpTicks();
+    const tickOutcome = checkBattleEnd();
+    if (tickOutcome) {
+      await concludeBattle(tickOutcome);
+      return;
+    }
+
     applyEndOfTurnStaminaDecay();
     applyEndOfTurnCorrectionDecay();
     turn += 1;
@@ -713,6 +788,12 @@ export function BattleScene(container, params, api) {
   // 名前を添えている。行動内容・行動対象のどちらかが未確定の間はハイ
   // ライトし、両方確定すると解除する。順次処理中は全て一律グレーアウト。
   function actionSelectBox(unit) {
+    if (isIncapacitated(unit)) {
+      return h("div", { class: "battle-action-select battle-action-select--down" }, [
+        h("p", { class: "battle-action-select__name", text: unit.displayName }),
+        h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
+      ]);
+    }
     const modifier = executing ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
     return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
   }
@@ -745,16 +826,20 @@ export function BattleScene(container, params, api) {
     ]);
   }
 
-  // 矢印表示中はその行動主体・行動対象のステータス枠を、そうでなく
-  // 行動対象選択中はクリックで指定できる枠を、それぞれ追加クラスで
-  // 示す（両者は時間的に排他なので競合しない）。
+  // 戦闘不能ならグレーアウト、それに加えて矢印表示中はその行動主体・
+  // 行動対象のステータス枠を、そうでなく行動対象選択中はクリックで
+  // 指定できる枠を、それぞれ追加クラスで示す（後者2つは時間的に排他
+  // なので競合しない）。
   function statusCardClass(unit) {
+    const classes = [];
+    if (isIncapacitated(unit)) classes.push("battle-unit--down");
     if (activeArrow) {
-      if (unit === activeArrow.actor) return "battle-unit--actor";
-      if (unit === activeArrow.target) return "battle-unit--target";
-      return null;
+      if (unit === activeArrow.actor) classes.push("battle-unit--actor");
+      else if (unit === activeArrow.target) classes.push("battle-unit--target");
+    } else if (isClickableAsTarget(unit)) {
+      classes.push("battle-unit--clickable-target");
     }
-    return isClickableAsTarget(unit) ? "battle-unit--clickable-target" : null;
+    return classes.length ? classes.join(" ") : null;
   }
 
   // ワイドモード：味方の行動選択列（左端）／味方ステータス列／中央情報
@@ -812,6 +897,13 @@ export function BattleScene(container, params, api) {
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
   // ・行動選択プルダウンだけの縦並びリストを出す。
   function mobileUnitRow(unit) {
+    if (isIncapacitated(unit)) {
+      return h("div", { class: "battle-mobile-unit battle-mobile-unit--down" }, [
+        h("p", { class: "battle-mobile-unit__name", text: unit.displayName }),
+        battleHpGauge(unit),
+        h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
+      ]);
+    }
     return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), battleHpGauge(unit), actionSelectFields(unit)]);
   }
 
