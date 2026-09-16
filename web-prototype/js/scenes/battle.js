@@ -51,11 +51,11 @@ function crossArrowElements(a, b) {
 }
 
 // 自陣営（自分自身を含む）への矢印はUターン、実際にはコの字型。行動
-// 主体・対象それぞれの辺の中点(同じx座標のはず)を、行動主体側の外側
-// （味方なら左、敵なら右）へ膨らませて繋ぐ。自分自身が対象の場合は
-// 幅の狭いコの字にする。矢じりは対象側の辺の中点に、内向きに付く。
+// 主体・対象それぞれの辺の中点(同じx座標のはず)を、味方陣営なら右側、
+// 敵陣営なら左側へ膨らませて繋ぐ。自分自身が対象の場合は幅の狭いコの
+// 字にする。矢じりは対象側の辺の中点に、内向きに付く。
 function loopArrowElements(x, yStart, yEnd, faction, isSelf) {
-  const outwardSign = faction === "ally" ? -1 : 1;
+  const outwardSign = faction === "ally" ? 1 : -1;
   const offset = isSelf ? 14 : 26;
   const y0 = isSelf ? yStart - 10 : yStart;
   const y1 = isSelf ? yStart + 10 : yEnd;
@@ -229,10 +229,28 @@ export function BattleScene(container, params, api) {
   let phase = "prep"; // "prep" | "main"
   let executing = false; // true for the whole duration of runPrepExecution (blocks input)
   let activeArrow = null; // { actor, target } | null
-  const logLines = [];
+  const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
-  function pushLog(text) {
-    logLines.push(text);
+  function pushLog(text, kind = "phase") {
+    logLines.push({ text, kind });
+  }
+
+  // 敵ユニットの残りHP一覧（携帯モードで戦場が見えなくても敵の状況が
+  // 分かるように）。戦闘不能（HP0）のユニットは省略する -- ダメージ処理
+  // 自体はまだ無いので、今のところ全員省略されない。
+  function enemyHpRosterLine() {
+    return enemyUnits
+      .filter((u) => (u.character.currentHp ?? computeMaxHp(u.character.growth)) > 0)
+      .map((u) => `${u.displayName}: ${u.character.currentHp ?? computeMaxHp(u.character.growth)}/${computeMaxHp(u.character.growth)}`)
+      .join(" _ ");
+  }
+
+  // フェイズが切り替わり、ログの表示がそこで一旦止まる（Prepフェイズは
+  // プレイヤー入力待ち、Mainフェイズはウェイト中）タイミングで呼ぶ。
+  // 見出し行の直後に敵の残りHP一覧を添える。
+  function pushPhaseHeader(label) {
+    pushLog(`▼▼▼ ${turn}ターン目 ${label}▼▼▼`, "phase");
+    pushLog(enemyHpRosterLine(), "roster");
   }
 
   function candidateUnits(actor, moduleId) {
@@ -260,7 +278,7 @@ export function BattleScene(container, params, api) {
   }
 
   for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
-  pushLog(`《${turn}ターン目》オードブル！`);
+  pushPhaseHeader("オードブル！");
 
   function isInteractive() {
     return phase === "prep" && !executing;
@@ -292,14 +310,14 @@ export function BattleScene(container, params, api) {
       const { moduleId, targetUnit } = unit.action;
       const module = PREP_MODULES[moduleId];
       activeArrow = { actor: unit, target: targetUnit };
-      pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`);
+      pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
       render();
       await sleep(ACTION_DELAY_MS);
 
       const before = statSnapshotText(targetUnit, module.stat);
       module.apply(targetUnit);
       const after = statSnapshotText(targetUnit, module.stat);
-      pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`);
+      pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
       render();
       await sleep(ACTION_DELAY_MS);
     }
@@ -307,7 +325,7 @@ export function BattleScene(container, params, api) {
     activeArrow = null;
     for (const unit of allyUnits) unit.action = null;
     phase = "main";
-    pushLog(`《${turn}ターン目》メインディッシュ！`);
+    pushPhaseHeader("メインディッシュ！");
     render();
     await sleep(MAIN_PHASE_WAIT_MS);
 
@@ -315,7 +333,7 @@ export function BattleScene(container, params, api) {
     resetForNewPrepPhase();
     phase = "prep";
     executing = false;
-    pushLog(`《${turn}ターン目》オードブル！`);
+    pushPhaseHeader("オードブル！");
     render();
   }
 
@@ -373,7 +391,7 @@ export function BattleScene(container, params, api) {
     return h(
       "div",
       { class: "battle-log" },
-      logLines.map((line) => h("p", { class: "battle-log__line", text: line }))
+      logLines.map((line) => h("p", { class: `battle-log__line battle-log__line--${line.kind}`, text: line.text }))
     );
   }
 

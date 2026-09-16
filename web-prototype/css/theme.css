@@ -1030,8 +1030,8 @@ body {
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  height: 96px;
-  overflow-y: auto;
+  height: 192px;
+  overflow-y: scroll;
 }
 
 .battle-log__line {
@@ -1041,6 +1041,12 @@ body {
   line-height: 1.5;
   color: #fff;
 }
+
+/* 味方の行動は青、敵の行動は赤。フェイズ見出しは白のまま太字にして
+   目立たせる（残りHP一覧はkind="roster"で、色はそのまま通常の太さ）。 */
+.battle-log__line--ally { color: var(--stat-defense); }
+.battle-log__line--enemy { color: var(--danger-strong); }
+.battle-log__line--phase { font-weight: 600; }
 
 /* テキストログ直下の実行ボタン。携帯モード・ワイドモード共通で、
    ログ枠と同じ幅になるよう画面本文の他の要素同様フルブロックで置く。
