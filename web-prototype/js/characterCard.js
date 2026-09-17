@@ -9,7 +9,7 @@
 import { h } from "./dom.js";
 import {
   computeStats,
-  computeMaxHp,
+  computeEffectiveMaxHp,
   CHARACTER_STAT_LABELS,
   CHARACTER_STAT_FULL_LABELS,
   CHARACTER_STAT_BY_WEAPON_STAT,
@@ -27,7 +27,7 @@ const STAT_LINE_2 = ["destruction", "wisdom", "coordination"];
 const FULL_WIDTH_SPACE = "　";
 
 export function characterHpGauge(character) {
-  const maxHp = computeMaxHp(character.growth);
+  const maxHp = computeEffectiveMaxHp(character);
   const currentHp = character.currentHp ?? maxHp;
   const pct = maxHp > 0 ? Math.max(0, Math.min(100, (currentHp / maxHp) * 100)) : 0;
   return h("div", { class: "hp-line" }, [
@@ -93,6 +93,7 @@ export function characterInfoCard(character) {
     h("div", { class: "character-card__head" }, [
       h("span", { class: "character-card__name", text: character.name }),
       h("span", { class: "character-card__level", text: `Lv.${character.level}` }),
+      h("span", { class: "character-card__condition", text: `変調: ${character.condition ?? 0}` }),
     ]),
     characterSynergyLine(character),
     characterHpGauge(character),

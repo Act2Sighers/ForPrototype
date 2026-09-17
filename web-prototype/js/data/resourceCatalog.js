@@ -71,6 +71,23 @@ export function computeMaxHp(growth) {
   return growthSum(growth) * 12;
 }
 
+// 変調：隊員限定のパラメータ（モンスターは持たない）。戦闘の内容に
+// 応じて蓄積し、0以上の値を取り、戦闘外でも保持・表示される。実効
+// 最大HPは、その分だけ本来の最大HP(computeMaxHp)から恒常的に
+// 押し下げられる。
+export function computeEffectiveMaxHp(character) {
+  return Math.max(0, computeMaxHp(character.growth) - (character.condition ?? 0));
+}
+
+// 変調を増やし、実効最大HPの低下に応じて現在HPも押し下げる（全快中に
+// 最大HPが下がった場合などを含め、現在HPが新しい最大HPを超えることは
+// ない）。
+export function increaseCondition(character, amount) {
+  character.condition = Math.max(0, (character.condition ?? 0) + amount);
+  const maxHp = computeEffectiveMaxHp(character);
+  if ((character.currentHp ?? maxHp) > maxHp) character.currentHp = maxHp;
+}
+
 // A character's level is just its growth total minus 4 -- every
 // キャラクターデータ below starts at growth-sum 5 (level 1, HP 60);
 // leveling up or recruiting a boosted candidate later just means
@@ -156,6 +173,7 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     level: computeLevel(growth),
     growth,
     currentHp: computeMaxHp(growth),
+    condition: 0,
     skills: [],
     weapon: null,
     synergies: data.synergies,
@@ -294,15 +312,15 @@ export function pickHighestStatCharacter(characters, statKey) {
 // episode outcomes (see data/scripts.js) and the battle screen's
 // 攻撃/貫通攻撃 modules.
 export function applyHpDamage(character, amount) {
-  const maxHp = computeMaxHp(character.growth);
+  const maxHp = computeEffectiveMaxHp(character);
   const current = character.currentHp ?? maxHp;
   character.currentHp = Math.max(0, current - amount);
 }
 
-// Raises a character's currentHp by `amount`, capped at their max HP.
-// Used by the battle screen's 回復 module.
+// Raises a character's currentHp by `amount`, capped at their (変調-reduced)
+// max HP. Used by the battle screen's 回復 module.
 export function applyHpHeal(character, amount) {
-  const maxHp = computeMaxHp(character.growth);
+  const maxHp = computeEffectiveMaxHp(character);
   const current = character.currentHp ?? maxHp;
   character.currentHp = Math.min(maxHp, current + amount);
 }

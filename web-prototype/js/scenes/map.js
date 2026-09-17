@@ -2,13 +2,13 @@ import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
-import { computeMaxHp } from "../data/resourceCatalog.js";
+import { computeEffectiveMaxHp } from "../data/resourceCatalog.js";
 
 // HPの現在値が最大値の1/3以下の隊員名一覧（何もいなければ空配列）。
 function exhaustedAllyNames() {
   return state.formationSlots
     .filter((c) => {
-      const maxHp = computeMaxHp(c.growth);
+      const maxHp = computeEffectiveMaxHp(c);
       const hp = c.currentHp ?? maxHp;
       return hp <= maxHp / 3;
     })

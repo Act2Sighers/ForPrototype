@@ -2,7 +2,8 @@ import { renderScreen, button, h } from "../dom.js";
 import state, { grantResource, grantTieredResource } from "../state.js";
 import {
   computeStats,
-  computeMaxHp,
+  computeEffectiveMaxHp,
+  increaseCondition,
   MONSTER_DATA,
   createMonsterFromData,
   applyHpDamage,
@@ -167,7 +168,7 @@ const PREP_MODULES = {
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
-  return (unit.character.currentHp ?? computeMaxHp(unit.character.growth)) <= 0;
+  return (unit.character.currentHp ?? computeEffectiveMaxHp(unit.character)) <= 0;
 }
 
 // 挑発/隠密の不発判定：自陣営で行動可能（戦闘不能になっていない）なのが
@@ -326,7 +327,7 @@ const MAIN_MODULES = {
     effect: "revive",
     apply: (actor, target) => {
       if (actor.faction === "enemy") return { applied: false };
-      const healedHp = correctedStat(actor, "coordination") * 2;
+      const healedHp = Math.min(computeEffectiveMaxHp(target.character), correctedStat(actor, "coordination") * 2);
       target.character.currentHp = healedHp;
       return { applied: true, healedHp };
     },
@@ -397,13 +398,18 @@ function statAbbrSpan(key, value, correction) {
 }
 
 function battleStatsLine(unit) {
-  const parts = ["能力値: [ "];
+  const parts = ["[ "];
   BATTLE_STAT_ORDER.forEach((key, i) => {
     if (i > 0) parts.push(" / ");
     parts.push(statAbbrSpan(key, correctedStat(unit, key), getStatCorrection(unit, key)));
   });
   parts.push(" ]");
   return h("p", { class: "battle-unit__stats" }, parts);
+}
+
+// 能力値の行の右側にイニシアチブ(IN)を右揃えで添える行。
+function battleStatsRow(unit) {
+  return h("div", { class: "battle-unit__statline" }, [battleStatsLine(unit), h("span", { class: "battle-unit__in", text: `IN: ${unit.in}` })]);
 }
 
 // 体幹: 0 基準の正負整数。正なら「装甲」で青く、負なら「脆弱性」で
@@ -413,6 +419,11 @@ function staminaSpan(stamina) {
   if (stamina > 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--armor", text: `装甲${stamina}` });
   if (stamina < 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--fragile", text: `脆弱性${-stamina}` });
   return h("span", { class: "battle-unit__stamina", text: "体幹: 0" });
+}
+
+// 変調：隊員（味方陣営）限定の常設パラメータ。モンスターには表示しない。
+function conditionBadge(unit) {
+  return h("span", { class: "battle-unit__condition", text: `変調: ${unit.character.condition ?? 0}` });
 }
 
 // 残りPTを示すランプ。図形で示す指定なので文字の「●」「○」ではなく
@@ -431,7 +442,7 @@ function ptLamp(current, max) {
 // ラベルを「HP(↑n)」「HP(↓n)」に変えてその存在を示す。
 function battleHpGauge(unit) {
   const character = unit.character;
-  const maxHp = computeMaxHp(character.growth);
+  const maxHp = computeEffectiveMaxHp(character);
   const currentHp = character.currentHp ?? maxHp;
   const pct = maxHp > 0 ? Math.max(0, Math.min(100, (currentHp / maxHp) * 100)) : 0;
   const c = unit.continuousHp;
@@ -451,15 +462,17 @@ function battleHpGauge(unit) {
 // 矢印オーバーレイがDOM実測で枠を探すためのキー。
 function battleUnitCard(unit, extraClass, onClick) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
+  const headRight = isIncapacitated(unit)
+    ? h("span", { class: "battle-unit__down-badge", text: "戦闘不能" })
+    : unit.faction === "ally"
+      ? conditionBadge(unit)
+      : null;
   return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
-    h("div", { class: "battle-unit__head" }, [
-      h("span", { class: "battle-unit__name", text: unit.displayName }),
-      isIncapacitated(unit) ? h("span", { class: "battle-unit__down-badge", text: "戦闘不能" }) : staminaSpan(unit.stamina),
-    ]),
+    h("div", { class: "battle-unit__head" }, [h("span", { class: "battle-unit__name", text: unit.displayName }), headRight]),
     battleHpGauge(unit),
-    battleStatsLine(unit),
+    battleStatsRow(unit),
     h("div", { class: "battle-unit__footer" }, [
-      h("span", { text: `IN: ${unit.in}` }),
+      staminaSpan(unit.stamina),
       h("div", { class: "battle-unit__pt" }, [
         h("span", { text: `PT: ${unit.pt.current} / ${unit.pt.max}` }),
         ptLamp(unit.pt.current, unit.pt.max),
@@ -508,7 +521,7 @@ export function BattleScene(container, params, api) {
   function enemyHpRosterLine() {
     return enemyUnits
       .filter((u) => !isIncapacitated(u))
-      .map((u) => `${u.displayName}: ${u.character.currentHp ?? computeMaxHp(u.character.growth)}/${computeMaxHp(u.character.growth)}`)
+      .map((u) => `${u.displayName}: ${u.character.currentHp ?? computeEffectiveMaxHp(u.character)}/${computeEffectiveMaxHp(u.character)}`)
       .join(" _ ");
   }
 
@@ -670,7 +683,7 @@ export function BattleScene(container, params, api) {
   function reviveIncapacitatedAllies() {
     for (const unit of allyUnits) {
       if (!isIncapacitated(unit)) continue;
-      const maxHp = computeMaxHp(unit.character.growth);
+      const maxHp = computeEffectiveMaxHp(unit.character);
       unit.character.currentHp = Math.ceil(maxHp / 4);
     }
   }
@@ -684,6 +697,11 @@ export function BattleScene(container, params, api) {
     if (outcome === "victory") {
       pushLog("▼▼▼ 勝利！ ▼▼▼", "phase");
       pushLog(`戦闘勝利報酬：${grantBattleRewards()}`, "phase");
+      // 変調：戦闘勝利時、「全モンスターのレベル合計÷編成スロット上の
+      // 隊員人数（切り上げ）」分だけ全隊員に加算する。
+      const levelSum = enemyUnits.reduce((sum, u) => sum + u.character.level, 0);
+      const conditionBonus = Math.ceil(levelSum / allyUnits.length);
+      for (const unit of allyUnits) increaseCondition(unit.character, conditionBonus);
     } else {
       pushLog("▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
     }
@@ -696,6 +714,15 @@ export function BattleScene(container, params, api) {
       api.closeScene();
     } else {
       api.navigateTo("result", { mode: "gameover" });
+    }
+  }
+
+  // 「自分以外の隊員が戦闘不能になった時、変調+1」：戦闘不能になった
+  // のが味方であれば、それ以外の全味方の変調を+1する。
+  function rippleIncapacitationCondition(unit) {
+    if (unit.faction !== "ally") return;
+    for (const other of allyUnits) {
+      if (other !== unit) increaseCondition(other.character, 1);
     }
   }
 
@@ -714,6 +741,10 @@ export function BattleScene(container, params, api) {
     const module = PREP_MODULES[moduleId];
     activeArrow = { actor: unit, target: targetUnit };
     pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
+    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
+    if (unit.faction === "ally") increaseCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
     render();
     await sleep(ACTION_DELAY_MS);
 
@@ -742,6 +773,10 @@ export function BattleScene(container, params, api) {
     const module = MAIN_MODULES[moduleId];
     activeArrow = { actor: unit, target: targetUnit };
     pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
+    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
+    if (unit.faction === "ally") increaseCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
     render();
     await sleep(ACTION_DELAY_MS);
 
@@ -785,6 +820,10 @@ export function BattleScene(container, params, api) {
       const { magnitude, label } = module.apply(unit, targetUnit);
       const afterHp = targetUnit.character.currentHp;
       pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
+      // 変調：自分以外の隊員が戦闘不能になった時+1（この分岐に来た時点で
+      // targetUnitは行動前は戦闘不能ではなかったので、ここで戦闘不能に
+      // なっていれば「今まさに」なったということ）。
+      if (isIncapacitated(targetUnit)) rippleIncapacitationCondition(targetUnit);
     }
     render();
     await sleep(ACTION_DELAY_MS);
@@ -807,6 +846,10 @@ export function BattleScene(container, params, api) {
       const after = unit.character.currentHp;
       const effectLabel = c.type === "heal" ? "継続回復" : "継続ダメージ";
       pushLog(`${unit.displayName}のHP：${before} → ${after}（${effectLabel} ${amount}）`, unit.faction);
+      // 変調：自分以外の隊員が戦闘不能になった時+1（このループはすでに
+      // 戦闘不能なユニットをcontinueで飛ばしているので、ここに来た時点で
+      // 判定すれば「今まさに」なったかどうかを正しく検出できる）。
+      if (isIncapacitated(unit)) rippleIncapacitationCondition(unit);
       render();
       await sleep(ACTION_DELAY_MS);
       c.turnsRemaining -= 1;
@@ -882,6 +925,8 @@ export function BattleScene(container, params, api) {
 
     applyEndOfTurnStaminaDecay();
     applyEndOfTurnCorrectionDecay();
+    // 変調：毎ターン終了時+1（全味方、戦闘不能かどうかは問わない）。
+    for (const unit of allyUnits) increaseCondition(unit.character, 1);
     turn += 1;
     phase = "prep";
     resetForNewPrepPhase();

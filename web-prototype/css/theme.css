@@ -908,6 +908,14 @@ body {
   color: var(--ink-faint);
 }
 
+/* 変調：隊員限定の常設パラメータ。紫（協調性と同じ色）で表示する。 */
+.character-card__condition {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--stat-coordination);
+  margin-left: auto;
+}
+
 .character-card__stats,
 .character-card__weapon,
 .character-card__synergy {
@@ -1264,23 +1272,43 @@ body {
 .battle-unit__stamina--armor { color: var(--stat-defense); }
 .battle-unit__stamina--fragile { color: var(--stat-destruction); }
 
+/* 能力値の行とイニシアチブ(IN)を同じ行に、ININは右揃えで。 */
+.battle-unit__statline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .battle-unit__stats {
   margin: 0;
   font-size: 11px;
   color: var(--ink-dim);
 }
 
-/* 能力値の補正表示: 無補正は無色、プラス補正は協調性と同じ紫、
-   マイナス補正は賢さと同じ緑（能力値ごとの色分けではなく、補正の向き
-   だけで色が決まる点に注意）。 */
+.battle-unit__in {
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* 変調：隊員（味方陣営）限定の常設パラメータ、紫（協調性と同じ色）。 */
+.battle-unit__condition {
+  font-size: 11px;
+  color: var(--stat-coordination);
+  white-space: nowrap;
+}
+
+/* 能力値の補正表示: 無補正は無色、上昇時は青、低下時は赤（能力値ごとの
+   色分けではなく、補正の向きだけで色が決まる点に注意）。 */
 .battle-stat {
   color: var(--ink-dim);
 }
 
-.battle-stat--boost { color: var(--stat-coordination); }
-.battle-stat--drop { color: var(--stat-wisdom); }
+.battle-stat--boost { color: var(--stat-defense); }
+.battle-stat--drop { color: var(--danger); }
 
-/* IN は左、PT＋ランプは右揃え（体幹の表示位置と同じ考え方）。 */
+/* 体幹は左、PT＋ランプは右揃え。 */
 .battle-unit__footer {
   display: flex;
   align-items: center;
