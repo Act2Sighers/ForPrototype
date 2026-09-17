@@ -1129,7 +1129,11 @@ export function BattleScene(container, params, api) {
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
-    return h("div", { class: "battle-mobile-unit" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), battleHpGauge(unit), actionSelectFields(unit)]);
+    return h("div", { class: "battle-mobile-unit" }, [
+      h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), conditionBadge(unit)]),
+      battleHpGauge(unit),
+      actionSelectFields(unit),
+    ]);
   }
 
   function battleMobileRoster() {

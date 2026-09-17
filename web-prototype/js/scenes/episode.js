@@ -86,6 +86,11 @@ export function EpisodeScene(container, params, api) {
   // (possibly empty, e.g. the エンディング script has no effects) once
   // it happens.
   let effectDescriptions = null;
+  // 戦闘イベント外でのダメージ効果（damageHighestStatCharacter）によって
+  // 編成スロットの隊員全員のHPが0になった場合に立てるフラグ。立って
+  // いる間は、このエピソードを閉じる操作がゲームオーバー画面への遷移に
+  // 差し替わる。
+  let partyWiped = false;
 
   // A "judgement" beat resolves into an ordinary line the moment it's
   // entered (so the dice only roll once, not on every re-render), with
@@ -108,7 +113,12 @@ export function EpisodeScene(container, params, api) {
     const beat = resolveBeat(script.beats[beatId]);
     if (beat.type === "end") {
       const descriptions = (beat.effects ?? []).map((effect) => applyEffect(effect, context)).filter(Boolean);
-      if (descriptions.length === 0) {
+      // 戦闘イベント外であれどこであれ、編成スロットの隊員全員のHPが0に
+      // なった時点でゲームオーバーとする（変調の過剰蓄積による実効最大
+      // HPの低下が原因の場合も含む -- applyHpDamage/increaseConditionは
+      // どちらもcurrentHpをそのまま0まで下げ得る）。
+      partyWiped = state.formationSlots.length > 0 && state.formationSlots.every((c) => c.currentHp <= 0);
+      if (descriptions.length === 0 && !partyWiped) {
         // Nothing to show (e.g. the エンディング script, which has no
         // effects since the run is already over) -- close right away
         // instead of making the player click a second time just to
@@ -144,13 +154,15 @@ export function EpisodeScene(container, params, api) {
       }
     }
 
+    const closeOrGameOver = () => (partyWiped ? api.navigateTo("result", { mode: "gameover" }) : api.closeScene());
+
     const stage = h("div", { class: "episode-stage" }, [
       h(
         "div",
         {
           class: "episode-textbox",
           onClick: isFinished
-            ? () => api.closeScene()
+            ? closeOrGameOver
             : current.next && !current.choices
             ? () => goto(current.next)
             : undefined,
@@ -192,7 +204,7 @@ export function EpisodeScene(container, params, api) {
 
     const actions = [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
     if (isFinished) {
-      actions.push(button("閉じる", { variant: "primary", onClick: () => api.closeScene() }));
+      actions.push(button(partyWiped ? "結果を見る" : "閉じる", { variant: "primary", onClick: closeOrGameOver }));
     } else if (current.next && !current.choices && current.type !== "characterSelect") {
       // If advancing leads straight into an effect-less "end" beat, this
       // click will close the scene immediately (see goto() above) rather

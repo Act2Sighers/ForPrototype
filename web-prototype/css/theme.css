@@ -632,6 +632,15 @@ body {
   gap: 8px;
 }
 
+/* 部隊編成画面の編成スロット行だけが使う：変調バッジをアクション列の
+   真上、枠の右上隅に右揃えで積む。 */
+.slot__actions-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
 /* ---------------------------------------------------------
    Map / node graph
    --------------------------------------------------------- */
@@ -1116,6 +1125,13 @@ body {
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+.battle-mobile-unit__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 6px;
 }
 

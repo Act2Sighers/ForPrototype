@@ -23,6 +23,10 @@ import {
 // Split across two lines (rather than one 5-stat row) per the user's
 // preference for readability: attack+defense, then the other three.
 const STAT_LINE_1 = ["attack", "defense"];
+// ギャラリー・雇用画面用：HPゲージの代わりに、カロリー(HP)も能力値の
+// 一覧に含めて表示する（両画面とも表示される隊員は必ずHP全快のため、
+// 最大HPさえ分かれば十分という判断 -- characterStatLineWithMaxHp参照）。
+const STAT_LINE_1_WITH_HP = ["hp", "attack", "defense"];
 const STAT_LINE_2 = ["destruction", "wisdom", "coordination"];
 const FULL_WIDTH_SPACE = "　";
 
@@ -53,6 +57,20 @@ function statLineRow(keys, s) {
 export function characterStatLine(character) {
   const s = computeStats(character);
   return h("div", { class: "character-card__stat-lines" }, [statLineRow(STAT_LINE_1, s), statLineRow(STAT_LINE_2, s)]);
+}
+
+// ギャラリー(退役隊員)・雇用(候補者)画面専用：どちらも表示される隊員は
+// 必ずHP全快なので、専用のHPゲージ行は出さず、能力値の一覧の中にカロリー
+// (HP)も混ぜて表示する。
+export function characterStatLineWithMaxHp(character) {
+  const s = computeStats(character);
+  return h("div", { class: "character-card__stat-lines" }, [statLineRow(STAT_LINE_1_WITH_HP, s), statLineRow(STAT_LINE_2, s)]);
+}
+
+// 変調：隊員限定の常設パラメータ。部隊編成画面の各隊員枠、右上隅に
+// 右揃えで表示する（戦闘画面のconditionBadgeと同じ見た目）。
+export function characterConditionBadge(character) {
+  return h("span", { class: "character-card__condition", text: `変調: ${character.condition ?? 0}` });
 }
 
 // シナジー(戦闘スタイル) a character carries -- see resourceCatalog.js's
@@ -88,16 +106,18 @@ export function characterWeaponLine(character) {
   ]);
 }
 
+// ギャラリー(退役隊員)・雇用(候補者)画面専用の詳細カード。変調は表示
+// しない（両画面とも表示対象は変調0・HP全快が前提のため）。HPゲージも
+// 出さず、代わりにcharacterStatLineWithMaxHpの能力値一覧にカロリー(HP)
+// を混ぜて表示する。
 export function characterInfoCard(character) {
   return h("div", { class: "character-card" }, [
     h("div", { class: "character-card__head" }, [
       h("span", { class: "character-card__name", text: character.name }),
       h("span", { class: "character-card__level", text: `Lv.${character.level}` }),
-      h("span", { class: "character-card__condition", text: `変調: ${character.condition ?? 0}` }),
     ]),
     characterSynergyLine(character),
-    characterHpGauge(character),
-    characterStatLine(character),
+    characterStatLineWithMaxHp(character),
     characterWeaponLine(character),
   ]);
 }

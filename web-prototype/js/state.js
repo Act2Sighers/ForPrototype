@@ -13,6 +13,7 @@ import {
   resolveEnhancePlan,
   refreshWeaponPrefix,
   computeWeaponMarketPrice,
+  computeMaxHp,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -312,6 +313,11 @@ export function settleRunEnd(mode) {
     mode === "gameover"
       ? [...state.standbySlots]
       : [...state.formationSlots, ...state.standbySlots];
+  // 退役スロットへ移す隊員は、変調を0にしてHPを全回復させる。
+  for (const character of survivors) {
+    character.condition = 0;
+    character.currentHp = computeMaxHp(character.growth);
+  }
   state.retiredSlots.push(...survivors);
   state.formationSlots = [];
   state.standbySlots = [];

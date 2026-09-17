@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine } from "../characterCard.js";
+import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine, characterConditionBadge } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon } from "../state.js";
 import { computeWeaponRating, canEquip, getWeaponDisplayName } from "../data/resourceCatalog.js";
 
@@ -222,7 +222,9 @@ export function SquadFormationScene(container, params, api) {
           h("span", { class: "slot__id", text: `Lv.${character.level}` }),
           h("span", { class: "slot__name", text: character.name }),
         ]),
-        h("div", { class: "slot__actions" }, actions),
+        // 変調は詳細表示のトグルに関係なく常に表示するため、アクション
+        // 行の右上に、アクションボタン列と縦に並べて右揃えで置く。
+        h("div", { class: "slot__actions-group" }, [characterConditionBadge(character), h("div", { class: "slot__actions" }, actions)]),
       ]),
       characterHpGauge(character),
     ];
