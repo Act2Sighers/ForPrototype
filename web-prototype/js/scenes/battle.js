@@ -381,6 +381,29 @@ const MAIN_MODULES = {
   },
 };
 
+// 複合スキル：leafモジュール（apply()を持つ）や他のスキルのidをsteps
+// に並べて、同じ1体の行動対象へ順番に適用する。「スキルは他のスキル
+// のモジュールになることがある」という整理の通り、この登録先はleaf
+// モジュールと同じMAIN_MODULES辞書 -- steps側からはidで参照するだけな
+// ので、複合スキルが他の複合スキルをネストしても構わない（runSteps参
+// 照）。costはPTで支払う（葉モジュール自体はPTを一切消費しない、とい
+// う既存の設計はそのまま）。行動対象候補は、このスキル自身の
+// targetFaction一本で決まる -- 内部のsteps側では対象を選び直さない
+// （【鉄槌】の説明にある「初動モジュールの行動対象候補がそのままスキル
+// の行動対象候補になる」を、初動と同じtargetFactionをスキル自身に
+// 持たせることで表現している）。
+// 【鉄槌】：3コスト、スマッシュ。スマッシュした後、同じ行動対象に攻撃
+// を行う -- モジュール合成エンジンの動作確認用の最小例。
+Object.assign(MAIN_MODULES, {
+  ironHammer: {
+    id: "ironHammer",
+    label: "鉄槌(PT3)",
+    targetFaction: "opposing",
+    cost: 3,
+    steps: [{ actionId: "smash" }, { actionId: "attack" }],
+  },
+});
+
 const PREP_START_PT = 3;
 
 // 陣営ごとの隊員をラップする、戦闘限定の使い捨てデータ。IN/PT/行動選択
@@ -802,22 +825,11 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
-  // Mainフェイズの1ユニット分：Prepと同じ流れだが、効果の種類（HP増減/
-  // 体幹増減/能力値補正/継続効果）で結果ログの組み立てが分岐する。
-  async function resolveMainAction(unit) {
-    const { moduleId, targetUnit } = unit.action;
-    const module = MAIN_MODULES[moduleId];
-    activeArrow = { actor: unit, target: targetUnit };
-    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
-    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
-    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
-    if (unit.faction === "ally") increaseCondition(unit.character, 1);
-    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
-    render();
-    await sleep(ACTION_DELAY_MS);
-
-    // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
-    // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
+  // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
+  // へ適用し、効果種別ごとの結果ログを1行積む。戦闘不能/蘇生の判定は
+  // 呼び出し側（resolveMainAction）で行動全体につき1回だけ済ませてある
+  // 前提 -- 複合スキルの途中のステップでも改めてはチェックしない。
+  async function applyLeafModule(unit, targetUnit, module) {
     if (module.effect === "revive") {
       const result = module.apply(unit, targetUnit);
       pushLog(
@@ -826,8 +838,6 @@ export function BattleScene(container, params, api) {
           : `${unit.displayName}は敵陣営のため、効果は不発に終わった。`,
         unit.faction
       );
-    } else if (isIncapacitated(targetUnit)) {
-      pushLog(`${targetUnit.displayName}は戦闘不能のため、効果は不発に終わった。`, unit.faction);
     } else if (module.effect === "stamina") {
       const before = targetUnit.stamina;
       module.apply(unit, targetUnit);
@@ -863,6 +873,63 @@ export function BattleScene(container, params, api) {
     }
     render();
     await sleep(ACTION_DELAY_MS);
+  }
+
+  // steps（葉モジュールidまたは他スキルidのリスト、{actionId, chance}の
+  // 形）を同じ1体の対象へ順番に適用する。chance省略時は必ず発動、指定
+  // されていれば毎ステップその確率で判定する（外れたステップは何も
+  // 起きず次へ進む）。actionIdが複合スキル（steps持ち）を指していれば、
+  // そのスキル自身の対象解決はスキップしてそのまま同じtargetUnitへ再帰
+  // する -- ネストしたスキルは自分では対象を選び直さない。
+  async function runSteps(unit, targetUnit, steps) {
+    for (const step of steps) {
+      if (step.chance !== undefined && Math.random() >= step.chance) continue;
+      const action = MAIN_MODULES[step.actionId];
+      if (action.steps) await runSteps(unit, targetUnit, action.steps);
+      else await applyLeafModule(unit, targetUnit, action);
+    }
+  }
+
+  // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
+  // 同じ入口を通る：宣言ログ→変調加算→（複合スキルのみ）PTコスト確認
+  // ・支払い→蘇生/戦闘不能の判定（行動全体につき1回）→steps実行。葉
+  // モジュールは実質「自分自身1個だけのsteps」として扱う。
+  async function resolveMainAction(unit) {
+    const { moduleId, targetUnit } = unit.action;
+    const module = MAIN_MODULES[moduleId];
+    activeArrow = { actor: unit, target: targetUnit };
+    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
+    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
+    if (unit.faction === "ally") increaseCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
+    render();
+    await sleep(ACTION_DELAY_MS);
+
+    if (module.cost) {
+      if (unit.pt.current < module.cost) {
+        pushLog(`${unit.displayName}はPTが足りず、「${module.label}」は不発に終わった。`, unit.faction);
+        render();
+        await sleep(ACTION_DELAY_MS);
+        return;
+      }
+      unit.pt.current -= module.cost;
+    }
+
+    // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
+    // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
+    if (module.effect === "revive") {
+      await applyLeafModule(unit, targetUnit, module);
+      return;
+    }
+    if (isIncapacitated(targetUnit)) {
+      pushLog(`${targetUnit.displayName}は戦闘不能のため、効果は不発に終わった。`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+      return;
+    }
+
+    await runSteps(unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
   }
 
   // 継続回復/継続ダメージ/継続割合ダメージを持つ全ユニットについて、
