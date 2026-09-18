@@ -10,6 +10,10 @@ import {
   amberTopGroups,
   pickBestModuleUnit,
   pickAmberModuleInstance,
+  pickLowestQualityNatural,
+  pickLowestQualityFrame,
+  COATING_PATTERN_MATERIALS,
+  COATING_FLAVOR_MATERIALS,
 } from "../data/resourceCatalog.js";
 
 function speciesName(speciesId) {
@@ -41,7 +45,7 @@ function speciesName(speciesId) {
 //    letting the player pick which one. "製造画面に戻る" returns
 //    without picking anything.
 export function ResourceStorageScene(container, params, api) {
-  const mode = params.mode === "moduleSelect" ? "moduleSelect" : "normal";
+  const mode = ["moduleSelect", "patternSelect", "flavorSelect"].includes(params.mode) ? params.mode : "normal";
   const frameReservation = mode === "moduleSelect" ? params.frameReservation : null;
 
   const expandedIds = new Set();
@@ -163,9 +167,75 @@ export function ResourceStorageScene(container, params, api) {
     });
   }
 
+  // 仕立画面の原料１（パターン）／原料２（フレーバー）向け。どちらも
+  // 除外は不要（自然資源/剛体資源はプールが完全に別なので、片方の
+  // 予約がもう片方の候補を減らすことは無い -- 鍛冶画面のフレーム/
+  // モジュールと違い、同じ資源プールを取り合わない）。「選択」は
+  // そのレシピが要求する必要数を、最も品質の低いものから優先して
+  // 予約し、そのまま呼び出し元（仕立画面）へ返す。
+  function materialSelectRow(entry, onSelect) {
+    return h("div", { class: "slot" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__name", text: speciesName(entry.speciesId) }),
+        h("span", { class: "tag", text: entry.detail }),
+      ]),
+      h("div", { class: "slot__actions" }, [button("選択", { variant: "primary", onClick: () => onSelect(entry.speciesId) })]),
+    ]);
+  }
+
+  function selectPattern(speciesId) {
+    const { quantity } = COATING_PATTERN_MATERIALS[speciesId];
+    api.closeScene(pickLowestQualityNatural(state.run?.resources, speciesId, quantity));
+  }
+
+  function selectFlavor(speciesId) {
+    const { quantity } = COATING_FLAVOR_MATERIALS[speciesId];
+    api.closeScene(pickLowestQualityFrame(state.run?.resources, speciesId, quantity));
+  }
+
+  function renderPatternSelect() {
+    const { natural } = describeResourcesIndividually(state.run?.resources);
+    const rows = natural.filter((entry) => entry.speciesId !== "baseCream");
+    renderScreen(container, {
+      eyebrow: "BAGGAGE STORAGE / PATTERN",
+      title: "荷物置き場（パターン選択）",
+      subtitle: "パターンとして用いる自然資源を選んでください。",
+      body: [
+        rows.length
+          ? h("div", { class: "slot-list slot-list--grid" }, rows.map((entry) => materialSelectRow(entry, selectPattern)))
+          : h("p", { class: "lead", text: "選択できる自然資源がありません。" }),
+      ],
+      actions: [button("作成画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+    });
+  }
+
+  function renderFlavorSelect() {
+    const { rigid } = describeResourcesIndividually(state.run?.resources);
+    const rows = rigid.filter((entry) => entry.speciesId !== "coarseSugarMineral");
+    renderScreen(container, {
+      eyebrow: "BAGGAGE STORAGE / FLAVOR",
+      title: "荷物置き場（フレーバー選択）",
+      subtitle: "フレーバーとして用いる剛体資源を選んでください。",
+      body: [
+        rows.length
+          ? h("div", { class: "slot-list slot-list--grid" }, rows.map((entry) => materialSelectRow(entry, selectFlavor)))
+          : h("p", { class: "lead", text: "選択できる剛体資源がありません。" }),
+      ],
+      actions: [button("作成画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+    });
+  }
+
   function render() {
     if (mode === "moduleSelect") {
       renderModuleSelect();
+      return;
+    }
+    if (mode === "patternSelect") {
+      renderPatternSelect();
+      return;
+    }
+    if (mode === "flavorSelect") {
+      renderFlavorSelect();
       return;
     }
 

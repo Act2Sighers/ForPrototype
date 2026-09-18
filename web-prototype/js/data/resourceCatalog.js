@@ -965,6 +965,27 @@ export function pickLowestQualityFrame(resources, speciesId, quantity) {
   return { speciesId, tierBreakdown };
 }
 
+// 仕立画面の原料１（パターン）向け：pickLowestQualityFrameの自然資源版
+// （自然資源にはvariableStats種が無いので、その分岐は無い）。品質
+// ティアを持たない種（ベースクリームのみ、実際にはパターンとして選ば
+// れない）も一応フラット枝で対応しておく。
+export function pickLowestQualityNatural(resources, speciesId, quantity) {
+  const species = NATURAL_RESOURCES[speciesId];
+  const value = resources.natural[speciesId];
+  if (!species.qualityTiers) {
+    return { speciesId, flatQuantity: Math.min(value, quantity) };
+  }
+  const tierBreakdown = {};
+  let remaining = quantity;
+  for (const tier of species.qualityTiers) {
+    if (remaining <= 0) break;
+    const take = Math.min(value[tier], remaining);
+    if (take > 0) tierBreakdown[tier] = take;
+    remaining -= take;
+  }
+  return { speciesId, tierBreakdown };
+}
+
 // A view of `resources` with a pending フレーム reservation already
 // subtracted out, so 資源置き場画面's モジュール選択モード can't offer
 // (and thus double-book) the exact units already earmarked as フレーム
@@ -1377,6 +1398,43 @@ export const COATING_EFFECT_LABELS = {
   envAdapt: "属性環境適応度",
 };
 
+export const EQUIP_SLOT_LABELS = { arm: "腕", shoulder: "肩", torso: "胴", leg: "脚", head: "頭" };
+
+// 効果ごとに固定の装備部位 (仕立画面のパターン原料が決める側)。
+const COATING_EFFECT_EQUIP_SLOT = {
+  damage: "arm",
+  reduction: "shoulder",
+  ailmentChance: "torso",
+  ailmentResist: "leg",
+  envAdapt: "head",
+};
+
+// ---------------------------------------------------------------------
+// 仕立画面：原料１（パターン、自然資源）／原料２（フレーバー、剛体
+// 資源）のレシピ表。パターンは効果（＝接尾辞・装備部位）を、フレーバー
+// は属性（＝接頭辞）を決める -- 上のCOATING_ATTRIBUTE_PREFIX/
+// COATING_EFFECT_SUFFIXと1:1対応（キーは共通のattribute/effect）。
+// ---------------------------------------------------------------------
+
+export const COATING_PATTERN_MATERIALS = {
+  squeezedFructoseLiquid: { speciesId: "squeezedFructoseLiquid", quantity: 5, effect: "damage" },
+  gummyElasticMaterial: { speciesId: "gummyElasticMaterial", quantity: 5, effect: "reduction" },
+  waferMembraneObject: { speciesId: "waferMembraneObject", quantity: 5, effect: "ailmentChance" },
+  sableSoftGravel: { speciesId: "sableSoftGravel", quantity: 5, effect: "ailmentResist" },
+  electroMagneticGelatin: { speciesId: "electroMagneticGelatin", quantity: 5, effect: "envAdapt" },
+};
+
+export const COATING_FLAVOR_MATERIALS = {
+  amberSugarMineral: { speciesId: "amberSugarMineral", quantity: 3, attribute: "time" },
+  dropSpiralOre: { speciesId: "dropSpiralOre", quantity: 3, attribute: "soak" },
+  cacaoLayeredRock: { speciesId: "cacaoLayeredRock", quantity: 3, attribute: "humidity" },
+  sorbetEternalIce: { speciesId: "sorbetEternalIce", quantity: 3, attribute: "cold" },
+  driedFructoseRock: { speciesId: "driedFructoseRock", quantity: 3, attribute: "dry" },
+  honeyCrystalOre: { speciesId: "honeyCrystalOre", quantity: 3, attribute: "heat" },
+  sugarCaneFiber: { speciesId: "sugarCaneFiber", quantity: 3, attribute: "contamination" },
+  highPuritySugar: { speciesId: "highPuritySugar", quantity: 2, attribute: "decay" },
+};
+
 // Flavor names are "<attribute prefix><effect suffix>" (時間 + 属性特化
 // ダメージ = "カラフルな" + "プラズマ"). Full 8x5 naming table.
 const COATING_ATTRIBUTE_PREFIX = {
@@ -1398,7 +1456,7 @@ const COATING_EFFECT_SUFFIX = {
   envAdapt: "ヘイロー",
 };
 
-function nameCoating(attribute, effect) {
+export function nameCoating(attribute, effect) {
   return `${COATING_ATTRIBUTE_PREFIX[attribute]}${COATING_EFFECT_SUFFIX[effect]}`;
 }
 
@@ -1410,14 +1468,30 @@ export function describeCoating(coating) {
   return [
     `属性: ${COATING_ATTRIBUTE_LABELS[coating.attribute]}`,
     `効果内容: ${COATING_EFFECT_LABELS[coating.effect]}`,
+    `装備部位: ${EQUIP_SLOT_LABELS[coating.equipSlot]}`,
     formatMastery(coating.mastery),
   ].join(" / ");
 }
 
 function createCoating({ id, attribute, effect, mastery = 1 }) {
-  return { id, attribute, effect, mastery, name: nameCoating(attribute, effect), enabled: true };
+  return {
+    id,
+    attribute,
+    effect,
+    equipSlot: COATING_EFFECT_EQUIP_SLOT[effect],
+    mastery,
+    name: nameCoating(attribute, effect),
+    enabled: true,
+  };
 }
 
 export function createColorfulPlasma() {
   return createCoating({ id: "colorful-plasma", attribute: "time", effect: "damage", mastery: 1 });
+}
+
+// 仕立画面の「作成完了！」1回ぶん：新しい一着（熟練度1）を1つ作る。
+// 熟練度の増加（既存の一着への加算）や、何着目になるかの判定は
+// state.js側（クラフト回数を追跡している）が受け持つ。
+export function craftCoating(attribute, effect) {
+  return createCoating({ id: `coating-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, attribute, effect, mastery: 1 });
 }

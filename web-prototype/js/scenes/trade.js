@@ -43,6 +43,11 @@ export function TradeScene(container, params, api) {
             }),
             h("button", {
               class: "chip",
+              text: "仕立て屋",
+              onClick: () => api.callScene("tailorShop"),
+            }),
+            h("button", {
+              class: "chip",
               text: "自販機",
               onClick: () => api.callScene("timeEats", { mode: "vendingMachine", lineup: timeEatsLineups.vendingMachine }),
             }),

@@ -9,7 +9,11 @@ import {
   computeTradeValue,
   createAmberSugarMineralInstance,
   RIGID_RESOURCES,
+  NATURAL_RESOURCES,
   craftWeapon,
+  craftCoating,
+  COATING_PATTERN_MATERIALS,
+  COATING_FLAVOR_MATERIALS,
   resolveEnhancePlan,
   refreshWeaponPrefix,
   computeWeaponMarketPrice,
@@ -45,6 +49,11 @@ function freshProfile() {
     // equipStoredWeapon() swapping a character's old weapon in here;
     // future weapon forging/enhancement will add to it too.
     storedWeapons: [],
+    // 仕立画面：ある(attribute, effect)の組み合わせの糖衣を、プレイヤーが
+    // 過去に作成した回数（"${attribute}_${effect}"をキーにした通算値、
+    // 一着ごとにリセットされない）。craftAndStoreCoating参照 -- 5回ごと
+    // に新しい一着、それ以外は既存の熟練度5でない一着への加算になる。
+    coatingCraftCounts: {},
   };
 }
 
@@ -273,6 +282,49 @@ export function craftAndStoreWeapon(weaponTypeId, frameReservation, modulePick) 
   return weapon;
 }
 
+const COATING_BASE_CREAM_COST_PER_CRAFT = 10;
+
+// consumeRigidReservationの自然資源版（仕立画面の原料１＝パターン用）。
+function consumeNaturalReservation(reservation) {
+  const { speciesId } = reservation;
+  const species = NATURAL_RESOURCES[speciesId];
+  if (species.qualityTiers) {
+    for (const [tier, qty] of Object.entries(reservation.tierBreakdown)) {
+      state.run.resources.natural[speciesId][tier] -= qty;
+    }
+  } else {
+    state.run.resources.natural[speciesId] -= reservation.flatQuantity;
+  }
+}
+
+// 仕立画面's 作成完了 step: pays the パターン(自然資源)/フレーバー
+// (剛体資源) reservations plus ベースクリーム×10, then either mints a
+// brand new 一着（熟練度1）or raises the mastery of the one existing
+// 一着 that isn't already MAX -- see freshProfile()'s
+// coatingCraftCounts comment for the counting rule (every 5th craft of
+// the same attribute/effect combo starts a fresh piece). Returns the
+// resulting coating (new or leveled-up).
+export function craftAndStoreCoating(patternReservation, flavorReservation) {
+  consumeNaturalReservation(patternReservation);
+  consumeRigidReservation(flavorReservation);
+  state.run.resources.natural.baseCream -= COATING_BASE_CREAM_COST_PER_CRAFT;
+
+  const { effect } = COATING_PATTERN_MATERIALS[patternReservation.speciesId];
+  const { attribute } = COATING_FLAVOR_MATERIALS[flavorReservation.speciesId];
+  const key = `${attribute}_${effect}`;
+  const pastCraftCount = state.coatingCraftCounts[key] ?? 0;
+  state.coatingCraftCounts[key] = pastCraftCount + 1;
+
+  if (pastCraftCount % 5 === 0) {
+    const coating = craftCoating(attribute, effect);
+    state.warehouseItems.push(coating);
+    return coating;
+  }
+  const existing = state.warehouseItems.find((c) => c.attribute === attribute && c.effect === effect && c.mastery < 5);
+  existing.mastery += 1;
+  return existing;
+}
+
 // 武器強化画面's own "強化" button: applies exactly the plan
 // resolveEnhancePlan already resolved (that same function is also what
 // the UI calls to decide whether a stat's button is enabled, so there
@@ -406,6 +458,7 @@ function slotSnapshot() {
       standbySlots: state.standbySlots,
       retiredSlots: state.retiredSlots,
       storedWeapons: state.storedWeapons,
+      coatingCraftCounts: state.coatingCraftCounts,
     }),
     run: state.run ? structuredClone(state.run) : null,
   };
