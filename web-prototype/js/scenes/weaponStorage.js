@@ -276,6 +276,7 @@ export function WeaponStorageScene(container, params, api) {
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
+        button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
         button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ],
     });

@@ -16,6 +16,8 @@ export const SCENE_LABELS = {
   squadFormation: "部隊編成画面",
   weaponStorage: "武器置き場画面",
   resourceStorage: "荷物置き場画面",
+  coatingStorage: "糖衣置き場画面",
+  coatingEdit: "糖衣編集画面",
   smithy: "鍛冶画面",
   weaponForge: "武器製造画面",
   weaponEnhance: "武器強化画面",

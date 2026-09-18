@@ -14,6 +14,7 @@ import {
   craftCoating,
   COATING_PATTERN_MATERIALS,
   COATING_FLAVOR_MATERIALS,
+  EQUIP_SLOTS,
   resolveEnhancePlan,
   refreshWeaponPrefix,
   computeWeaponMarketPrice,
@@ -302,8 +303,11 @@ function consumeNaturalReservation(reservation) {
 // brand new 一着（熟練度1）or raises the mastery of the one existing
 // 一着 that isn't already MAX -- see freshProfile()'s
 // coatingCraftCounts comment for the counting rule (every 5th craft of
-// the same attribute/effect combo starts a fresh piece). Returns the
-// resulting coating (new or leveled-up).
+// the same attribute/effect combo starts a fresh piece). Either way the
+// resulting coating is immediately marked 持ち出し済み (even when it was
+// sitting untaken-out in the warehouse from a previous run) -- something
+// just made/leveled up this run belongs in 糖衣置き場, not still in the
+// warehouse. Returns the resulting coating (new or leveled-up).
 export function craftAndStoreCoating(patternReservation, flavorReservation) {
   consumeNaturalReservation(patternReservation);
   consumeRigidReservation(flavorReservation);
@@ -315,14 +319,53 @@ export function craftAndStoreCoating(patternReservation, flavorReservation) {
   const pastCraftCount = state.coatingCraftCounts[key] ?? 0;
   state.coatingCraftCounts[key] = pastCraftCount + 1;
 
-  if (pastCraftCount % 5 === 0) {
-    const coating = craftCoating(attribute, effect);
-    state.warehouseItems.push(coating);
-    return coating;
+  const coating =
+    pastCraftCount % 5 === 0
+      ? craftCoating(attribute, effect)
+      : state.warehouseItems.find((c) => c.attribute === attribute && c.effect === effect && c.mastery < 5);
+  if (pastCraftCount % 5 === 0) state.warehouseItems.push(coating);
+  else coating.mastery += 1;
+
+  if (!state.run.takenOutItemIds.includes(coating.id)) state.run.takenOutItemIds.push(coating.id);
+  return coating;
+}
+
+// 糖衣編集画面's プルダウン確定：指定した(attribute, effect, mastery)
+// バケツから、現役隊員（編成＋待機）の誰にも装備されていない糖衣を
+// 1つ選んで装備させる（同じバケツ内の複数枚は見た目・効果ともに区別
+// が無いので、どれが選ばれても構わない）。該当する糖衣が無い場合は
+// 何もしない（UIが古くなっていた場合の保険）。
+export function equipCoating(character, slot, attribute, effect, mastery) {
+  const takenOutIds = state.run?.takenOutItemIds ?? [];
+  const equippedIds = new Set();
+  for (const member of [...state.formationSlots, ...state.standbySlots]) {
+    for (const equipped of Object.values(member.equippedCoatings)) {
+      if (equipped) equippedIds.add(equipped.id);
+    }
   }
-  const existing = state.warehouseItems.find((c) => c.attribute === attribute && c.effect === effect && c.mastery < 5);
-  existing.mastery += 1;
-  return existing;
+  const candidate = state.warehouseItems.find(
+    (c) =>
+      c.attribute === attribute &&
+      c.effect === effect &&
+      c.mastery === mastery &&
+      takenOutIds.includes(c.id) &&
+      !equippedIds.has(c.id)
+  );
+  if (!candidate) return;
+  character.equippedCoatings[slot] = candidate;
+}
+
+export function unequipCoating(character, slot) {
+  character.equippedCoatings[slot] = null;
+}
+
+export function unequipAllCoatings(character) {
+  for (const slot of EQUIP_SLOTS) character.equippedCoatings[slot] = null;
+}
+
+// 糖衣編集画面の「全隊員の糖衣を外す」：現役隊員（編成＋待機）全員分。
+export function unequipAllCoatingsForRoster() {
+  for (const member of [...state.formationSlots, ...state.standbySlots]) unequipAllCoatings(member);
 }
 
 // 武器強化画面's own "強化" button: applies exactly the plan

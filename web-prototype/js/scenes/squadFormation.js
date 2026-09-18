@@ -1,5 +1,12 @@
 import { renderScreen, button, h } from "../dom.js";
-import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine, characterConditionBadge } from "../characterCard.js";
+import {
+  characterHpGauge,
+  characterStatLine,
+  characterWeaponLine,
+  characterCoatingLine,
+  characterSynergyLine,
+  characterConditionBadge,
+} from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon, consumeTimeEatsItem } from "../state.js";
 import { computeWeaponRating, canEquip, getWeaponDisplayName, applyTimeEatsToCharacter } from "../data/resourceCatalog.js";
 
@@ -53,6 +60,7 @@ export function SquadFormationScene(container, params, api) {
     params.mode === "swap" ? "swap" :
     params.mode === "feed" ? "feed" :
     params.mode === "feedAll" ? "feedAll" :
+    params.mode === "select" ? "select" :
     "normal";
   const swapWeapon = mode === "swap" ? params.weapon : null;
   const timeEatsItem = mode === "feed" || mode === "feedAll" ? params.timeEatsItem : null;
@@ -333,7 +341,8 @@ export function SquadFormationScene(container, params, api) {
       actions.push(button(label, { variant: "frost", onClick: () => moveCharacter(character.id, listKey) }));
     } else {
       actions.push(
-        button("武器変更", { variant: "ghost", onClick: () => api.callScene("weaponStorage", { mode: "swap", character }) })
+        button("武器変更", { variant: "ghost", onClick: () => api.callScene("weaponStorage", { mode: "swap", character }) }),
+        button("糖衣編集", { variant: "ghost", onClick: () => api.callScene("coatingEdit", { character }) })
       );
     }
 
@@ -370,7 +379,12 @@ export function SquadFormationScene(container, params, api) {
       characterHpGauge(character),
     ];
     if (isExpanded) {
-      rowChildren.push(characterSynergyLine(character), characterStatLine(character), characterWeaponLine(character));
+      rowChildren.push(
+        characterSynergyLine(character),
+        characterStatLine(character),
+        characterWeaponLine(character),
+        characterCoatingLine(character)
+      );
     }
     return h("div", { class: "panel" }, rowChildren);
   }
@@ -394,9 +408,45 @@ export function SquadFormationScene(container, params, api) {
     });
   }
 
+  // "select" (隊員選択モード)：糖衣編集画面の「隊員」枠から呼ばれる。
+  // swapと違いシナジーなどの絞り込みは無く、編成/待機の全隊員を並べる
+  // だけ -- 選んだ隊員をそのまま呼び出し元へ返す（確認ステップも無い、
+  // 破壊的な操作ではないため）。
+  function selectPickRow(character, locationLabel) {
+    return h("div", { class: "slot" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+        h("span", { class: "slot__name", text: `${character.name}（${locationLabel}）` }),
+      ]),
+      h("div", { class: "slot__actions" }, [button("選択", { variant: "primary", onClick: () => api.closeScene(character) })]),
+    ]);
+  }
+
+  function renderSelect() {
+    const candidates = [
+      ...state.formationSlots.map((c) => ({ character: c, location: "編成中" })),
+      ...state.standbySlots.map((c) => ({ character: c, location: "待機中" })),
+    ];
+    renderScreen(container, {
+      eyebrow: "SQUAD / SELECT",
+      title: "部隊編成（隊員選択）",
+      subtitle: "編集する隊員を選んでください。",
+      body: [
+        candidates.length
+          ? h("div", { class: "slot-list slot-list--grid" }, candidates.map((entry) => selectPickRow(entry.character, entry.location)))
+          : h("p", { class: "lead", text: "隊員がいません。" }),
+      ],
+      actions: [button("編集画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+    });
+  }
+
   function render() {
     if (mode === "swap") {
       renderSwap();
+      return;
+    }
+    if (mode === "select") {
+      renderSelect();
       return;
     }
     if (mode === "feed" || mode === "feedAll") {
@@ -439,9 +489,11 @@ export function SquadFormationScene(container, params, api) {
       subtitle = "隊員を編成・待機スロット間で移動できます（編成には最低1人必要です。各スロット定員は6人です）。";
     } else {
       actions = [
+        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("編成を変える", { variant: "primary", onClick: enterEdit }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
+        button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
         button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ];
       subtitle = "編成スロットの隊員が戦闘に参加します。";

@@ -197,6 +197,12 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     positiveCondition: 0,
     skills: [],
     weapon: null,
+    // 装備中の糖衣（頭/肩/腕/胴/脚の5部位、糖衣編集画面参照）。武器と
+    // 違い、装備してもstate.warehouseItems/糖衣置き場からは取り除かれ
+    // ない（同じオブジェクトへの参照を持つだけ）-- 糖衣は「貸し出され
+    // ている」だけで、複数隊員の間で共有される1つのプールから引き当て
+    // られる。
+    equippedCoatings: { head: null, shoulder: null, arm: null, torso: null, leg: null },
     synergies: data.synergies,
   };
 }
@@ -1494,4 +1500,83 @@ export function createColorfulPlasma() {
 // state.js側（クラフト回数を追跡している）が受け持つ。
 export function craftCoating(attribute, effect) {
   return createCoating({ id: `coating-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, attribute, effect, mastery: 1 });
+}
+
+// 糖衣編集画面での装備部位の並び順（頭/肩/腕/胴/脚）。
+export const EQUIP_SLOTS = ["head", "shoulder", "arm", "torso", "leg"];
+
+// 糖衣編集画面の各部位の「効果」行。頭(属性環境適応度)だけ熟練度その
+// ままの値、他4部位は「熟練度×16%」。まだ未定義の「属性環境」を除け
+// ば、実際の戦闘への適用（ダメージ計算・状態異常発生率への反映）は
+// 今回のスコープ外 -- ここでは表示用の数値を返すのみ。
+export function coatingEffectLine(coating) {
+  const attributeLabel = COATING_ATTRIBUTE_LABELS[coating.attribute];
+  const effectLabel = COATING_EFFECT_LABELS[coating.effect];
+  const value = coating.effect === "envAdapt" ? `${coating.mastery}` : `${coating.mastery * 16}%`;
+  return `効果: 「${attributeLabel}」${effectLabel} ${value}`;
+}
+
+// 糖衣の配列を(attribute, effect)＝名前ごとにまとめる。倉庫画面/糖衣
+// 置き場画面のどちらも、渡された配列（それぞれ自分の対象範囲でフィル
+// タ済みのもの）に対してこれを呼び、名前ごとに束ねて表示する。
+// matureCount：熟練度5(MAX)の枚数。immature：熟練度5未満の1着（同じ
+// 名前の糖衣は常にこの1着までしか熟練度5未満のものを持たない、という
+// 仕立画面側の不変条件を前提にしている）。
+export function groupCoatingsByName(coatings) {
+  const groups = new Map();
+  for (const coating of coatings) {
+    const key = `${coating.attribute}_${coating.effect}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { attribute: coating.attribute, effect: coating.effect, equipSlot: coating.equipSlot, name: coating.name, items: [] };
+      groups.set(key, group);
+    }
+    group.items.push(coating);
+  }
+  for (const group of groups.values()) {
+    group.matureCount = group.items.filter((c) => c.mastery >= 5).length;
+    group.immature = group.items.find((c) => c.mastery < 5) ?? null;
+  }
+  return [...groups.values()];
+}
+
+// groupCoatingsByNameが返す1グループぶんの「所持枚数/熟練度」行
+// （倉庫画面/糖衣置き場画面の詳細表示で使う、糖衣自体の詳細情報とは
+// 別の追加行）。1着しかない場合は「熟練度N」、2着以上なら
+// 「所持枚数: N着（完熟X着＋未熟1着/熟練度Y）」（完熟が無ければその
+// 部分は省略）。
+export function describeCoatingGroupDetail(group) {
+  if (group.items.length === 1) {
+    const mastery = group.items[0].mastery;
+    return `熟練度${mastery}${mastery >= 5 ? "(MAX)" : ""}`;
+  }
+  const parts = [];
+  if (group.matureCount > 0) parts.push(`完熟${group.matureCount}着`);
+  if (group.immature) parts.push(`未熟1着/熟練度${group.immature.mastery}`);
+  return `所持枚数: ${group.items.length}着（${parts.join("＋")}）`;
+}
+
+// 糖衣編集画面のプルダウン候補：coatings（糖衣置き場にある糖衣の配列）
+// のうち、指定した装備部位に合い、かつcharacters（編成＋待機の現役
+// 隊員のみ -- 除隊者のequippedCoatingsは見ない）の誰も装備していない
+// ものを、(attribute, effect, mastery)ごとに束ねて返す。完熟/未熟は
+// 熟練度が異なる別バケツとして扱う（装備効果の強さが違うため区別が
+// 必要 -- 倉庫からの持ち出しとは違うルール）。
+export function availableCoatingsForSlot(coatings, characters, equipSlot) {
+  const equippedIds = new Set();
+  for (const character of characters) {
+    for (const equipped of Object.values(character.equippedCoatings ?? {})) {
+      if (equipped) equippedIds.add(equipped.id);
+    }
+  }
+  const buckets = new Map();
+  for (const coating of coatings) {
+    if (coating.equipSlot !== equipSlot) continue;
+    if (equippedIds.has(coating.id)) continue;
+    const key = `${coating.attribute}_${coating.effect}_${coating.mastery}`;
+    const entry = buckets.get(key);
+    if (entry) entry.count += 1;
+    else buckets.set(key, { attribute: coating.attribute, effect: coating.effect, mastery: coating.mastery, name: coating.name, count: 1 });
+  }
+  return [...buckets.values()];
 }

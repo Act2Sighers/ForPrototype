@@ -16,6 +16,7 @@ import {
   WEAPON_STAT_LABELS,
   WEAPON_TYPES,
   SYNERGIES,
+  EQUIP_SLOTS,
   weaponStatRankLabel,
   getWeaponDisplayName,
 } from "./data/resourceCatalog.js";
@@ -104,6 +105,14 @@ export function characterWeaponLine(character) {
     ...rankParts,
     `］（シナジー：${weaponSynergyNames}）`,
   ]);
+}
+
+// 装備中の糖衣を、頭/肩/腕/胴/脚の順に「名前(熟練度)」で並べる簡易表示
+// （部隊編成画面の詳細表示用）。1つも装備していなければ「なし」。
+export function characterCoatingLine(character) {
+  const equipped = EQUIP_SLOTS.map((slot) => character.equippedCoatings?.[slot]).filter(Boolean);
+  const text = equipped.length ? equipped.map((c) => `${c.name}(${c.mastery})`).join(" / ") : "なし";
+  return h("p", { class: "character-card__weapon", text: `糖衣：${text}` });
 }
 
 // ギャラリー(退役隊員)・雇用(候補者)画面専用の詳細カード。変調は表示

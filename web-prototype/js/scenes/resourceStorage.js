@@ -272,6 +272,7 @@ export function ResourceStorageScene(container, params, api) {
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
+        button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
       ],
     });
   }

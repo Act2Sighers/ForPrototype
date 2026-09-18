@@ -73,6 +73,7 @@ export function TradeScene(container, params, api) {
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
         button("武器", { onClick: () => api.callScene("weaponStorage") }),
+        button("糖衣", { onClick: () => api.callScene("coatingStorage") }),
         button("荷物", { onClick: () => api.callScene("resourceStorage") }),
         button("倉庫を開く", { onClick: () => api.callScene("warehouse") }),
         button("先へ進む", { variant: "primary", onClick: () => api.closeScene() }),
