@@ -165,6 +165,22 @@ const PREP_MODULES = {
   },
 };
 
+// PrepフェイズのスキルもMainフェイズと同じ「モジュールと同じ辞書に
+// steps持ちで同居させる」構造を使う（PREP_MODULES/MAIN_MODULESの
+// レジストリはPrep/Mainで混ざらない）。Mainフェイズのスキルと違い、
+// Prepフェイズで実際に実行されるスキルはコストを要さない（costを
+// 持たない）。行動対象候補はスキル自身のtargetFactionで決まる。
+// 【祝福】：オードブル、最適化。最適化した後、同じ行動対象に鼓舞を
+// 行う。
+Object.assign(PREP_MODULES, {
+  blessing: {
+    id: "blessing",
+    label: "祝福",
+    targetFaction: "own",
+    steps: [{ actionId: "optimize" }, { actionId: "inspire" }],
+  },
+});
+
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
@@ -793,20 +809,11 @@ export function BattleScene(container, params, api) {
     }
   }
 
-  // Prepフェイズの1ユニット分：宣言（矢印表示）→ウェイト→効果適用＋
-  // 結果ログ→ウェイト。
-  async function resolvePrepAction(unit) {
-    const { moduleId, targetUnit } = unit.action;
-    const module = PREP_MODULES[moduleId];
-    activeArrow = { actor: unit, target: targetUnit };
-    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
-    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
-    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
-    if (unit.faction === "ally") increaseCondition(unit.character, 1);
-    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
-    render();
-    await sleep(ACTION_DELAY_MS);
-
+  // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
+  // へ適用し、効果種別ごとの結果ログを1行積む。Prep版のapplyLeafModule
+  // に相当（Mainと違いPTコスト・戦闘不能の判定はPrepフェイズには存在
+  // しないため、resolvePrepAction側にもここにも無い）。
+  async function applyLeafPrepModule(unit, targetUnit, module) {
     if (module.statusLabel) {
       const result = module.apply(unit, targetUnit, allyUnits, enemyUnits);
       pushLog(
@@ -823,6 +830,25 @@ export function BattleScene(container, params, api) {
     }
     render();
     await sleep(ACTION_DELAY_MS);
+  }
+
+  // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
+  // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
+  // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
+  // 行わない。葉モジュールは実質「自分自身1個だけのsteps」として扱う。
+  async function resolvePrepAction(unit) {
+    const { moduleId, targetUnit } = unit.action;
+    const module = PREP_MODULES[moduleId];
+    activeArrow = { actor: unit, target: targetUnit };
+    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
+    // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
+    if (unit.faction === "ally") increaseCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
+    render();
+    await sleep(ACTION_DELAY_MS);
+
+    await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
   }
 
   // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
@@ -876,17 +902,22 @@ export function BattleScene(container, params, api) {
   }
 
   // steps（葉モジュールidまたは他スキルidのリスト、{actionId, chance}の
-  // 形）を同じ1体の対象へ順番に適用する。chance省略時は必ず発動、指定
-  // されていれば毎ステップその確率で判定する（外れたステップは何も
-  // 起きず次へ進む）。actionIdが複合スキル（steps持ち）を指していれば、
-  // そのスキル自身の対象解決はスキップしてそのまま同じtargetUnitへ再帰
-  // する -- ネストしたスキルは自分では対象を選び直さない。
-  async function runSteps(unit, targetUnit, steps) {
+  // 形）を同じ1体の対象へ順番に適用する。registryはPREP_MODULES/
+  // MAIN_MODULESのどちらか一方（Prepフェイズのスキルの中でMainフェイズ
+  // のモジュールを使う、あるいはその逆は起こらないので、Prep/Mainで
+  // レジストリが混ざることはない -- resolvePrepAction/resolveMainAction
+  // がそれぞれ自分のフェイズのレジストリと葉モジュール適用関数を渡す）。
+  // chance省略時は必ず発動、指定されていれば毎ステップその確率で判定
+  // する（外れたステップは何も起きず次へ進む）。actionIdが複合スキル
+  // （steps持ち）を指していれば、そのスキル自身の対象解決はスキップし
+  // てそのまま同じtargetUnitへ再帰する -- ネストしたスキルは自分では
+  // 対象を選び直さない。
+  async function runSteps(registry, applyLeaf, unit, targetUnit, steps) {
     for (const step of steps) {
       if (step.chance !== undefined && Math.random() >= step.chance) continue;
-      const action = MAIN_MODULES[step.actionId];
-      if (action.steps) await runSteps(unit, targetUnit, action.steps);
-      else await applyLeafModule(unit, targetUnit, action);
+      const action = registry[step.actionId];
+      if (action.steps) await runSteps(registry, applyLeaf, unit, targetUnit, action.steps);
+      else await applyLeaf(unit, targetUnit, action);
     }
   }
 
@@ -929,7 +960,7 @@ export function BattleScene(container, params, api) {
       return;
     }
 
-    await runSteps(unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
+    await runSteps(MAIN_MODULES, applyLeafModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
   }
 
   // 継続回復/継続ダメージ/継続割合ダメージを持つ全ユニットについて、
