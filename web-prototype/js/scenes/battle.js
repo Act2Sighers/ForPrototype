@@ -211,13 +211,53 @@ function applyContinuousStatus(target, n, type, turns) {
   return { applied: true, n, type, turns };
 }
 
+const CONTINUOUS_EFFECT_LABELS = { heal: "継続回復", damage: "継続ダメージ", ratioDamage: "継続割合ダメージ" };
+function continuousEffectLabel(type) {
+  return CONTINUOUS_EFFECT_LABELS[type];
+}
+
+// 能力値補正（強化魔法/弱体化魔法）を対象ステータスごとに生成する
+// ファクトリ。バフ/デバフの整理（属性ごとに対応する能力値が決まって
+// いる）に合わせて、5能力値×上昇/低下の計10種を用意する -- 将来の
+// スキル合成（属性攻撃など）は、この中から対応するモジュールを部品
+// として呼び出す想定。n（補正の強さ）は引数化してあるが、現状はまだ
+// スキル側が無くプレイヤーが直接選ぶ単体モジュールとして並んでいる
+// ため、既定値の1で固定して使う。judgeStatKey：継続ターン数(X)を出す
+// ダイスに使う、行動主体側の能力値（強化魔法は使い手の協調性、弱体化
+// 魔法は使い手の賢さ -- どちらも対象ステータスに関係なく固定）。
+function createCorrectionModule(id, label, statKey, sign, judgeStatKey) {
+  return {
+    id,
+    label,
+    targetFaction: sign > 0 ? "own" : "opposing",
+    effect: "correction",
+    apply: (actor, target, n = 1) => {
+      const { successCount } = rollJudgement(rawStat(actor, judgeStatKey));
+      const turns = successCountToR(successCount);
+      return applyCorrection(target, statKey, n, sign, turns);
+    },
+  };
+}
+
+const CORRECTION_MODULE_DEFS = [
+  { statKey: "attack", statLabel: "攻撃力", enhanceId: "enhanceAttack", weakenId: "weakenAttack" },
+  { statKey: "defense", statLabel: "防御力", enhanceId: "enhanceDefense", weakenId: "weakenDefense" },
+  { statKey: "destruction", statLabel: "破壊力", enhanceId: "enhanceDestruction", weakenId: "weakenDestruction" },
+  { statKey: "wisdom", statLabel: "賢さ", enhanceId: "enhanceWisdom", weakenId: "weakenWisdom" },
+  { statKey: "coordination", statLabel: "協調性", enhanceId: "enhanceCoordination", weakenId: "weakenCoordination" },
+];
+
+const CORRECTION_MODULES = {};
+for (const { statKey, statLabel, enhanceId, weakenId } of CORRECTION_MODULE_DEFS) {
+  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "coordination");
+  CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom");
+}
+
 // Mainフェイズの行動。攻撃/貫通攻撃/回復（HP増減）、プロテクト/スマッシュ
-// （体幹増減）、強化魔法/弱体化魔法（能力値補正）、継続回復/継続ダメージ
-// （HP継続増減）の9種類。モジュール本来はPTを消費しない（消費するのは
-// 将来の「スキル」側）ので、ここでも一切PTを扱わない。強化魔法/弱体化
-// 魔法は本来t（対象の能力値）を指定するが、テスト用にt=攻撃力へ固定
-// している。n（補正/効果の強さ）もUI未実装のため全モジュールでデフォ
-// ルトの1を使う。
+// （体幹増減）、強化魔法/弱体化魔法（能力値補正、5能力値ぶん）、継続回復/
+// 継続ダメージ/継続割合ダメージ（HP継続増減）の16種類。モジュール本来は
+// PTを消費しない（消費するのは将来の「スキル」側）ので、ここでも一切PT
+// を扱わない。
 // effect: "hp"のものはapply()が{magnitude, label}を返しHPログに使う。
 // effect: "stamina"のものはapply()が対象の体幹を直接増減するだけで、
 // ログ表示はresolveMainAction側でunit.staminaのbefore/afterを見る
@@ -287,28 +327,7 @@ const MAIN_MODULES = {
       target.stamina -= x;
     },
   },
-  enhance: {
-    id: "enhance",
-    label: "強化魔法",
-    targetFaction: "own",
-    effect: "correction",
-    apply: (actor, target) => {
-      const { successCount } = rollJudgement(rawStat(actor, "coordination"));
-      const turns = successCountToR(successCount);
-      return applyCorrection(target, "attack", 1, 1, turns);
-    },
-  },
-  weaken: {
-    id: "weaken",
-    label: "弱体化魔法",
-    targetFaction: "opposing",
-    effect: "correction",
-    apply: (actor, target) => {
-      const { successCount } = rollJudgement(rawStat(actor, "wisdom"));
-      const turns = successCountToR(successCount);
-      return applyCorrection(target, "attack", 1, -1, turns);
-    },
-  },
+  ...CORRECTION_MODULES,
   regen: {
     id: "regen",
     label: "継続回復",
@@ -341,6 +360,23 @@ const MAIN_MODULES = {
       const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
       const turns = successCountToR(successCount);
       return applyContinuousStatus(target, 1, "damage", turns);
+    },
+  },
+  // 腐敗属性のデバフの土台：継続ダメージが「nD6合計÷2切り上げ」の
+  // 固定量を毎Mainフェイズ終了時に削るのに対し、こちらは「変調減少後
+  // 最大HP×n÷10（切り上げ）」という割合ベースで削る（applyContinuousHpTicks
+  // 側でtype==="ratioDamage"のみ計算式を分けている）。continuousHpの
+  // 単一共有枠を、継続回復/継続ダメージと同じn基準の上書きルールで
+  // 奪い合う（applyContinuousStatusはtypeを問わず同じ比較をする）。
+  continuousRatioDamage: {
+    id: "continuousRatioDamage",
+    label: "継続割合ダメージ",
+    targetFaction: "opposing",
+    effect: "continuous",
+    apply: (actor, target, n = 1) => {
+      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
+      const turns = successCountToR(successCount);
+      return applyContinuousStatus(target, n, "ratioDamage", turns);
     },
   },
 };
@@ -808,7 +844,7 @@ export function BattleScene(container, params, api) {
       );
     } else if (module.effect === "continuous") {
       const result = module.apply(unit, targetUnit);
-      const effectLabel = result.type === "heal" ? "継続回復" : "継続ダメージ";
+      const effectLabel = continuousEffectLabel(result.type);
       pushLog(
         result.applied
           ? `${targetUnit.displayName}に${effectLabel} ${result.n}（${result.turns}ターン）！`
@@ -829,22 +865,25 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
-  // 継続回復/継続ダメージを持つ全ユニットについて、Mainフェイズの終わり
-  // に一度だけHPを増減させ（n D6合計÷2 を切り上げ）、残りターン数を1
-  // 減らす。0になったらそのユニットの継続効果枠を解除する。既に戦闘
-  // 不能のユニットはスキップする -- そうしないと、このターン中の行動
-  // で倒された後でも、倒れる前からかかっていた継続回復がHPを0より上に
-  // 戻してしまい、実質的に蘇生になってしまう。
+  // 継続回復/継続ダメージ/継続割合ダメージを持つ全ユニットについて、
+  // Mainフェイズの終わりに一度だけHPを増減させ、残りターン数を1減らす。
+  // 継続割合ダメージだけは量の出し方が違う（変調減少後最大HP×n÷10を
+  // 切り上げ、他2つはnD6合計÷2を切り上げ）他は同じ扱い。0になったら
+  // そのユニットの継続効果枠を解除する。既に戦闘不能のユニットはスキ
+  // ップする -- そうしないと、このターン中の行動で倒された後でも、
+  // 倒れる前からかかっていた継続回復がHPを0より上に戻してしまい、実質
+  // 的に蘇生になってしまう。
   async function applyContinuousHpTicks() {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       const c = unit.continuousHp;
       if (!c || isIncapacitated(unit)) continue;
-      const amount = Math.ceil(rollSum(c.n) / 2);
+      const amount =
+        c.type === "ratioDamage" ? Math.ceil((computeEffectiveMaxHp(unit.character) * c.n) / 10) : Math.ceil(rollSum(c.n) / 2);
       const before = unit.character.currentHp;
       if (c.type === "heal") applyHpHeal(unit.character, amount);
       else applyHpDamage(unit.character, amount);
       const after = unit.character.currentHp;
-      const effectLabel = c.type === "heal" ? "継続回復" : "継続ダメージ";
+      const effectLabel = continuousEffectLabel(c.type);
       pushLog(`${unit.displayName}のHP：${before} → ${after}（${effectLabel} ${amount}）`, unit.faction);
       // 変調：自分以外の隊員が戦闘不能になった時+1（このループはすでに
       // 戦闘不能なユニットをcontinueで飛ばしているので、ここに来た時点で
