@@ -641,6 +641,36 @@ body {
   gap: 4px;
 }
 
+/* 軽食画面：品目ごとの購入数量入力欄。onchange駆動（renderScreenは
+   インタラクトのたびにDOM全体を作り直すため、oninputで毎キー入力ごとに
+   再描画するとフォーカスが飛んでしまう -- 詳細はtimeEats.jsのコメント
+   参照）。 */
+.qty-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.qty-input {
+  width: 56px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--panel-line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  text-align: center;
+}
+
+.qty-input:focus {
+  outline: 2px solid var(--frost-strong);
+  border-color: var(--frost);
+}
+
+.qty-input:disabled {
+  opacity: 0.4;
+}
+
 /* ---------------------------------------------------------
    Map / node graph
    --------------------------------------------------------- */

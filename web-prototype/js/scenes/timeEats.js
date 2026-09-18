@@ -1,0 +1,149 @@
+import { renderScreen, button, h, resourceHud } from "../dom.js";
+import state, { canAffordCost, purchaseTimeEats } from "../state.js";
+import { RIGID_RESOURCES, TIME_EATS_TARGET_LABELS, generateTimeEatsLineup, computeTimeEatsCheckoutTotal } from "../data/resourceCatalog.js";
+
+const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
+
+const MODE_LABELS = {
+  vendingMachine: "自販機",
+  cafe: "喫茶店",
+  foodTruck: "フードトラック",
+  candyHandout: "菓子配り",
+};
+
+// 軽食画面. params.mode は4種（vendingMachine/cafe/foodTruck/
+// candyHandout）のいずれか必須。params.lineup が渡されればそれを
+// そのまま使う（trade.js が雇用所/武器取引と同じ要領で、取引イベント内
+// の再訪をまたいでラインナップ -- 残り数量や購入済みフラグごと -- を
+// 保持し続けるため。lineup自体はresourceCatalog.jsのエントリを直接
+// mutateする、ここも武器置き場（売却モード）と同じ流儀）。渡されなけ
+// れば新規生成する（初回訪問時）。
+//
+// 購入数量の入力欄は、renderScreenがインタラクトのたびに.screen-frame
+// を丸ごと作り直す都合上、oninputで毎キー入力ごとに再描画すると入力中
+// にフォーカスが飛んでしまう。そのためonchange（フォーカスが外れた時/
+// Enter確定時）で確定させる方式にしている -- 入力欄自体は素のnumber
+// inputなので、確定前のタイピング自体はブラウザのネイティブ挙動に任せ、
+// 再描画を挟まない。
+export function TimeEatsScene(container, params, api) {
+  const mode = params.mode;
+  if (!MODE_LABELS[mode]) {
+    throw new Error(`timeEats scene requires a valid params.mode, got: ${mode}`);
+  }
+
+  const lineup = params.lineup ?? generateTimeEatsLineup(mode, state.run.purchasedFirstTimeOnlyIds);
+
+  let purchases = {}; // {defId: 購入予定数量}, お会計確定でクリアされる
+  let pendingCheckout = null; // null | "confirm" | "insufficient-funds"
+
+  function totalQtyEntered() {
+    return Object.values(purchases).reduce((sum, qty) => sum + qty, 0);
+  }
+
+  function handleQtyChange(entry, rawValue) {
+    let qty = parseInt(rawValue, 10);
+    if (!Number.isFinite(qty) || qty < 0) qty = 0;
+    if (qty > entry.remainingQty) qty = entry.remainingQty;
+    if (qty === 0) delete purchases[entry.defId];
+    else purchases[entry.defId] = qty;
+    render();
+  }
+
+  function handleCheckoutClick() {
+    const total = computeTimeEatsCheckoutTotal(mode, lineup, purchases);
+    pendingCheckout = canAffordCost(total) ? "confirm" : "insufficient-funds";
+    render();
+  }
+
+  function confirmCheckout() {
+    purchaseTimeEats(mode, lineup, purchases);
+    purchases = {};
+    pendingCheckout = null;
+    render();
+  }
+
+  function dismissPending() {
+    pendingCheckout = null;
+    render();
+  }
+
+  function itemRow(entry) {
+    const qty = purchases[entry.defId] ?? 0;
+    const soldOut = entry.remainingQty <= 0;
+    return h("div", { class: "panel" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__name", text: entry.name }),
+        h("span", { class: "tag", text: `価格 ${COST_ABBR}×${entry.price}` }),
+        h("span", { class: "tag", text: soldOut ? "完売" : `残り${entry.remainingQty}個` }),
+      ]),
+      h("p", {
+        class: "lead",
+        text: `対象：${TIME_EATS_TARGET_LABELS[entry.target]}／HP回復量：${entry.hpRecoveryPercent}%／変換効率：${entry.conversionEfficiency}%`,
+      }),
+      h("div", { class: "qty-input-row" }, [
+        h("span", { class: "field-label", text: "購入数量" }),
+        h("input", {
+          type: "number",
+          class: "qty-input",
+          min: "0",
+          max: String(entry.remainingQty),
+          value: String(qty),
+          disabled: soldOut,
+          onchange: (e) => handleQtyChange(entry, e.target.value),
+        }),
+      ]),
+    ]);
+  }
+
+  function pendingPanel() {
+    if (pendingCheckout === "confirm") {
+      const total = computeTimeEatsCheckoutTotal(mode, lineup, purchases);
+      return h("div", { class: "confirm-row" }, [
+        h("span", { class: "confirm-row__text", text: `合計${COST_ABBR}×${total}を支払い、購入します。よろしいですか？` }),
+        button("実行する", { variant: "primary", onClick: confirmCheckout }),
+        button("キャンセル", { variant: "ghost", onClick: dismissPending }),
+      ]);
+    }
+    return h("div", { class: "confirm-row" }, [
+      h("span", { class: "confirm-row__text", text: `${COST_ABBR}が足りません。` }),
+      button("OK", { variant: "ghost", onClick: dismissPending }),
+    ]);
+  }
+
+  function render() {
+    const hasSelection = totalQtyEntered() > 0;
+    const total = computeTimeEatsCheckoutTotal(mode, lineup, purchases);
+
+    const body = [];
+    if (hasSelection) {
+      body.push(h("p", { class: "lead", text: `支払い総額：${COST_ABBR}×${total}` }));
+    }
+    if (pendingCheckout) {
+      body.push(pendingPanel());
+    }
+    body.push(
+      lineup.length
+        ? h("div", { class: "slot-list slot-list--grid" }, lineup.map(itemRow))
+        : h("p", { class: "lead", text: "取り扱っている時間食がありません。" })
+    );
+
+    renderScreen(container, {
+      eyebrow: `TIMEEATS / ${MODE_LABELS[mode]}`,
+      title: `軽食画面（${MODE_LABELS[mode]}モード）`,
+      subtitle: "購入したい時間食の数量をそれぞれ入力し、「お会計」で一括購入します。",
+      corner: resourceHud(state.run?.resources),
+      body,
+      actions: [
+        button("店を出る", { variant: "ghost", onClick: () => api.closeScene({ timeEatsMode: mode, timeEatsLineup: lineup }) }),
+        button("お会計", {
+          variant: "primary",
+          disabled: !hasSelection || Boolean(pendingCheckout),
+          onClick: handleCheckoutClick,
+        }),
+      ],
+    });
+  }
+
+  render();
+  return { onResume: () => render() };
+}

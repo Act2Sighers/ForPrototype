@@ -1,7 +1,8 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state from "../state.js";
 
-// Empty implementation per spec, apart from the 雇用所.
+// 取引画面. お店の項目から雇用所/鍛冶屋/軽食画面（自販機/喫茶店/
+// フードトラック/菓子配りの4モード）へ遷移する。
 export function TradeScene(container, params, api) {
   // Kept alive for as long as this trade visit lasts (i.e. until the
   // whole TradeScene is closed via 先へ進む): passed to the hiring
@@ -14,6 +15,11 @@ export function TradeScene(container, params, api) {
   // own comment) so it can't be confused with hiringCandidates' plain
   // array or an {openNext} sibling-swap payload below.
   let weaponTradeCandidates = null;
+  // 軽食画面の4モード分のラインナップ。同じ要領で、timeEats.js が
+  // {timeEatsMode, timeEatsLineup} タグ付きで返してくる（モードごとに
+  // 別のラインナップなので、雇用所/武器取引と違って単一の変数ではなく
+  // モードをキーにしたオブジェクトで持つ）。
+  const timeEatsLineups = { vendingMachine: null, cafe: null, foodTruck: null, candyHandout: null };
 
   function render() {
     renderScreen(container, {
@@ -34,6 +40,26 @@ export function TradeScene(container, params, api) {
               class: "chip",
               text: "鍛冶屋",
               onClick: () => api.callScene("smithy", { weaponTradeCandidates }),
+            }),
+            h("button", {
+              class: "chip",
+              text: "自販機",
+              onClick: () => api.callScene("timeEats", { mode: "vendingMachine", lineup: timeEatsLineups.vendingMachine }),
+            }),
+            h("button", {
+              class: "chip",
+              text: "喫茶店",
+              onClick: () => api.callScene("timeEats", { mode: "cafe", lineup: timeEatsLineups.cafe }),
+            }),
+            h("button", {
+              class: "chip",
+              text: "フードトラック",
+              onClick: () => api.callScene("timeEats", { mode: "foodTruck", lineup: timeEatsLineups.foodTruck }),
+            }),
+            h("button", {
+              class: "chip",
+              text: "菓子配り",
+              onClick: () => api.callScene("timeEats", { mode: "candyHandout", lineup: timeEatsLineups.candyHandout }),
             }),
           ]),
         ]),
@@ -63,6 +89,11 @@ export function TradeScene(container, params, api) {
       }
       if (result?.weaponTradeCandidates) {
         weaponTradeCandidates = result.weaponTradeCandidates;
+        render();
+        return;
+      }
+      if (result?.timeEatsMode) {
+        timeEatsLineups[result.timeEatsMode] = result.timeEatsLineup;
         render();
         return;
       }

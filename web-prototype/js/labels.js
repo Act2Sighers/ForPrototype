@@ -20,6 +20,7 @@ export const SCENE_LABELS = {
   weaponForge: "武器製造画面",
   weaponEnhance: "武器強化画面",
   weaponTrade: "武器取引画面",
+  timeEats: "軽食画面",
   hiring: "雇用画面",
   result: "リザルト画面",
 };
