@@ -180,6 +180,44 @@ Object.assign(PREP_MODULES, {
     targetFaction: "own",
     steps: [{ actionId: "optimize" }, { actionId: "inspire" }],
   },
+  // 【陰陽】：牽制した後、（前ステップの対象とは無関係に）自身を対象に
+  // 最適化を行う。スキル自身の対象選択は牽制の候補（相手陣営）1回のみ
+  // -- target:"self"が2ステップ目の対象を行動主体自身に固定する。
+  yinYang: {
+    id: "yinYang",
+    label: "陰陽",
+    targetFaction: "opposing",
+    steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
+  },
+  // 【衛星】：鼓舞。ただし対象候補から自身を除外する（targetFaction:
+  // "ownExcludingSelf"）。鼓舞した後、（前ステップの対象とは無関係に）
+  // 自身を対象に鼓舞を行う。
+  satellite: {
+    id: "satellite",
+    label: "衛星",
+    targetFaction: "ownExcludingSelf",
+    steps: [{ actionId: "inspire" }, { actionId: "inspire", target: "self" }],
+  },
+  // 【漁火】：威圧した後、（1回目とは別の）もう1体の相手陣営ユニットに
+  // 威圧を行う。スキル自身の対象選択は1回目の威圧の候補（相手陣営）
+  // 1回のみ -- target:"opposingExcludingUsed"が2回目の対象をこのスキル
+  // 内で既に対象になったユニットを除いてランダムに選び直す（他に候補
+  // がいなければ不発）。
+  fishFire: {
+    id: "fishFire",
+    label: "漁火",
+    targetFaction: "opposing",
+    steps: [{ actionId: "intimidate" }, { actionId: "intimidate", target: "opposingExcludingUsed" }],
+  },
+  // 【泥沼】：行動対象の指定を受けず（targetFaction: "none"）、相手陣営
+  // の生存者全員に順番に牽制を行う -- step.each:"opposing"が対象候補の
+  // 選択を経由せず陣営全員を自分でイテレートする。
+  quagmire: {
+    id: "quagmire",
+    label: "泥沼",
+    targetFaction: "none",
+    steps: [{ actionId: "restrain", each: "opposing" }],
+  },
 });
 
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
@@ -656,6 +694,17 @@ function targetDisplayName(actor, target) {
   return target === actor ? `${target.displayName}（自分自身）` : target.displayName;
 }
 
+// 行動宣言ログの1行。targetFaction === "none"（【泥沼】のような、対象
+// 候補の選択自体を必要としないスキル）は、単一の対象へ向けた宣言文
+// ではなく発動そのものを告げる文にする -- 実際のtargetUnitはUI/CPUの
+// 選択を通すための行動主体自身のダミー値でしかなく、表示に使うと
+// 「自分自身に使用」という誤解を招くため。
+function declarationLine(unit, module, targetUnit) {
+  return module.targetFaction === "none"
+    ? `${unit.displayName}が「${module.label}」を発動！`
+    : `${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`;
+}
+
 function statSnapshotText(unit, stat) {
   return stat === "in" ? String(unit.in) : `${unit.pt.current}/${unit.pt.max}`;
 }
@@ -709,24 +758,44 @@ export function BattleScene(container, params, api) {
     return phase === "prep" ? PREP_MODULES : MAIN_MODULES;
   }
 
-  function candidateUnits(actor, moduleId) {
-    const module = currentModules()[moduleId];
+  // own/opposing の生存プールを算出する共通ヘルパー。candidateUnits（
+  // スキル自身の対象候補）だけでなく、steps側のstep.each（対象候補の
+  // 選択を経ずスキル内部で陣営全員を順番に処理する）からも同じ計算を
+  // 再利用する。opposingは Mainフェイズに限り、釘付け（自身のpinnedBy
+  // 優先）・隠密（相手候補から除外）の制限がかかる。
+  function ownPoolFor(actor) {
     const own = actor.faction === "ally" ? allyUnits : enemyUnits;
+    return own.filter((u) => !isIncapacitated(u));
+  }
+  function opposingPoolFor(actor) {
     const opposing = actor.faction === "ally" ? enemyUnits : allyUnits;
-
-    if (module.targetFaction === "self") return [actor];
-    if (module.targetFaction === "ownIncapacitated") return own.filter(isIncapacitated);
-
-    if (module.targetFaction === "own") return own.filter((u) => !isIncapacitated(u));
-
-    // targetFaction === "opposing"：Mainフェイズに限り、釘付け（自身の
-    // pinnedBy優先）・隠密（相手候補から除外）の制限がかかる。
     let pool = opposing.filter((u) => !isIncapacitated(u));
     if (phase === "main") {
       if (actor.pinnedBy) pool = pool.filter((u) => u === actor.pinnedBy);
       else pool = pool.filter((u) => !u.stealthed);
     }
     return pool;
+  }
+
+  function candidateUnits(actor, moduleId) {
+    const module = currentModules()[moduleId];
+    const own = actor.faction === "ally" ? allyUnits : enemyUnits;
+
+    // targetFaction === "none"：スキル自身は対象候補の選択を必要としない
+    // （内部のsteps側がstep.eachなどで陣営全員/個別対象を自分で処理する
+    // ため）。UIやCPUの行動決定を既存の仕組みのまま通すための便宜上の
+    // 唯一の候補として、行動主体自身をダミーで返す。
+    if (module.targetFaction === "none") return [actor];
+    if (module.targetFaction === "self") return [actor];
+    if (module.targetFaction === "ownIncapacitated") return own.filter(isIncapacitated);
+    if (module.targetFaction === "own") return ownPoolFor(actor);
+    // ownExcludingSelf：自陣営の中から自分自身だけを除いた候補（【衛星】
+    // のような「自分以外の味方を選ばせ、自分自身は別ステップで固定的に
+    // 対象にする」構成に使う）。
+    if (module.targetFaction === "ownExcludingSelf") return ownPoolFor(actor).filter((u) => u !== actor);
+
+    // targetFaction === "opposing"
+    return opposingPoolFor(actor);
   }
 
   function randomEnemyAction(unit) {
@@ -765,7 +834,18 @@ export function BattleScene(container, params, api) {
   }
 
   function handleModuleChange(unit, moduleId) {
-    unit.action = moduleId ? { moduleId, targetUnit: null } : null;
+    if (!moduleId) {
+      unit.action = null;
+      render();
+      return;
+    }
+    // targetFaction === "none" のスキルは対象候補の選択自体が不要なので、
+    // モジュールを選んだ時点で行動主体自身をダミーの対象として即確定
+    // する（allAlliesReady()の「対象確定済み」判定をそのまま通すための
+    // 便宜上の値で、実際の効果適用ではsteps側のstep.eachが陣営全員を
+    // 独自に処理するため参照されない）。
+    const module = currentModules()[moduleId];
+    unit.action = { moduleId, targetUnit: module.targetFaction === "none" ? unit : null };
     render();
   }
 
@@ -936,7 +1016,7 @@ export function BattleScene(container, params, api) {
     const { moduleId, targetUnit } = unit.action;
     const module = PREP_MODULES[moduleId];
     activeArrow = { actor: unit, target: targetUnit };
-    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
     if (unit.faction === "ally") increaseCondition(unit.character, 1);
@@ -997,8 +1077,27 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
-  // steps（葉モジュールidまたは他スキルidのリスト、{actionId, chance}の
-  // 形）を同じ1体の対象へ順番に適用する。registryはPREP_MODULES/
+  // step.target省略時の既定（スキル自身が解決したtargetUnitをそのまま
+  // 引き継ぐ）以外の、ステップ単位での対象上書きルール。
+  // "self"：行動主体自身に固定（【陰陽】の最適化、【衛星】の2回目の
+  // 鼓舞のような「前のステップの対象とは無関係に自分を対象にする」構成
+  // に使う）。
+  // "opposingExcludingUsed"：相手陣営から、このスキル内で既に対象に
+  // なったユニットを除いた中からランダムに1体（【漁火】の2回目の威圧の
+  // ような「もう1体、別の相手を巻き込む」構成に使う）。候補が残って
+  // いなければundefinedを返す（runSteps側で不発として扱う）。
+  function resolveStepTarget(unit, targetUnit, step, usedTargets) {
+    if (!step.target) return targetUnit;
+    if (step.target === "self") return unit;
+    if (step.target === "opposingExcludingUsed") {
+      const candidates = opposingPoolFor(unit).filter((u) => !usedTargets.includes(u));
+      return pickRandom(candidates);
+    }
+    return targetUnit;
+  }
+
+  // steps（葉モジュールidまたは他スキルidのリスト、{actionId, chance,
+  // target, each}の形）を順番に適用する。registryはPREP_MODULES/
   // MAIN_MODULESのどちらか一方（Prepフェイズのスキルの中でMainフェイズ
   // のモジュールを使う、あるいはその逆は起こらないので、Prep/Mainで
   // レジストリが混ざることはない -- resolvePrepAction/resolveMainAction
@@ -1006,14 +1105,45 @@ export function BattleScene(container, params, api) {
   // chance省略時は必ず発動、指定されていれば毎ステップその確率で判定
   // する（外れたステップは何も起きず次へ進む）。actionIdが複合スキル
   // （steps持ち）を指していれば、そのスキル自身の対象解決はスキップし
-  // てそのまま同じtargetUnitへ再帰する -- ネストしたスキルは自分では
+  // てそのまま解決済みの対象へ再帰する -- ネストしたスキルは自分では
   // 対象を選び直さない。
-  async function runSteps(registry, applyLeaf, unit, targetUnit, steps) {
+  // targetを省略した既定のステップは、スキル自身が解決したtargetUnitを
+  // そのまま対象にする（従来通り）。target指定があれば
+  // resolveStepTargetがそのステップ限りの対象を決める。
+  // eachを指定したステップは対象候補の選択そのものを経由せず、
+  // （"own"/"opposing"の）陣営の生存者全員に対して順番に同じ効果を
+  // 適用する（【泥沼】のような「範囲」スキルに使う）。
+  // usedTargetsは、このスキル呼び出し全体を通じて「これまでに対象に
+  // なったユニット」を積み上げていく配列 -- opposingExcludingUsedの
+  // 除外判定に使う（既定は最初のtargetUnit自身を1件目として開始）。
+  async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit]) {
     for (const step of steps) {
-      if (step.chance !== undefined && Math.random() >= step.chance) continue;
+      if (step.chance !== undefined) {
+        const chance = typeof step.chance === "function" ? step.chance(unit, targetUnit) : step.chance;
+        if (Math.random() >= chance) continue;
+      }
       const action = registry[step.actionId];
-      if (action.steps) await runSteps(registry, applyLeaf, unit, targetUnit, action.steps);
-      else await applyLeaf(unit, targetUnit, action);
+
+      if (step.each) {
+        const pool = step.each === "own" ? ownPoolFor(unit) : opposingPoolFor(unit);
+        for (const t of pool) {
+          usedTargets.push(t);
+          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets);
+          else await applyLeaf(unit, t, action);
+        }
+        continue;
+      }
+
+      const stepTarget = resolveStepTarget(unit, targetUnit, step, usedTargets);
+      if (!stepTarget) {
+        pushLog(`${unit.displayName}は他に対象がいないため、「${action.label}」は不発に終わった。`, unit.faction);
+        render();
+        await sleep(ACTION_DELAY_MS);
+        continue;
+      }
+      usedTargets.push(stepTarget);
+      if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets);
+      else await applyLeaf(unit, stepTarget, action);
     }
   }
 
@@ -1041,7 +1171,7 @@ export function BattleScene(container, params, api) {
     const { moduleId, targetUnit } = unit.action;
     const module = MAIN_MODULES[moduleId];
     activeArrow = { actor: unit, target: targetUnit };
-    pushLog(`${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`, unit.faction);
+    pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
     if (unit.faction === "ally") increaseCondition(unit.character, 1);
