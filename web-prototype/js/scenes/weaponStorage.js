@@ -38,7 +38,7 @@ function allOwnedWeaponEntries() {
 //    詳細表示 toggle (性能値+武器評価+シナジー) per weapon. Callable
 //    directly from map.js/trade.js, or reached via a sibling-swap from
 //    squadFormation.js's own "武器" button -- see that file's
-//    {openNext} convention (this screen's own "部隊編成"/"資源" buttons
+//    {openNext} convention (this screen's own "部隊編成"/"荷物" buttons
 //    do the same swap back out). "閉じる" returns to whoever actually
 //    called this screen. Each weapon's "装備させる" calls
 //    squadFormation in its own "swap" mode, passing this weapon along.
@@ -275,7 +275,7 @@ export function WeaponStorageScene(container, params, api) {
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
-        button("資源", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
+        button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ],
     });
   }

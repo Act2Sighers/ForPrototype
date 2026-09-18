@@ -5,6 +5,7 @@ import {
   NATURAL_RESOURCES,
   RIGID_RESOURCES,
   RESOURCE_DESCRIPTIONS,
+  TIME_EATS_TARGET_LABELS,
   resourcesMinusFrameReservation,
   amberTopGroups,
   pickBestModuleUnit,
@@ -15,27 +16,29 @@ function speciesName(speciesId) {
   return (NATURAL_RESOURCES[speciesId] ?? RIGID_RESOURCES[speciesId]).name;
 }
 
-// 資源置き場画面. Two modes:
-//  - "normal" (default): every species the player currently holds gets
-//    one row (species with nothing held are omitted, same as 個別表示
-//    elsewhere); "内訳表示" reveals its flavor text plus its
-//    per-quality/型番 breakdown. Callable directly from map.js/
-//    trade.js, or reached via a sibling-swap from squadFormation.js/
-//    weaponStorage.js's own "資源" buttons -- see their {openNext}
-//    convention (this screen's own "部隊編成"/"武器" buttons do the
-//    same swap back out). "閉じる" returns to whoever actually called
-//    this screen.
+// 荷物置き場画面（旧・資源置き場画面）. Two modes:
+//  - "normal" (default): 時間食（軽食画面で購入した消耗品）と、プレイヤー
+//    が現在持っている資源の一覧を表示する。時間食は常に対象人数/HP回復
+//    量/変換効率が見え、「与える」ボタンは今のところ無反応（実際の効果
+//    適用は未実装）。資源側は種ごとに1行（何も持っていない種は個別表示
+//    と同じく省く）、「内訳表示」でフレーバーテキストと品質/型番ごとの
+//    内訳を表示する。map.js/trade.jsから直接呼ばれるほか、
+//    squadFormation.js/weaponStorage.jsの「荷物」ボタンからのきょうだい
+//    間スワップでも呼ばれる -- それらの{openNext}の流儀参照（この画面
+//    自身の「部隊編成」「武器」ボタンも同じ形でスワップし返す）。
+//    「閉じる」は実際にこの画面を呼び出した側へ戻る。
 //  - "moduleSelect": called from weaponForge.js when the player clicks
 //    the モジュール box, with params.frameReservation set to that
 //    screen's already-committed フレーム pick. Shows only 剛体資源 (no
-//    natural section), with the frame's own reservation subtracted out
-//    first (resourcesMinusFrameReservation) so a species can't be
-//    offered here at a quantity that would double-book units already
-//    earmarked as フレーム. "選択" resolves the single highest-quality
-//    unit of that species and returns it to weaponForge.js; 琥珀糖鉱石
-//    shows "型番を選ぶ" instead whenever more than one 型番 is tied for
-//    the top quality (see amberTopGroups), letting the player pick
-//    which one. "製造画面に戻る" returns without picking anything.
+//    natural section, no 時間食 section), with the frame's own
+//    reservation subtracted out first (resourcesMinusFrameReservation)
+//    so a species can't be offered here at a quantity that would
+//    double-book units already earmarked as フレーム. "選択" resolves
+//    the single highest-quality unit of that species and returns it to
+//    weaponForge.js; 琥珀糖鉱石 shows "型番を選ぶ" instead whenever more
+//    than one 型番 is tied for the top quality (see amberTopGroups),
+//    letting the player pick which one. "製造画面に戻る" returns
+//    without picking anything.
 export function ResourceStorageScene(container, params, api) {
   const mode = params.mode === "moduleSelect" ? "moduleSelect" : "normal";
   const frameReservation = mode === "moduleSelect" ? params.frameReservation : null;
@@ -48,6 +51,23 @@ export function ResourceStorageScene(container, params, api) {
     if (expandedIds.has(id)) expandedIds.delete(id);
     else expandedIds.add(id);
     render();
+  }
+
+  // 時間食1品ごとの表示行。所持数量、対象人数/HP回復量/変換効率は常に
+  // 見える。「与える」は今のところ無反応（効果適用は未実装、今後の実装
+  // 待ち）。
+  function timeEatsRow(item) {
+    return h("div", { class: "panel" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__name", text: item.name }),
+        h("span", { class: "tag", text: `所持数 ${item.qty}` }),
+      ]),
+      h("p", {
+        class: "lead",
+        text: `対象：${TIME_EATS_TARGET_LABELS[item.target]}／HP回復量：${item.hpRecoveryPercent}%／変換効率：${item.conversionEfficiency}%`,
+      }),
+      h("div", { class: "slot__actions" }, [button("与える", { variant: "primary", onClick: () => {} })]),
+    ]);
   }
 
   function speciesRow(entry) {
@@ -118,8 +138,8 @@ export function ResourceStorageScene(container, params, api) {
     adjustedResources = resourcesMinusFrameReservation(state.run?.resources, frameReservation);
     const { rigid } = describeResourcesIndividually(adjustedResources);
     renderScreen(container, {
-      eyebrow: "RESOURCE STORAGE / MODULE",
-      title: "資源置き場（モジュール選択）",
+      eyebrow: "BAGGAGE STORAGE / MODULE",
+      title: "荷物置き場（モジュール選択）",
       subtitle: "モジュールとして用いる剛体資源を選んでください。",
       body: [
         rigid.length
@@ -137,7 +157,14 @@ export function ResourceStorageScene(container, params, api) {
     }
 
     const { natural, rigid } = describeResourcesIndividually(state.run?.resources);
+    const timeEatsInventory = state.run?.timeEatsInventory ?? [];
     const body = [
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "時間食" }),
+        timeEatsInventory.length
+          ? h("div", { class: "slot-list slot-list--grid" }, timeEatsInventory.map(timeEatsRow))
+          : h("p", { class: "lead", text: "所持している時間食はありません。" }),
+      ]),
       h("div", { class: "field-group" }, [
         h("p", { class: "field-label", text: "自然資源" }),
         natural.length
@@ -153,9 +180,9 @@ export function ResourceStorageScene(container, params, api) {
     ];
 
     renderScreen(container, {
-      eyebrow: "RESOURCE STORAGE",
-      title: "資源置き場",
-      subtitle: "所持している資源の一覧です。",
+      eyebrow: "BAGGAGE STORAGE",
+      title: "荷物置き場",
+      subtitle: "所持している時間食・資源の一覧です。",
       body,
       actions: [
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),

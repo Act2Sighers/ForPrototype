@@ -14,6 +14,8 @@ import {
   refreshWeaponPrefix,
   computeWeaponMarketPrice,
   computeMaxHp,
+  computeTimeEatsCheckoutTotal,
+  findTimeEatsDef,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -87,6 +89,15 @@ export function startNewRun(dungeonId, difficultyId) {
     takenOutItemIds: [],
     // 資源 (materials/currency): reset to 0 at the top of every run.
     resources: createEmptyResources(),
+    // 時間食 (軽食画面で購入した消耗品、荷物置き場に並ぶ): 資源と同じく
+    // ラン単位で、ランが終わればリセットされる。
+    timeEatsInventory: [],
+    // 「クロノスタブ(初回限定)」のような、一度買うと同じラン内では
+    // それ以降どの軽食画面にも並ばなくなる品のdefIdを記録する（軽食
+    // 画面自体のラインナップは取引イベント単位でしか保持されないため、
+    // ラン全体で効かせるにはここが必要 -- resourceCatalog.jsの
+    // generateTimeEatsLineup参照）。
+    purchasedFirstTimeOnlyIds: [],
     // Consumed the first time the player reaches the start square this
     // run — see consumeStartEventTrigger(), which map.js uses to call
     // the 雇用画面 in 初期雇用モード exactly once per run.
@@ -101,6 +112,8 @@ export function retryRun() {
   state.run.currentNodeId = "start";
   state.run.visitedNodeIds = ["start"];
   state.run.resources = createEmptyResources();
+  state.run.timeEatsInventory = [];
+  state.run.purchasedFirstTimeOnlyIds = [];
   state.run.startEventTriggered = false;
   state.run.settled = false;
 }
@@ -298,6 +311,39 @@ export function sellStoredWeapons(weaponIds) {
     return false;
   });
   state.run.resources.rigid.coarseSugarMineral += total;
+  return total;
+}
+
+// 軽食画面の「お会計」確定：computeTimeEatsCheckoutTotalと同じ計算で
+// 総額を出し、所持資源から支払い、ラインナップ（lineup、呼び出し元が
+// 保持し続けている配列そのもの）の残り数量を減らして、購入分を荷物
+// 置き場（state.run.timeEatsInventory）に積む。初回限定品を買った場合
+// はランを通じて再表示されないようpurchasedFirstTimeOnlyIdsに記録する。
+// purchases は {defId: 購入数量} の形。呼び出し側は事前に総額<=所持
+// 資源であることを確認済みの前提（雇用/武器取引と同じ流儀）。
+export function purchaseTimeEats(mode, lineup, purchases) {
+  const total = computeTimeEatsCheckoutTotal(mode, lineup, purchases);
+  state.run.resources.rigid.coarseSugarMineral -= total;
+  for (const entry of lineup) {
+    const qty = purchases[entry.defId] ?? 0;
+    if (qty <= 0) continue;
+    entry.remainingQty -= qty;
+    const existing = state.run.timeEatsInventory.find((item) => item.defId === entry.defId);
+    if (existing) existing.qty += qty;
+    else {
+      state.run.timeEatsInventory.push({
+        defId: entry.defId,
+        name: entry.name,
+        target: entry.target,
+        hpRecoveryPercent: entry.hpRecoveryPercent,
+        conversionEfficiency: entry.conversionEfficiency,
+        qty,
+      });
+    }
+    if (findTimeEatsDef(mode, entry.defId)?.firstTimeOnly) {
+      state.run.purchasedFirstTimeOnlyIds.push(entry.defId);
+    }
+  }
   return total;
 }
 

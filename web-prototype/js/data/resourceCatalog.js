@@ -1194,6 +1194,108 @@ export function describeResourcesIndividually(resources) {
 }
 
 // ---------------------------------------------------------------------
+// 時間食 (TimeEats) — 軽食画面で購入する消耗品。購入後は荷物置き場
+// （旧・資源置き場）に積まれる。対象人数/HP回復量/変換効率は常に表示
+// されるだけの情報で、実際の効果適用（「与える」ボタン）は未実装。
+// 価格は全品ザラメ鉱石建て。
+// ---------------------------------------------------------------------
+
+export const TIME_EATS_TARGET_LABELS = { single: "1人", all: "全員" };
+
+// 4モード分のラインナップ定義。
+//  - firstTimeOnly: 一度買うと、同じラン内ではそれ以降どの軽食画面
+//    （自販機モード）にも並ばなくなる（generateTimeEatsLineup参照）。
+//  - lotteryChance: 軽食画面を開くたびに一定確率で並ぶかどうかを1回だけ
+//    抽選する（同じ取引イベント内で再抽選にはならない -- 呼び出し側が
+//    生成したラインナップをそのまま保持し続けることで保証される）。
+export const TIME_EATS_CATALOG = {
+  vendingMachine: [
+    {
+      id: "chronosMintsFT",
+      name: "クロノスタブ(初回限定)",
+      engName: "ChronosMintsFT",
+      price: 6,
+      baseQuantity: 1,
+      target: "single",
+      hpRecoveryPercent: 100,
+      conversionEfficiency: 300,
+      firstTimeOnly: true,
+    },
+    { id: "chronosMints", name: "クロノスタブ", engName: "ChronosMints", price: 30, baseQuantity: 3, target: "single", hpRecoveryPercent: 100, conversionEfficiency: 300 },
+    { id: "setGel", name: "調整ゼリー", engName: "SetGel", price: 10, baseQuantity: 6, target: "single", hpRecoveryPercent: 50, conversionEfficiency: 150 },
+  ],
+  cafe: [
+    { id: "teaBreakHot", name: "ヤスミ茶(ホット)", engName: "TeaBreak_Hot", price: 3, baseQuantity: 6, target: "single", hpRecoveryPercent: 30, conversionEfficiency: 100 },
+    { id: "teaBreakCold", name: "ヤスミ茶(コールド)", engName: "TeaBreak_Cold", price: 3, baseQuantity: 6, target: "single", hpRecoveryPercent: 30, conversionEfficiency: 100 },
+    { id: "driedTumSlice", name: "乾燥タムスライス", engName: "DriedTumSlice", price: 5, baseQuantity: 6, target: "single", hpRecoveryPercent: 100, conversionEfficiency: 50 },
+  ],
+  foodTruck: [
+    { id: "shareHands", name: "シェア・ハンド", engName: "ShareHands", price: 3, baseQuantity: 8, target: "single", hpRecoveryPercent: -20, conversionEfficiency: 150 },
+    { id: "dialBurger", name: "ダイアル・バーガー", engName: "DialBurger", price: 5, baseQuantity: 8, target: "single", hpRecoveryPercent: -50, conversionEfficiency: 200 },
+  ],
+  candyHandout: [
+    { id: "clockette", name: "クロッケット", engName: "Clockette", price: 10, baseQuantity: 3, target: "all", hpRecoveryPercent: 100, conversionEfficiency: 0 },
+    {
+      id: "clocketteLE",
+      name: "限定版クロッケット",
+      engName: "ClocketteLE",
+      price: 15,
+      baseQuantity: 1,
+      target: "all",
+      hpRecoveryPercent: 100,
+      conversionEfficiency: 50,
+      lotteryChance: 0.25,
+    },
+  ],
+};
+
+// フードトラックのセット割引：シェア・ハンドとダイアル・バーガーを同時
+// 購入する場合、ザラメ鉱石×2×[購入数量の低い方の数量]だけ値引きされる。
+const FOOD_TRUCK_BUNDLE_IDS = ["shareHands", "dialBurger"];
+const FOOD_TRUCK_BUNDLE_DISCOUNT_PER_UNIT = 2;
+
+export function findTimeEatsDef(mode, defId) {
+  return TIME_EATS_CATALOG[mode].find((def) => def.id === defId) ?? null;
+}
+
+// 軽食画面を開くたびに呼ぶ、新規ラインナップの生成。取引イベント内で
+// 再訪しても再抽選にならないのは、trade.js が雇用所/武器取引と同じ要領
+// でこの戻り値をそのまま保持し続けるため（このスコープでは何もしない）。
+// 初回限定品はランで既に購入済みなら除外し、抽選品はここで一度だけ判定
+// する。
+export function generateTimeEatsLineup(mode, purchasedFirstTimeOnlyIds = []) {
+  return TIME_EATS_CATALOG[mode]
+    .filter((def) => !def.firstTimeOnly || !purchasedFirstTimeOnlyIds.includes(def.id))
+    .filter((def) => !def.lotteryChance || Math.random() < def.lotteryChance)
+    .map((def) => ({
+      defId: def.id,
+      name: def.name,
+      engName: def.engName,
+      price: def.price,
+      target: def.target,
+      hpRecoveryPercent: def.hpRecoveryPercent,
+      conversionEfficiency: def.conversionEfficiency,
+      remainingQty: def.baseQuantity,
+    }));
+}
+
+// 軽食画面の「お会計」総額。購入確定（state.jsのpurchaseTimeEats）と
+// 画面側のリアルタイム表示のどちらからも呼ばれる純粋計算。purchases は
+// {defId: 購入数量} の形。
+export function computeTimeEatsCheckoutTotal(mode, lineup, purchases) {
+  let total = 0;
+  for (const entry of lineup) {
+    total += entry.price * (purchases[entry.defId] ?? 0);
+  }
+  if (mode === "foodTruck") {
+    const [aId, bId] = FOOD_TRUCK_BUNDLE_IDS;
+    const discountUnits = Math.min(purchases[aId] ?? 0, purchases[bId] ?? 0);
+    total -= FOOD_TRUCK_BUNDLE_DISCOUNT_PER_UNIT * discountUnits;
+  }
+  return total;
+}
+
+// ---------------------------------------------------------------------
 // 糖衣 / オブラート (coatings)
 // ---------------------------------------------------------------------
 

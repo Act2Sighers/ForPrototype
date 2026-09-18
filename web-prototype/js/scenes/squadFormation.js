@@ -22,7 +22,7 @@ function formationWarning(formationList, standbyList) {
 //    disabled (with a warning explaining why) if that leaves formation
 //    empty or either list over its 6-person capacity; moving people
 //    back the other way clears it. Also the entry point into 武器置き場
-//    (via "武器"/"資源", a sibling-swap -- see api.closeScene's
+//    (via "武器"/"荷物", a sibling-swap -- see api.closeScene's
 //    {openNext} convention below and map.js/trade.js's handling of it)
 //    and, per-member, into a weapon 持ち替え (via "武器変更", a nested
 //    call into weaponStorage's own "swap" mode).
@@ -297,7 +297,7 @@ export function SquadFormationScene(container, params, api) {
         button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
         button("編成を変える", { variant: "primary", onClick: enterEdit }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
-        button("資源", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
+        button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ];
       subtitle = "編成スロットの隊員が戦闘に参加します。";
     }

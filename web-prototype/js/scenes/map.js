@@ -142,7 +142,7 @@ export function MapScene(container, params, api) {
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
         button("武器", { onClick: () => api.callScene("weaponStorage") }),
-        button("資源", { onClick: () => api.callScene("resourceStorage") }),
+        button("荷物", { onClick: () => api.callScene("resourceStorage") }),
       ],
     });
   }
@@ -165,7 +165,7 @@ export function MapScene(container, params, api) {
   return {
     onResume: (result) => {
       // squadFormation/weaponStorage/resourceStorage's own "武器"/
-      // "資源"/"部隊編成" buttons close themselves with this flag set
+      // "荷物"/"部隊編成" buttons close themselves with this flag set
       // instead of nesting a callScene -- see those files' shared
       // {openNext} convention -- so the three screens can freely swap
       // between each other without growing the scene stack.
