@@ -215,10 +215,14 @@ export function computeMonsterLevel(growth) {
 // growthの合計×12＝HP）を流用しているが、雇用候補には一切出ないよう
 // CHARACTER_DATAとは別カタログにしてある。プレイヤーの操作で成長する
 // ことは無いので bonusGrowth の概念は無い。
+// attribute：戦闘での属性攻撃/状態異常の元になる属性（COATING_ATTRIBUTE_LABELS
+// と同じキー体系。無属性＝衝撃相当のモンスターはこのフィールド自体を
+// 持たない）。テスト用の仮の割り当て：カルメヤ犬→浸水、チョコロック→
+// 汚染、電気ゼリー→腐敗。
 export const MONSTER_DATA = {
-  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
-  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 } },
+  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 }, attribute: "soak" },
+  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 }, attribute: "contamination" },
+  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "decay" },
 };
 
 // createCharacterFromData と同じ形のインスタンスを、MONSTER_DATA から
@@ -236,6 +240,7 @@ export function createMonsterFromData(dataId) {
     currentHp: computeMaxHp(growth),
     skills: [],
     weapon: null,
+    attribute: data.attribute,
   };
 }
 

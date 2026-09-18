@@ -14,6 +14,7 @@ import {
   RIGID_RESOURCES,
   NATURAL_QUALITY_LABELS,
   RIGID_QUALITY_LABELS,
+  COATING_ATTRIBUTE_LABELS,
 } from "../data/resourceCatalog.js";
 import { rollSum, rollJudgement, successCountToR } from "../dice.js";
 
@@ -194,6 +195,16 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
   return own.filter((u) => !isIncapacitated(u)).length <= 1;
 }
 
+// 属性攻撃(module.attribute持ち)は、行動主体のモンスター自身がその属性を
+// 持っている時しか選べない（隊員はattributeを持たないので常に対象外）。
+// 逆に、属性を持つモンスターは無属性の素の「攻撃」を選べない -- 属性を
+// 持つ以上、その攻撃は必ず属性攻撃として現れる、という整理。
+function isModuleAvailableFor(unit, module) {
+  if (module.attribute) return unit.character.attribute === module.attribute;
+  if (module.id === "attack" && unit.character.attribute) return false;
+  return true;
+}
+
 // 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。強化魔法/
 // 弱体化魔法自身の発動判定（X用ダイス数）だけはこちらを使う。
 function rawStat(unit, key) {
@@ -268,6 +279,64 @@ for (const { statKey, statLabel, enhanceId, weakenId } of CORRECTION_MODULE_DEFS
   CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "coordination");
   CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom");
 }
+
+// 属性攻撃が付与する状態異常（強さ・発動確率）：モンスターのレベルに
+// 応じて決まる（プレイヤーが直接選ぶ強化魔法/弱体化魔法とは別枠 -- あちら
+// はn=1固定・発動確率100%のプレイヤー操作、こちらはモンスターのレベル
+// 依存で毎回変わる）。強さ=レベル÷10切り上げ、発動確率=レベル×3%
+// （上限100%）。
+function attributeDebuffN(actor) {
+  return Math.ceil(actor.character.level / 10);
+}
+function attributeProcChance(actor) {
+  return Math.min(1, actor.character.level * 0.03);
+}
+
+// 5能力値の属性攻撃デバフ（浸水～高温）：弱体化魔法と同じ仕組み
+// （applyCorrection、判定にはactorの賢さ）を使うが、強さ(n)は固定1では
+// なくattributeDebuffNから取る専用の葉モジュール。MAIN_MODULESには
+// 登録しない（プレイヤーが直接選べる項目ではなく、属性攻撃スキルの
+// 内部でだけ使うため）。
+const ATTRIBUTE_STAT_KEYS = { soak: "attack", humidity: "defense", cold: "destruction", dry: "wisdom", heat: "coordination" };
+function createAttributeStatDebuff(statKey) {
+  return {
+    effect: "correction",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(rawStat(actor, "wisdom"));
+      const turns = successCountToR(successCount);
+      return applyCorrection(target, statKey, attributeDebuffN(actor), -1, turns);
+    },
+  };
+}
+
+// 時間(継続ダメージ)/腐敗(継続割合ダメージ)の属性攻撃デバフ。既存の
+// dot/continuousRatioDamageと同じ判定基準（actorの賢さの実効値）を
+// 使うが、強さ(n)はやはりattributeDebuffN。
+function createAttributeContinuousDebuff(type) {
+  return {
+    effect: "continuous",
+    apply: (actor, target) => {
+      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
+      const turns = successCountToR(successCount);
+      return applyContinuousStatus(target, attributeDebuffN(actor), type, turns);
+    },
+  };
+}
+
+const ATTRIBUTE_DEBUFF_MODULES = {
+  soak: createAttributeStatDebuff(ATTRIBUTE_STAT_KEYS.soak),
+  humidity: createAttributeStatDebuff(ATTRIBUTE_STAT_KEYS.humidity),
+  cold: createAttributeStatDebuff(ATTRIBUTE_STAT_KEYS.cold),
+  dry: createAttributeStatDebuff(ATTRIBUTE_STAT_KEYS.dry),
+  heat: createAttributeStatDebuff(ATTRIBUTE_STAT_KEYS.heat),
+  time: createAttributeContinuousDebuff("damage"),
+  decay: createAttributeContinuousDebuff("ratioDamage"),
+};
+
+// 汚染だけは対応する単一のデバフを持たず、時間の継続ダメージと浸水～
+// 高温の弱体化の計6種類（腐敗は含まない）からランダムに重複なく2つを
+// 選んで両方付与する。
+const CONTAMINATION_DEBUFF_KEYS = ["time", "soak", "humidity", "cold", "dry", "heat"];
 
 // Mainフェイズの行動。攻撃/貫通攻撃/回復（HP増減）、プロテクト/スマッシュ
 // （体幹増減）、強化魔法/弱体化魔法（能力値補正、5能力値ぶん）、継続回復/
@@ -419,6 +488,33 @@ Object.assign(MAIN_MODULES, {
     steps: [{ actionId: "smash" }, { actionId: "attack" }],
   },
 });
+
+// 属性攻撃(attribute)：module.attributeを持つ自分専用の「攻撃」。この
+// idはisModuleAvailableForで、モンスター自身の属性と一致する時しか
+// 選べないようゲートされる（プレイヤーの隊員はattributeを持たない
+// ため常に対象外）。実際の効果適用はsteps/runStepsの汎用エンジンでは
+// なく、専用のapplyAttributeAttack（BattleScene内、下記resolveMainAction
+// 付近）が受け持つ -- 発動確率がactorのレベル依存の動的な値になる点、
+// 汚染だけ「6種類から重複なく2つ」という毎回選び直しが必要な点は、
+// 固定値のchanceを前提にしたstepsの形では表現しづらいため。
+const ATTRIBUTE_ATTACK_KEYS = ["soak", "humidity", "cold", "dry", "heat", "time", "decay", "contamination"];
+Object.assign(
+  MAIN_MODULES,
+  Object.fromEntries(
+    ATTRIBUTE_ATTACK_KEYS.map((attribute) => {
+      const id = `attributeAttack_${attribute}`;
+      return [
+        id,
+        {
+          id,
+          label: `属性攻撃(${COATING_ATTRIBUTE_LABELS[attribute]})`,
+          targetFaction: "opposing",
+          attribute,
+        },
+      ];
+    })
+  )
+);
 
 const PREP_START_PT = 3;
 
@@ -635,7 +731,7 @@ export function BattleScene(container, params, api) {
 
   function randomEnemyAction(unit) {
     const modules = currentModules();
-    const viableModuleIds = Object.keys(modules).filter((id) => candidateUnits(unit, id).length > 0);
+    const viableModuleIds = Object.keys(modules).filter((id) => isModuleAvailableFor(unit, modules[id]) && candidateUnits(unit, id).length > 0);
     const moduleId = pickRandom(viableModuleIds);
     const targetUnit = pickRandom(candidateUnits(unit, moduleId));
     return { moduleId, targetUnit };
@@ -921,6 +1017,22 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // module.attribute持ちの属性攻撃：steps/runStepsの汎用エンジンではなく
+  // 専用の処理を持つ（理由はMAIN_MODULESの属性攻撃エントリのコメント
+  // 参照）。まず素の「攻撃」を必ず1回行い、対象が戦闘不能にならなければ
+  // actorのレベル依存の確率（attributeProcChance）で状態異常を追加付与
+  // する。汚染だけは1つに決まらず、候補6種類から重複なく2つを毎回選び
+  // 直して両方付与する。
+  async function applyAttributeAttack(unit, targetUnit, attribute) {
+    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack);
+    if (isIncapacitated(targetUnit)) return;
+    if (Math.random() >= attributeProcChance(unit)) return;
+    const keys = attribute === "contamination" ? shuffleInPlace([...CONTAMINATION_DEBUFF_KEYS]).slice(0, 2) : [attribute];
+    for (const key of keys) {
+      await applyLeafModule(unit, targetUnit, ATTRIBUTE_DEBUFF_MODULES[key]);
+    }
+  }
+
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
   // 同じ入口を通る：宣言ログ→変調加算→（複合スキルのみ）PTコスト確認
   // ・支払い→蘇生/戦闘不能の判定（行動全体につき1回）→steps実行。葉
@@ -957,6 +1069,11 @@ export function BattleScene(container, params, api) {
       pushLog(`${targetUnit.displayName}は戦闘不能のため、効果は不発に終わった。`, unit.faction);
       render();
       await sleep(ACTION_DELAY_MS);
+      return;
+    }
+
+    if (module.attribute) {
+      await applyAttributeAttack(unit, targetUnit, module.attribute);
       return;
     }
 
@@ -1080,7 +1197,12 @@ export function BattleScene(container, params, api) {
         disabled: !isInteractive(),
         onChange: (e) => handleModuleChange(unit, e.target.value),
       },
-      [h("option", { value: "", text: "－" }), ...Object.values(currentModules()).map((m) => h("option", { value: m.id, text: m.label }))]
+      [
+        h("option", { value: "", text: "－" }),
+        ...Object.values(currentModules())
+          .filter((m) => isModuleAvailableFor(unit, m))
+          .map((m) => h("option", { value: m.id, text: m.label })),
+      ]
     );
     select.value = unit.action?.moduleId ?? "";
     return select;
