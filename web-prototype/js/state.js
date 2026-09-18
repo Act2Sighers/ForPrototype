@@ -347,6 +347,17 @@ export function purchaseTimeEats(mode, lineup, purchases) {
   return total;
 }
 
+// 部隊編成画面（配給／全員配給モード）の「選択」「全員に配給する」が
+// 呼ぶ：荷物置き場のスタックからqty個消費し、0になったらそのスタック
+// 自体をtimeEatsInventoryから取り除く（他の資源一覧が0個の種を表示し
+// ない慣習と同じ）。
+export function consumeTimeEatsItem(item, qty = 1) {
+  item.qty -= qty;
+  if (item.qty <= 0) {
+    state.run.timeEatsInventory = state.run.timeEatsInventory.filter((i) => i !== item);
+  }
+}
+
 // Moves the run's squad into retiredSlots once, at the moment the run
 // ends (i.e. when the result screen is reached — see result.js). On a
 // clear, everyone in formation+standby retires; on a game over, only
@@ -359,9 +370,11 @@ export function settleRunEnd(mode) {
     mode === "gameover"
       ? [...state.standbySlots]
       : [...state.formationSlots, ...state.standbySlots];
-  // 退役スロットへ移す隊員は、変調を0にしてHPを全回復させる。
+  // 退役スロットへ移す隊員は、変調を0にしてHPを全回復させる。正変調
+  // （時間食の変換処理でのみ使う内部パラメータ）も退役時に失われる。
   for (const character of survivors) {
     character.condition = 0;
+    character.positiveCondition = 0;
     character.currentHp = computeMaxHp(character.growth);
   }
   state.retiredSlots.push(...survivors);

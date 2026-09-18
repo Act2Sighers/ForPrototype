@@ -1,7 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
 import { characterHpGauge, characterStatLine, characterWeaponLine, characterSynergyLine, characterConditionBadge } from "../characterCard.js";
-import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon } from "../state.js";
-import { computeWeaponRating, canEquip, getWeaponDisplayName } from "../data/resourceCatalog.js";
+import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon, consumeTimeEatsItem } from "../state.js";
+import { computeWeaponRating, canEquip, getWeaponDisplayName, applyTimeEatsToCharacter } from "../data/resourceCatalog.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
 
@@ -36,15 +36,38 @@ function formationWarning(formationList, standbyList) {
 //    シナジー with that weapon (see resourceCatalog.js's canEquip);
 //    選択→confirm swaps it onto the chosen member (their previous
 //    weapon, if any, returns to 武器置き場) and returns to the caller.
+//  - "feed" (配給モード) / "feedAll" (全員配給モード): called from
+//    resourceStorage.js's荷物置き場, per time-eats stack's「配給する」
+//    ボタン（対象人数が1人ならfeed、全員ならfeedAll）、params.timeEatsItem
+//    にそのスタック（state.run.timeEatsInventoryのエントリそのもの）を
+//    渡す。どちらも現在の全隊員（編成＋待機）を並べ、レベル/HP/変調を
+//    常に表示する。feedは隊員ごとの「選択」→確認→
+//    resourceCatalog.jsのapplyTimeEatsToCharacterで変換処理を行い、
+//    成長ポイントが出たら熟成画面(maturation)を呼ぶ。feedAllは画面下部
+//    の「全員に配給する」1回で全隊員に順番に同じ処理を行う（熟成画面が
+//    挟まるたびに一旦中断し、閉じたら次の隊員へ進む -- processFeedAllNext
+//    参照）。どちらも「キャンセル」で何もせず呼び出し元へ戻る。
 export function SquadFormationScene(container, params, api) {
-  const mode = params.mode === "discharge" ? "discharge" : params.mode === "swap" ? "swap" : "normal";
+  const mode =
+    params.mode === "discharge" ? "discharge" :
+    params.mode === "swap" ? "swap" :
+    params.mode === "feed" ? "feed" :
+    params.mode === "feedAll" ? "feedAll" :
+    "normal";
   const swapWeapon = mode === "swap" ? params.weapon : null;
+  const timeEatsItem = mode === "feed" || mode === "feedAll" ? params.timeEatsItem : null;
+  // feedAll専用：処理対象を最初に一度だけ確定させ、カーソルで1人ずつ
+  // 進める（熟成画面を挟むたびにこのシーン自体は一旦suspendされるが、
+  // 配列そのものは同じ参照のまま保たれる）。
+  const feedAllCharacters = mode === "feedAll" ? [...state.formationSlots, ...state.standbySlots] : [];
+  let feedAllCursor = 0;
 
   let editing = false;
   let draftFormation = [];
   let draftStandby = [];
   let pendingDischargeId = null;
   let pendingEquipId = null;
+  let pendingFeedId = null;
   const expandedIds = new Set();
 
   function toggleDetail(id) {
@@ -146,6 +169,124 @@ export function SquadFormationScene(container, params, api) {
         button("選択", { variant: "primary", onClick: () => handleEquipClick(character.id) }),
       ]),
     ]);
+  }
+
+  // ①-④の変換処理を行い、qtyを1減らす。⑤：成長ポイントが出たら熟成
+  // 画面を呼び、無ければそのまま閉じる（feedモードは1人で完結するので、
+  // どちらの場合も最終的に自分自身を閉じて呼び出し元へ戻る -- onResume
+  // 参照）。
+  function runConversion(character) {
+    const result = applyTimeEatsToCharacter(character, timeEatsItem);
+    consumeTimeEatsItem(timeEatsItem, 1);
+    return result;
+  }
+
+  function confirmFeed(character) {
+    pendingFeedId = null;
+    const result = runConversion(character);
+    if (result.growthPoints >= 1) {
+      api.callScene("maturation", {
+        character,
+        growthPoints: result.growthPoints,
+        levelBefore: result.levelBefore,
+        levelAfter: result.levelAfter,
+      });
+    } else {
+      api.closeScene();
+    }
+  }
+
+  function feedRow(character) {
+    const isPending = pendingFeedId === character.id;
+    const head = h("div", { class: "row-between" }, [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+        h("span", { class: "slot__name", text: character.name }),
+      ]),
+      characterConditionBadge(character),
+    ]);
+    if (isPending) {
+      return h("div", { class: "panel" }, [
+        head,
+        characterHpGauge(character),
+        h("div", { class: "confirm-row" }, [
+          h("span", { class: "confirm-row__text", text: `${character.name}に${timeEatsItem.name}を与えます。よろしいですか？` }),
+          button("実行する", { variant: "primary", onClick: () => confirmFeed(character) }),
+          button("キャンセル", { variant: "ghost", onClick: () => { pendingFeedId = null; render(); } }),
+        ]),
+      ]);
+    }
+    return h("div", { class: "panel" }, [
+      head,
+      characterHpGauge(character),
+      h("div", { class: "slot__actions" }, [
+        button("選択", { variant: "primary", onClick: () => { pendingFeedId = character.id; render(); } }),
+      ]),
+    ]);
+  }
+
+  function feedAllRow(character) {
+    return h("div", { class: "panel" }, [
+      h("div", { class: "row-between" }, [
+        h("div", { class: "slot__meta" }, [
+          h("span", { class: "slot__id", text: `Lv.${character.level}` }),
+          h("span", { class: "slot__name", text: character.name }),
+        ]),
+        characterConditionBadge(character),
+      ]),
+      characterHpGauge(character),
+    ]);
+  }
+
+  // feedAllモードの本体：カーソル位置から1人ずつ変換処理を行い、成長
+  // ポイントが出た隊員がいたらそこで熟成画面を呼んで中断する（閉じたら
+  // onResumeがこの関数を呼び直し、カーソルの続きから再開する）。全員
+  // 処理し終えたら自分自身を閉じて呼び出し元へ戻る。
+  function processFeedAllNext() {
+    while (feedAllCursor < feedAllCharacters.length) {
+      const character = feedAllCharacters[feedAllCursor];
+      feedAllCursor += 1;
+      const result = applyTimeEatsToCharacter(character, timeEatsItem);
+      if (result.growthPoints >= 1) {
+        api.callScene("maturation", {
+          character,
+          growthPoints: result.growthPoints,
+          levelBefore: result.levelBefore,
+          levelAfter: result.levelAfter,
+        });
+        return;
+      }
+    }
+    api.closeScene();
+  }
+
+  function handleFeedAllClick() {
+    consumeTimeEatsItem(timeEatsItem, 1);
+    feedAllCursor = 0;
+    processFeedAllNext();
+  }
+
+  function renderFeed() {
+    const isAll = mode === "feedAll";
+    const characters = isAll ? feedAllCharacters : [...state.formationSlots, ...state.standbySlots];
+    const rowFn = isAll ? feedAllRow : feedRow;
+    const actions = [button("キャンセル", { variant: "ghost", onClick: () => api.closeScene() })];
+    if (isAll) {
+      actions.push(button("全員に配給する", { variant: "primary", onClick: handleFeedAllClick }));
+    }
+    renderScreen(container, {
+      eyebrow: isAll ? "SQUAD / FEED ALL" : "SQUAD / FEED",
+      title: isAll ? "部隊編成（全員配給）" : "部隊編成（配給）",
+      subtitle: isAll
+        ? `「全員に配給する」を押すと、${timeEatsItem.name}を隊員全員に与えます。`
+        : `${timeEatsItem.name}を与える隊員の「選択」を押してください。`,
+      body: [
+        characters.length
+          ? h("div", { class: "slot-list slot-list--grid" }, characters.map(rowFn))
+          : h("p", { class: "lead", text: "隊員がいません。" }),
+      ],
+      actions,
+    });
   }
 
   function dischargeRow(character, listKey, sourceLen) {
@@ -258,6 +399,10 @@ export function SquadFormationScene(container, params, api) {
       renderSwap();
       return;
     }
+    if (mode === "feed" || mode === "feedAll") {
+      renderFeed();
+      return;
+    }
 
     const formationList = mode === "discharge" ? state.formationSlots : editing ? draftFormation : state.formationSlots;
     const standbyList = mode === "discharge" ? state.standbySlots : editing ? draftStandby : state.standbySlots;
@@ -312,5 +457,20 @@ export function SquadFormationScene(container, params, api) {
   }
 
   render();
-  return { onResume: () => render() };
+  return {
+    onResume: () => {
+      // 熟成画面が閉じて戻ってきた時の処理。feedは1人で完結する
+      // モードなので、そのまま自分自身も閉じて呼び出し元（荷物置き場）
+      // へ戻る。feedAllは次の隊員からカーソルの続きを再開する。
+      if (mode === "feed") {
+        api.closeScene();
+        return;
+      }
+      if (mode === "feedAll") {
+        processFeedAllNext();
+        return;
+      }
+      render();
+    },
+  };
 }

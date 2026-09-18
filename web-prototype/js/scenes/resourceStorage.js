@@ -19,8 +19,9 @@ function speciesName(speciesId) {
 // 荷物置き場画面（旧・資源置き場画面）. Two modes:
 //  - "normal" (default): 時間食（軽食画面で購入した消耗品）と、プレイヤー
 //    が現在持っている資源の一覧を表示する。時間食は常に対象人数/HP回復
-//    量/変換効率が見え、「与える」ボタンは今のところ無反応（実際の効果
-//    適用は未実装）。資源側は種ごとに1行（何も持っていない種は個別表示
+//    量/変換効率が見え、「配給する」は対象人数に応じて部隊編成画面の
+//    配給／全員配給モードを呼び出す（squadFormation.js参照）。資源側は
+//    種ごとに1行（何も持っていない種は個別表示
 //    と同じく省く）、「内訳表示」でフレーバーテキストと品質/型番ごとの
 //    内訳を表示する。map.js/trade.jsから直接呼ばれるほか、
 //    squadFormation.js/weaponStorage.jsの「荷物」ボタンからのきょうだい
@@ -54,8 +55,10 @@ export function ResourceStorageScene(container, params, api) {
   }
 
   // 時間食1品ごとの表示行。所持数量、対象人数/HP回復量/変換効率は常に
-  // 見える。「与える」は今のところ無反応（効果適用は未実装、今後の実装
-  // 待ち）。
+  // 見える。「配給する」は対象人数が1人なら部隊編成画面（配給モード）、
+  // 全員なら（全員配給モード）を呼び出す。呼び出し元へ戻ってくると
+  // onResumeがrender()し直すので、消費/完売後のスタックの増減がここに
+  // 反映される。
   function timeEatsRow(item) {
     return h("div", { class: "panel" }, [
       h("div", { class: "slot__meta" }, [
@@ -66,7 +69,17 @@ export function ResourceStorageScene(container, params, api) {
         class: "lead",
         text: `対象：${TIME_EATS_TARGET_LABELS[item.target]}／HP回復量：${item.hpRecoveryPercent}%／変換効率：${item.conversionEfficiency}%`,
       }),
-      h("div", { class: "slot__actions" }, [button("与える", { variant: "primary", onClick: () => {} })]),
+      h("div", { class: "slot__actions" }, [
+        button("配給する", {
+          variant: "primary",
+          disabled: item.qty <= 0,
+          onClick: () =>
+            api.callScene("squadFormation", {
+              mode: item.target === "all" ? "feedAll" : "feed",
+              timeEatsItem: item,
+            }),
+        }),
+      ]),
     ]);
   }
 

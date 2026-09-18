@@ -96,6 +96,23 @@ export function computeLevel(growth) {
   return growthSum(growth) - 4;
 }
 
+// 時間食の変換処理（applyTimeEatsToCharacter）専用: レベルアップの瞬間
+// は、その隊員の成長値がまだ熟成画面での割り振りに追いついていない
+// （growthSum-4がまだ新レベルに一致しない）ため、この関数はcomputeMaxHp
+// (growth)を経由せず、レベルから直接実効最大HPを算出する。通常時は
+// 熟成画面の割り振り完了後に成長値が必ずレベルに追いつく（1レベル
+// アップにつき成長ポイント1、必ず全て割り振ってから割り振りを確定する
+// ため）ので、computeMaxHp(growth)と常に一致する -- 定義を分けているのは
+// この一瞬のズレのためだけ。
+export function computeMaxHpForLevel(level) {
+  return (level + 4) * 12;
+}
+
+// レベルアップに必要な正変調量（仮実装）。
+export function levelUpRequirement(level) {
+  return level + 2;
+}
+
 // Which 性能値 (weapon stat) feeds into which 能力値 (character stat): a
 // character's displayed non-HP stats are base+growth *plus* whichever of
 // these its equipped weapon carries -- see computeStats below. The
@@ -174,6 +191,10 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     growth,
     currentHp: computeMaxHp(growth),
     condition: 0,
+    // 正変調：変調とは別の隊員限定パラメータ。画面には一切表示され
+    // ず、時間食の変換処理（applyTimeEatsToCharacter）でのみ参照され
+    // る。退役時に失われる（state.jsのsettleRunEnd参照）。
+    positiveCondition: 0,
     skills: [],
     weapon: null,
     synergies: data.synergies,
@@ -1293,6 +1314,39 @@ export function computeTimeEatsCheckoutTotal(mode, lineup, purchases) {
     total -= FOOD_TRUCK_BUNDLE_DISCOUNT_PER_UNIT * discountUnits;
   }
   return total;
+}
+
+// 部隊編成画面（配給／全員配給モード）が、隊員1人に時間食1つを与えた
+// 際の変換処理。仕様の①～④に対応：
+//  ① 変調×変換効率(%)（切り上げ）を正変調に加算し、変調を0にする。
+//  ② 正変調が現在のレベルの要求正変調量（levelUpRequirement）を満た
+//     す限り、それを消費してレベルを1ずつ上げる。
+//  ③ （実装上は暗黙）レベルアップ後の実効最大HPはcomputeMaxHpForLevel
+//     を直接使う。growthSum(=旧computeMaxHpの土台)は熟成画面での割り
+//     振りが終わるまでまだ新レベルに追いついていないため。
+//  ④ 実効最大HP×HP回復量(%)（切り上げ）分、HPを増減する（実効最大HP
+//     でクランプ）。HP回復量が負の場合は減少になり、下限は0ではなく1
+//     （時間食でHPが0になることはない）。
+// ⑤ の熟成画面呼び出しの要否は、戻り値のgrowthPointsを見て呼び出し側
+// (squadFormation.js)が判断する。
+export function applyTimeEatsToCharacter(character, item) {
+  const gainedPositiveCondition = Math.ceil((character.condition ?? 0) * (item.conversionEfficiency / 100));
+  character.positiveCondition = (character.positiveCondition ?? 0) + gainedPositiveCondition;
+  character.condition = 0;
+
+  const levelBefore = character.level;
+  while (character.positiveCondition >= levelUpRequirement(character.level)) {
+    character.positiveCondition -= levelUpRequirement(character.level);
+    character.level += 1;
+  }
+  const levelAfter = character.level;
+
+  const maxHp = computeMaxHpForLevel(character.level);
+  const delta = Math.ceil(maxHp * (item.hpRecoveryPercent / 100));
+  const floor = item.hpRecoveryPercent < 0 ? 1 : 0;
+  character.currentHp = Math.min(maxHp, Math.max(floor, (character.currentHp ?? maxHp) + delta));
+
+  return { levelBefore, levelAfter, growthPoints: levelAfter - levelBefore };
 }
 
 // ---------------------------------------------------------------------

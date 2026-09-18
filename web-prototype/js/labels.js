@@ -21,6 +21,7 @@ export const SCENE_LABELS = {
   weaponEnhance: "武器強化画面",
   weaponTrade: "武器取引画面",
   timeEats: "軽食画面",
+  maturation: "熟成画面",
   hiring: "雇用画面",
   result: "リザルト画面",
 };

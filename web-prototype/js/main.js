@@ -20,6 +20,7 @@ import { WeaponForgeScene } from "./scenes/weaponForge.js";
 import { WeaponEnhanceScene } from "./scenes/weaponEnhance.js";
 import { WeaponTradeScene } from "./scenes/weaponTrade.js";
 import { TimeEatsScene } from "./scenes/timeEats.js";
+import { MaturationScene } from "./scenes/maturation.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { ResultScene } from "./scenes/result.js";
 
@@ -44,6 +45,7 @@ const registry = {
   weaponEnhance: WeaponEnhanceScene,
   weaponTrade: WeaponTradeScene,
   timeEats: TimeEatsScene,
+  maturation: MaturationScene,
   hiring: HiringScene,
   result: ResultScene,
 };
