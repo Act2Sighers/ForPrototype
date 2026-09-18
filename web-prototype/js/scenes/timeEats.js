@@ -11,6 +11,16 @@ const MODE_LABELS = {
   candyHandout: "菓子配り",
 };
 
+// 店ごとに固有の振る舞い（初回限定品の割引、環境による取扱対象外の
+// 可能性、セット割引、数量限定の抽選品）をプレイヤーに一言説明してお
+// くための、説明文2行目。
+const MODE_HINTS = {
+  vendingMachine: "（クロノスタブは初回購入に限り8割引でお試しいただけます！）",
+  cafe: "（一部メニューは設営環境によって取扱対象外となる可能性がございます）",
+  foodTruck: "（シェア・ハンドとダイアル・バーガーはセットで購入するとお買い得です！）",
+  candyHandout: "（限定版クロッケット、好評につき数量限定で販売中！）",
+};
+
 // 軽食画面. params.mode は4種（vendingMachine/cafe/foodTruck/
 // candyHandout）のいずれか必須。params.lineup が渡されればそれを
 // そのまま使う（trade.js が雇用所/武器取引と同じ要領で、取引イベント内
@@ -70,11 +80,14 @@ export function TimeEatsScene(container, params, api) {
   function itemRow(entry) {
     const qty = purchases[entry.defId] ?? 0;
     const soldOut = entry.remainingQty <= 0;
-    return h("div", { class: "panel" }, [
-      h("div", { class: "slot__meta" }, [
-        h("span", { class: "slot__name", text: entry.name }),
-        h("span", { class: "tag", text: `価格 ${COST_ABBR}×${entry.price}` }),
-        h("span", { class: "tag", text: soldOut ? "完売" : `残り${entry.remainingQty}個` }),
+    return h("div", { class: `panel${soldOut ? " panel--sold-out" : ""}` }, [
+      h("div", { class: "row-between" }, [
+        h("div", { class: "slot__meta" }, [
+          h("span", { class: "slot__name", text: entry.name }),
+          h("span", { class: "tag", text: `価格 ${COST_ABBR}×${entry.price}` }),
+          soldOut ? null : h("span", { class: "tag", text: `残り${entry.remainingQty}個` }),
+        ]),
+        soldOut ? h("span", { class: "sold-out-badge", text: "売り切れ" }) : null,
       ]),
       h("p", {
         class: "lead",
@@ -118,19 +131,20 @@ export function TimeEatsScene(container, params, api) {
     if (hasSelection) {
       body.push(h("p", { class: "lead", text: `支払い総額：${COST_ABBR}×${total}` }));
     }
-    if (pendingCheckout) {
-      body.push(pendingPanel());
-    }
     body.push(
       lineup.length
         ? h("div", { class: "slot-list slot-list--grid" }, lineup.map(itemRow))
         : h("p", { class: "lead", text: "取り扱っている時間食がありません。" })
     );
+    // 確認/警告は「お会計」ボタンの近く（商品一覧の下）に置く。
+    if (pendingCheckout) {
+      body.push(pendingPanel());
+    }
 
     renderScreen(container, {
       eyebrow: `TIMEEATS / ${MODE_LABELS[mode]}`,
       title: `軽食画面（${MODE_LABELS[mode]}モード）`,
-      subtitle: "購入したい時間食の数量をそれぞれ入力し、「お会計」で一括購入します。",
+      subtitle: `購入したい時間食の数量をそれぞれ入力し、「お会計」で一括購入します。\n${MODE_HINTS[mode]}`,
       corner: resourceHud(state.run?.resources),
       body,
       actions: [

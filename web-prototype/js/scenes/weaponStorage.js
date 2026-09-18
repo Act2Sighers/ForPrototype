@@ -216,6 +216,12 @@ export function WeaponStorageScene(container, params, api) {
     if (selectedIds.size > 0) {
       body.push(h("p", { class: "lead", text: `売値総額：${COST_ABBR}×${selectedTotal}` }));
     }
+    body.push(
+      state.storedWeapons.length
+        ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(sellRow))
+        : h("p", { class: "lead", text: "使用していない武器はありません。" })
+    );
+    // 確認は「まとめて売る」ボタンの近く（武器一覧の下）に置く。
     if (pendingSell) {
       body.push(
         h("div", { class: "confirm-row" }, [
@@ -228,11 +234,6 @@ export function WeaponStorageScene(container, params, api) {
         ])
       );
     }
-    body.push(
-      state.storedWeapons.length
-        ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(sellRow))
-        : h("p", { class: "lead", text: "使用していない武器はありません。" })
-    );
 
     renderScreen(container, {
       eyebrow: "WEAPON STORAGE / SELL",

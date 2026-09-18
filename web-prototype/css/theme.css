@@ -244,6 +244,7 @@ body {
   margin: 0;
   color: var(--ink-dim);
   font-size: 14px;
+  white-space: pre-line;
 }
 
 .screen-body {
@@ -669,6 +670,18 @@ body {
 
 .qty-input:disabled {
   opacity: 0.4;
+}
+
+/* 軽食画面：残り販売数量が0になった品目の枠。 */
+.panel--sold-out {
+  opacity: 0.5;
+}
+
+.sold-out-badge {
+  color: var(--danger-strong);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------
