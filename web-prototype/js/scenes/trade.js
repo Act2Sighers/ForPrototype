@@ -1,47 +1,52 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state from "../state.js";
+import { MODE_LABELS, pickRandomTimeEatsStoreMode } from "./timeEats.js";
 
-// 取引画面. お店の項目から雇用所/鍛冶屋/軽食画面（自販機/喫茶店/
-// フードトラック/菓子配りの4モード）へ遷移する。
+// 取引画面. 集落マス／工房マスのどちらから呼ばれたかでお店の中身が
+// 丸ごと変わる、2モード必須の画面（旧来の「全ての店に繋がっている」
+// デフォルト状態は廃止 -- マス種別が整理された今、その状態は存在し
+// 得ない）。
+//  - "village"（集落マス）: 雇用所 と、軽食4モード（自販機/喫茶店/
+//    フードトラック/菓子配り）のうちこの取引イベント開始時に1つだけ
+//    抽選されたもの、計2つのボタン。
+//  - "workshop"（工房マス）: 鍛冶屋 と 仕立て屋、計2つのボタン。
+// 画面下部の共通ボタン（ポーズ/部隊編成/武器/糖衣/荷物/倉庫を開く/
+// 先へ進む）はどちらのモードでも変わらない。
 export function TradeScene(container, params, api) {
-  // Kept alive for as long as this trade visit lasts (i.e. until the
-  // whole TradeScene is closed via 先へ進む): passed to the hiring
-  // screen and handed back via closeScene's result, so reopening 雇用所
-  // within the same visit shows the same candidates (hired flags and
-  // all) instead of drawing a fresh pool every time.
+  const mode = params.mode;
+  if (mode !== "village" && mode !== "workshop") {
+    throw new Error('trade scene requires params.mode of "village" or "workshop"');
+  }
+
+  // 雇用所の候補一覧（集落モードのみ使う）。hiring.js が素の配列で
+  // closeSceneするのを、この取引イベントの間ずっと保持し続ける -- 再訪
+  // しても再抽選しない、という既存の慣習をそのまま踏襲。
   let hiringCandidates = null;
-  // Same idea for 鍛冶屋's own 武器取引 candidates -- smithy.js relays
-  // its current value back tagged as {weaponTradeCandidates} (see its
-  // own comment) so it can't be confused with hiringCandidates' plain
-  // array or an {openNext} sibling-swap payload below.
+  // 鍛冶屋の武器取引候補一覧（工房モードのみ使う）。smithy.js が
+  // {weaponTradeCandidates}タグ付きで返してくるものをそのまま保持する。
   let weaponTradeCandidates = null;
-  // 軽食画面の4モード分のラインナップ。同じ要領で、timeEats.js が
-  // {timeEatsMode, timeEatsLineup} タグ付きで返してくる（モードごとに
-  // 別のラインナップなので、雇用所/武器取引と違って単一の変数ではなく
-  // モードをキーにしたオブジェクトで持つ）。
-  const timeEatsLineups = { vendingMachine: null, cafe: null, foodTruck: null, candyHandout: null };
-  // 行商画面自身が保持する4サブ画面（雇用/武器/軽食/資源）の抽選状況を
-  // まとめて持ち回すための入れ物。peddlerShop.js が「店を出る」時に
-  // {peddlerState} タグ付きで返してくるものをそのまま保持し、再度開く
-  // 際にparams.peddlerStateとして渡し戻す -- hiringCandidates等と同じ
-  // 「取引イベント内は再抽選しない」慣習をこの画面自身にも適用する形。
-  let peddlerState = null;
+  // 集落モードの「お店」に並ぶ軽食チップは、取引イベント開始時に4モード
+  // から1つだけ抽選され、以後この取引イベント中は固定される（再訪して
+  // も再抽選しない）。そのモードのラインナップ自体も同じ要領で保持。
+  const villageSnackMode = mode === "village" ? pickRandomTimeEatsStoreMode() : null;
+  let villageSnackLineup = null;
 
   function render() {
-    renderScreen(container, {
-      eyebrow: "TRADE",
-      title: "取引",
-      corner: resourceHud(state.run?.resources),
-      body: [
-        h("p", { class: "lead", text: "（未実装：購入・工房などのやり取りも今後入ります）" }),
-        h("div", { class: "field-group" }, [
-          h("p", { class: "field-label", text: "お店" }),
-          h("div", { class: "chip-row" }, [
+    const shopChips =
+      mode === "village"
+        ? [
             h("button", {
               class: "chip",
               text: "雇用所",
               onClick: () => api.callScene("hiring", { mode: "normal", candidates: hiringCandidates }),
             }),
+            h("button", {
+              class: "chip",
+              text: MODE_LABELS[villageSnackMode],
+              onClick: () => api.callScene("timeEats", { mode: villageSnackMode, lineup: villageSnackLineup }),
+            }),
+          ]
+        : [
             h("button", {
               class: "chip",
               text: "鍛冶屋",
@@ -52,32 +57,16 @@ export function TradeScene(container, params, api) {
               text: "仕立て屋",
               onClick: () => api.callScene("tailorShop"),
             }),
-            h("button", {
-              class: "chip",
-              text: "自販機",
-              onClick: () => api.callScene("timeEats", { mode: "vendingMachine", lineup: timeEatsLineups.vendingMachine }),
-            }),
-            h("button", {
-              class: "chip",
-              text: "喫茶店",
-              onClick: () => api.callScene("timeEats", { mode: "cafe", lineup: timeEatsLineups.cafe }),
-            }),
-            h("button", {
-              class: "chip",
-              text: "フードトラック",
-              onClick: () => api.callScene("timeEats", { mode: "foodTruck", lineup: timeEatsLineups.foodTruck }),
-            }),
-            h("button", {
-              class: "chip",
-              text: "菓子配り",
-              onClick: () => api.callScene("timeEats", { mode: "candyHandout", lineup: timeEatsLineups.candyHandout }),
-            }),
-            h("button", {
-              class: "chip",
-              text: "行商人",
-              onClick: () => api.callScene("peddlerShop", { peddlerState }),
-            }),
-          ]),
+          ];
+
+    renderScreen(container, {
+      eyebrow: mode === "village" ? "TRADE / VILLAGE" : "TRADE / WORKSHOP",
+      title: mode === "village" ? "取引（集落モード）" : "取引（工房モード）",
+      corner: resourceHud(state.run?.resources),
+      body: [
+        h("div", { class: "field-group" }, [
+          h("p", { class: "field-label", text: "お店" }),
+          h("div", { class: "chip-row" }, shopChips),
         ]),
       ],
       actions: [
@@ -110,12 +99,7 @@ export function TradeScene(container, params, api) {
         return;
       }
       if (result?.timeEatsMode) {
-        timeEatsLineups[result.timeEatsMode] = result.timeEatsLineup;
-        render();
-        return;
-      }
-      if (result?.peddlerState) {
-        peddlerState = result.peddlerState;
+        villageSnackLineup = result.timeEatsLineup;
         render();
         return;
       }

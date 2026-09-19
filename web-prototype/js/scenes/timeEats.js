@@ -10,13 +10,23 @@ import {
 
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 
-const MODE_LABELS = {
+export const MODE_LABELS = {
   vendingMachine: "自販機",
   cafe: "喫茶店",
   foodTruck: "フードトラック",
   candyHandout: "菓子配り",
   peddler: "行商",
 };
+
+// 軽食画面の「本来の」4店舗モード（peddlerを除く）。集落マスの取引画面
+// が「お店」に並べる1つをこの中から抽選するのと、軽食マス自体がこの
+// 画面を直接呼ぶ際にどのモードで開くかを抽選するのとで、どちらも同じ
+// プールから選ぶ -- map.js/trade.jsの両方から使われる。
+export const TIME_EATS_STORE_MODES = ["vendingMachine", "cafe", "foodTruck", "candyHandout"];
+
+export function pickRandomTimeEatsStoreMode() {
+  return TIME_EATS_STORE_MODES[Math.floor(Math.random() * TIME_EATS_STORE_MODES.length)];
+}
 
 // 店ごとに固有の振る舞い（初回限定品の割引、環境による取扱対象外の
 // 可能性、セット割引、数量限定の抽選品）をプレイヤーに一言説明してお

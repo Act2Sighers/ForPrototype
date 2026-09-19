@@ -3,6 +3,7 @@ import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
 import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
 import { computeEffectiveMaxHp } from "../data/resourceCatalog.js";
+import { pickRandomTimeEatsStoreMode } from "./timeEats.js";
 
 // HPの現在値が最大値の1/3以下の隊員名一覧（何もいなければ空配列）。
 function exhaustedAllyNames() {
@@ -65,12 +66,20 @@ export function MapScene(container, params, api) {
         api.callScene("episode", { script: ENDING_SCRIPT });
         return;
       }
-      const sceneId = EVENT_SCENE_BY_NODE_TYPE[node.type];
-      if (sceneId === "episode") {
+      if (node.type === "episode") {
         api.callScene("episode", { script: ENCOUNTER_SCRIPT });
-      } else if (sceneId) {
-        api.callScene(sceneId);
+        return;
       }
+      if (node.type === "village" || node.type === "workshop") {
+        api.callScene("trade", { mode: node.type });
+        return;
+      }
+      if (node.type === "snack") {
+        api.callScene("timeEats", { mode: pickRandomTimeEatsStoreMode() });
+        return;
+      }
+      const sceneId = EVENT_SCENE_BY_NODE_TYPE[node.type];
+      if (sceneId) api.callScene(sceneId);
     }
 
     const edgeEls = [];
