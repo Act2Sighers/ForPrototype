@@ -3,6 +3,8 @@
 // in-memory slots below. That's enough to exercise every transition in
 // the spec without pretending we have a real save format yet.
 
+import { generateDungeon } from "./data/dungeonGenerator.js";
+import { DUNGEONS } from "./data/testDungeon.js";
 import {
   createColorfulPlasma,
   createEmptyResources,
@@ -93,8 +95,16 @@ export function createNewSaveData() {
 }
 
 export function startNewRun(dungeonId, difficultyId) {
+  const dungeonMeta = DUNGEONS.find((d) => d.id === dungeonId);
   state.run = {
     dungeonId,
+    // マップ構造（マス配置・経路・マス種別）はランごとにランダム生成
+    // され、以後このラン（リトライ含む）を通じて固定される -- 挑戦開始
+    // 時に1回だけ生成し、ここに保持する（毎回getDungeonで引き直す旧来
+    // の静的マップとは違い、この生成結果そのものが「そのランのマップ」
+    // になる。retryRun()はこのフィールドに触れないので、リトライして
+    // も同じマップのまま再挑戦できる）。
+    dungeon: generateDungeon({ id: dungeonId, name: dungeonMeta?.name ?? dungeonId }),
     difficultyId,
     currentNodeId: "start",
     visitedNodeIds: ["start"],

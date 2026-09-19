@@ -1,6 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
-import { getDungeon, EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
+import { EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
 import { computeEffectiveMaxHp } from "../data/resourceCatalog.js";
 import { pickRandomTimeEatsStoreMode } from "./timeEats.js";
@@ -45,7 +45,7 @@ export function MapScene(container, params, api) {
   // 一度だけ見せる注意書き用（渡さなければ何も出さない -- 初回入場時や
   // openNext越しの遷移では呼ばない）。
   function render(exhaustedNames) {
-    const dungeon = getDungeon(state.run.dungeonId);
+    const dungeon = state.run.dungeon;
     const currentId = state.run.currentNodeId;
     const visited = state.run.visitedNodeIds;
     const reachable = dungeon.edges[currentId] ?? [];
