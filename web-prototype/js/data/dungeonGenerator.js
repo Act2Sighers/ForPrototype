@@ -11,10 +11,14 @@
 // map.js が testDungeon.js の静的マップだった頃と同じ形
 // {id, name, nodes, edges} で消費する）。
 
-const MIDDLE_COLUMN_COUNT_MIN = 2;
-const MIDDLE_COLUMN_COUNT_MAX = 4;
+// 最長到達マス数（X、スタート+ゴールを含む列数）。中間列数は常に
+// LONGEST_REACHABLE_NODE_COUNT - 2。
+const LONGEST_REACHABLE_NODE_COUNT = 16;
+const MIDDLE_COLUMN_COUNT = LONGEST_REACHABLE_NODE_COUNT - 2;
 const ROW_COUNT_MIN = 2;
 const ROW_COUNT_MAX = 4;
+// マス同士の縦方向の間隔（列のマス数によらず常に一定にする）。
+const ROW_SPACING = 90;
 
 const NON_BATTLE_TYPES = ["exploration", "episode", "village", "snack", "workshop"];
 
@@ -44,16 +48,26 @@ function pickRandomInt(min, max) {
 // ①経路生成
 // -----------------------------------------------------------------------
 
-// 2列目〜X-1列目（中間列）のマス数を決める：1列目は2〜4のランダム、
-// 以降は直前の列との差が1以内になるよう2〜4のランダムで続ける。
+// 2列目〜X-1列目（中間列）のマス数を決める。2列目とX-1列目（＝中間列の
+// 先頭と末尾）はそれぞれ独立に2〜4のランダムで決め、その間の列は
+// 「隣の列との差が1以内」を保ちながら、必ずX-1列目の値にちょうど
+// たどり着くようランダムに橋渡しする（残り列数的に間に合う候補だけを
+// 毎回ランダムに選ぶので、途中の値も偏りなくランダムになる）。
 function generateColumnSizes() {
-  const columnCount = pickRandomInt(MIDDLE_COLUMN_COUNT_MIN, MIDDLE_COLUMN_COUNT_MAX);
-  const sizes = [pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX)];
-  for (let i = 1; i < columnCount; i++) {
-    const prev = sizes[i - 1];
-    const lo = Math.max(ROW_COUNT_MIN, prev - 1);
-    const hi = Math.min(ROW_COUNT_MAX, prev + 1);
-    sizes.push(pickRandomInt(lo, hi));
+  const first = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
+  const last = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
+  const sizes = new Array(MIDDLE_COLUMN_COUNT);
+  sizes[0] = first;
+  sizes[MIDDLE_COLUMN_COUNT - 1] = last;
+
+  for (let i = 1; i < MIDDLE_COLUMN_COUNT - 1; i++) {
+    const cur = sizes[i - 1];
+    const remainingSteps = MIDDLE_COLUMN_COUNT - 1 - i; // このあと最終列まで残っている辺の数
+    const candidates = [];
+    for (let c = Math.max(ROW_COUNT_MIN, cur - 1); c <= Math.min(ROW_COUNT_MAX, cur + 1); c++) {
+      if (Math.abs(last - c) <= remainingSteps) candidates.push(c);
+    }
+    sizes[i] = candidates[Math.floor(Math.random() * candidates.length)];
   }
   return sizes;
 }
@@ -104,15 +118,15 @@ function connectColumns(colA, colB, edges) {
   }
 }
 
-// x/yはSVG座標（map.jsのviewBox "0 0 640 400"に合わせる）。行数が1個
-// の列（スタート/ゴール）は常にy=200固定、複数マスの列は60〜340の範囲
-// に均等割り。
+// x/yはSVG座標（map.jsのviewBox "0 0 640 400"に合わせる）。yは常に
+// y=200を中心に、列のマス数によらず隣接マス同士の間隔がROW_SPACING固定
+// になるよう配置する（1個だけの列＝スタート/ゴールは自然にy=200になる）。
 function buildRouteLayout() {
   const columnSizes = generateColumnSizes();
   const totalColumns = columnSizes.length + 2;
   const xStep = 520 / (totalColumns - 1);
   const xFor = (colIndex) => 60 + colIndex * xStep;
-  const yFor = (rowIndex, rowCount) => (rowCount === 1 ? 200 : 60 + rowIndex * (280 / (rowCount - 1)));
+  const yFor = (rowIndex, rowCount) => 200 + (rowIndex - (rowCount - 1) / 2) * ROW_SPACING;
 
   const nodes = {};
   const edges = {};
@@ -205,40 +219,58 @@ function violatesConstraints(nodeId, type, assigned, reverseEdges) {
   return false;
 }
 
-// nodeIds（列順に並んだ中間マスid列）にremainingBag（種別の多重集合）
-// を過不足なく割り振る、完全なバックトラック探索。各マスで残っている
-// 種別を（ランダム順で）片っ端から試し、制約を満たすものが見つかれば
-// 次のマスへ進み、行き詰まれば1つ戻ってやり直す。
-function backtrackAssign(index, nodeIds, remainingBag, assigned, reverseEdges) {
-  if (index === nodeIds.length) return true;
-  const nodeId = nodeIds[index];
-  for (const type of shuffledCopy([...new Set(remainingBag)])) {
-    if (violatesConstraints(nodeId, type, assigned, reverseEdges)) continue;
-    const bagIndex = remainingBag.indexOf(type);
-    const nextBag = [...remainingBag.slice(0, bagIndex), ...remainingBag.slice(bagIndex + 1)];
-    assigned[nodeId] = type;
-    if (backtrackAssign(index + 1, nodeIds, nextBag, assigned, reverseEdges)) return true;
-    delete assigned[nodeId];
-  }
-  return false;
+function countBag(bag) {
+  const counts = {};
+  for (const type of bag) counts[type] = (counts[type] ?? 0) + 1;
+  return counts;
 }
 
-// 戦闘の目標比率5割から±0〜3個ずらした候補を近い順に試す（割合はご本人
+// nodeIds（列順に並んだ中間マスid列）にbag（種別の多重集合）を割り振る、
+// 貪欲＋丸ごとやり直し方式。制約がどれも「直前1〜2マスだけ」を見る局所
+//的なものなので、各マスで残数があり制約に反しない種別からランダムに
+// 1つ選ぶだけの1回の線形走査で、ほとんどの場合そのまま最後まで到達
+// できる。途中で（残数はあるが全滴制約に反して）詰んだ場合は、そこだけ
+// 戻ってやり直すのではなくnullを返し、呼び出し元にbag全体を仕切り直し
+// てもらう -- 中間マスが最大56個にもなるため、厳密なバックトラック探索
+// は最悪ケースで組み合わせ爆発を起こす一方、局所的な制約であればこの
+// 「引き直し」の方が実用上ずっと速く、かつ十分な回数試せば高確率で
+// 見つかる。
+function tryAssign(nodeIds, bag, reverseEdges) {
+  const remaining = countBag(bag);
+  const assigned = {};
+  for (const nodeId of nodeIds) {
+    const candidates = Object.keys(remaining).filter(
+      (type) => remaining[type] > 0 && !violatesConstraints(nodeId, type, assigned, reverseEdges)
+    );
+    if (candidates.length === 0) return null;
+    const type = candidates[Math.floor(Math.random() * candidates.length)];
+    assigned[nodeId] = type;
+    remaining[type] -= 1;
+  }
+  return assigned;
+}
+
+const ASSIGN_ATTEMPTS_PER_BAG = 40;
+
+// 戦闘の目標比率5割から±0〜4個ずらした候補を近い順に試す（割合はご本人
 // も「厳密な理由はない」とのことなので、この経路構造では厳密な5割が
-// 収まらない場合に備えた幅として扱う）。全滴でも見つからなければnullを
-// 返し、呼び出し元（generateDungeon）に経路そのものの作り直しを促す。
+// 収まらない場合に備えた幅として扱う）。どの候補でも見つからなければ
+// nullを返し、呼び出し元（generateDungeon）に経路そのものの作り直しを
+// 促す。
 function findNodeTypeAssignment(columns, edges) {
   const reverseEdges = buildReverseEdges(edges);
   const middleNodeIds = columns.slice(1, -1).flat();
   const n = middleNodeIds.length;
   const baseBattle = Math.round(n / 2);
 
-  for (const delta of [0, -1, 1, -2, 2, -3, 3]) {
+  for (const delta of [0, -1, 1, -2, 2, -3, 3, -4, 4]) {
     const battleCount = baseBattle + delta;
     if (battleCount < 0 || battleCount > n) continue;
     const bag = buildTypeBag(n, battleCount);
-    const assigned = {};
-    if (backtrackAssign(0, middleNodeIds, shuffledCopy(bag), assigned, reverseEdges)) return assigned;
+    for (let attempt = 0; attempt < ASSIGN_ATTEMPTS_PER_BAG; attempt++) {
+      const assigned = tryAssign(middleNodeIds, bag, reverseEdges);
+      if (assigned) return assigned;
+    }
   }
   return null;
 }
