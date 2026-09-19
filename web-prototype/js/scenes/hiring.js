@@ -13,17 +13,19 @@ import {
 
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 const NORMAL_CANDIDATE_COUNT = 5;
+const PEDDLER_CANDIDATE_COUNT = 2;
+const PEDDLER_COST_MULTIPLIER = 0.5;
 
 function generateCandidates(mode) {
-  const employmentIds =
-    mode === "initial" ? Object.keys(INITIAL_EMPLOYMENT_DATA) : pickRandomEmploymentIds(NORMAL_CANDIDATE_COUNT);
-  return employmentIds.map((id) => ({
-    ...createHiringCandidate(id, mode === "initial" ? { flatCost: 1 } : undefined),
-    hired: false,
-  }));
+  if (mode === "initial") {
+    return Object.keys(INITIAL_EMPLOYMENT_DATA).map((id) => ({ ...createHiringCandidate(id, { flatCost: 1 }), hired: false }));
+  }
+  const count = mode === "peddler" ? PEDDLER_CANDIDATE_COUNT : NORMAL_CANDIDATE_COUNT;
+  const options = mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : undefined;
+  return pickRandomEmploymentIds(count).map((id) => ({ ...createHiringCandidate(id, options), hired: false }));
 }
 
-// 雇用画面. Call-only, two modes:
+// 雇用画面. Call-only, three modes:
 //  - "initial": the very first squad-building pass, right after the
 //    オープニング episode grants its starting budget (see map.js and
 //    data/scripts.js's OPENING_SCRIPT). Every 初期雇用データ entry is a
@@ -38,10 +40,15 @@ function generateCandidates(mode) {
 //    all — every time the player reopens 雇用所) rather than drawn fresh
 //    here; see trade.js. Real cost via computeTradeValue. Closing ("店
 //    を出る") is never gated, and 除隊 is available.
+//  - "peddler": 行商の荷馬車「雇用」から。通常モードと同じ抽選方法/価格
+//    計算式だが、候補は2枠だけ、価格は半額（切り上げ）。行商は正式な
+//    雇用所ではないので除隊は出さない（通常モードと同じ除隊ガード
+//    `mode === "normal"` がそのままpeddlerも除外する）。Closing
+//    ("もどる") は通常モード同様ゲートしない。
 export function HiringScene(container, params, api) {
   const mode = params.mode;
-  if (mode !== "initial" && mode !== "normal") {
-    throw new Error('hiring scene requires params.mode of "initial" or "normal"');
+  if (mode !== "initial" && mode !== "normal" && mode !== "peddler") {
+    throw new Error('hiring scene requires params.mode of "initial", "normal", or "peddler"');
   }
 
   const candidates = params.candidates ?? generateCandidates(mode);
@@ -154,8 +161,9 @@ export function HiringScene(container, params, api) {
         button("除隊", { variant: "ghost", onClick: () => api.callScene("squadFormation", { mode: "discharge" }) })
       );
     }
+    const departLabel = mode === "initial" ? "出発" : mode === "peddler" ? "もどる" : "店を出る";
     actions.push(
-      button(mode === "initial" ? "出発" : "店を出る", {
+      button(departLabel, {
         variant: "primary",
         disabled: !canDepart,
         onClick: () => api.closeScene(candidates),
@@ -163,8 +171,8 @@ export function HiringScene(container, params, api) {
     );
 
     renderScreen(container, {
-      eyebrow: mode === "initial" ? "INITIAL HIRING" : "HIRING",
-      title: "雇用",
+      eyebrow: mode === "initial" ? "INITIAL HIRING" : mode === "peddler" ? "HIRING / PEDDLER" : "HIRING",
+      title: mode === "peddler" ? "雇用（行商モード）" : "雇用",
       subtitle:
         mode === "initial"
           ? "最初に雇用する隊員を選んでください（複数人選べます）。"

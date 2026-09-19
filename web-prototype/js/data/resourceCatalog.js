@@ -564,7 +564,7 @@ export function pickRandomEmploymentIds(count) {
 // a new one when the candidate is actually hired). `flatCost`, when
 // given, overrides computeTradeValue -- used by 初期雇用モード, whose
 // cost is a flat ザラメ鉱石x1 regardless of stats.
-export function createHiringCandidate(employmentId, { flatCost } = {}) {
+export function createHiringCandidate(employmentId, { flatCost, costMultiplier = 1 } = {}) {
   const entry = INITIAL_EMPLOYMENT_DATA[employmentId];
   const data = CHARACTER_DATA[entry.characterDataId];
   const weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
@@ -574,7 +574,7 @@ export function createHiringCandidate(employmentId, { flatCost } = {}) {
     name: data.name,
     level: computeLevel(data.growth),
     weapon,
-    cost: flatCost ?? computeTradeValue({ growth: data.growth, weapon }),
+    cost: flatCost ?? Math.ceil(computeTradeValue({ growth: data.growth, weapon }) * costMultiplier),
   };
 }
 
@@ -598,9 +598,9 @@ export function pickRandomWeaponTypeIds(count) {
 // this section's own note above) -- weaponTrade.js forges it once, up
 // front, so the price shown matches what buying it actually grants,
 // the same way createHiringCandidate does for 雇用画面.
-export function createWeaponTradeCandidate(weaponTypeId) {
+export function createWeaponTradeCandidate(weaponTypeId, { costMultiplier = 1 } = {}) {
   const weapon = forgeWeapon(weaponTypeId, "coarseSugarMineral");
-  return { weapon, price: computeWeaponMarketPrice(weapon), purchased: false };
+  return { weapon, price: Math.ceil(computeWeaponMarketPrice(weapon) * costMultiplier), purchased: false };
 }
 
 // ---------------------------------------------------------------------
@@ -923,12 +923,27 @@ function amberStatSum(stats) {
 
 // Total held of a rigid species regardless of its shape (flat number,
 // {tier: count} bucket, or an array of 琥珀糖鉱石 instances).
-function sumRigidHeld(resources, speciesId) {
+export function sumRigidHeld(resources, speciesId) {
   const species = RIGID_RESOURCES[speciesId];
   const value = resources.rigid[speciesId];
   if (species.variableStats) return value.length;
   if (!species.qualityTiers) return value;
   return sumTiers(value);
+}
+
+// sumRigidHeldの自然資源版（自然資源にはvariableStats種が無い）。
+export function sumNaturalHeld(resources, speciesId) {
+  const species = NATURAL_RESOURCES[speciesId];
+  const value = resources.natural[speciesId];
+  if (!species.qualityTiers) return value;
+  return sumTiers(value);
+}
+
+// 種が自然資源/剛体資源のどちらかを問わず、品質問わずの合計所持数を
+// 返す（行商の資源取引画面が取引要求の充足判定に使う -- 要求資源が
+// 品目とは別にリストA/Bどちらの種にもなり得るため）。
+function sumHeldRegardlessOfCategory(resources, speciesId) {
+  return NATURAL_RESOURCES[speciesId] ? sumNaturalHeld(resources, speciesId) : sumRigidHeld(resources, speciesId);
 }
 
 // Whether the player holds enough of a weapon type's フレーム species,
@@ -1308,7 +1323,50 @@ const FOOD_TRUCK_BUNDLE_IDS = ["shareHands", "dialBurger"];
 const FOOD_TRUCK_BUNDLE_DISCOUNT_PER_UNIT = 2;
 
 export function findTimeEatsDef(mode, defId) {
-  return TIME_EATS_CATALOG[mode].find((def) => def.id === defId) ?? null;
+  return (TIME_EATS_CATALOG[mode] ?? []).find((def) => def.id === defId) ?? null;
+}
+
+// 行商（軽食モード）専用：4モードの垣根を越えて選ばれる固定8品プール。
+// クロノスタブ(初回限定)とクロッケット限定版は対象外。
+const PEDDLER_TIME_EATS_IDS = [
+  "chronosMints",
+  "setGel",
+  "teaBreakHot",
+  "teaBreakCold",
+  "driedTumSlice",
+  "shareHands",
+  "dialBurger",
+  "clockette",
+];
+
+function findAnyTimeEatsDef(defId) {
+  for (const defs of Object.values(TIME_EATS_CATALOG)) {
+    const found = defs.find((def) => def.id === defId);
+    if (found) return found;
+  }
+  return null;
+}
+
+// 行商の軽食画面：固定8品プールからランダムに3品、数量は各2固定、価格は
+// 半額（切り上げ）。カフェのモード切り替えやフードトラックのセット割引
+// は適用しない（呼び出し側のmode==="foodTruck"判定に該当しないため、
+// computeTimeEatsCheckoutTotalは自然にセット割引をスキップする）。
+export function generatePeddlerTimeEatsLineup() {
+  return shuffledCopy(PEDDLER_TIME_EATS_IDS)
+    .slice(0, 3)
+    .map((defId) => {
+      const def = findAnyTimeEatsDef(defId);
+      return {
+        defId: def.id,
+        name: def.name,
+        engName: def.engName,
+        price: Math.ceil(def.price / 2),
+        target: def.target,
+        hpRecoveryPercent: def.hpRecoveryPercent,
+        conversionEfficiency: def.conversionEfficiency,
+        remainingQty: 2,
+      };
+    });
 }
 
 // 軽食画面を開くたびに呼ぶ、新規ラインナップの生成。取引イベント内で
@@ -1579,4 +1637,83 @@ export function availableCoatingsForSlot(coatings, characters, equipSlot) {
     else buckets.set(key, { attribute: coating.attribute, effect: coating.effect, mastery: coating.mastery, name: coating.name, count: 1 });
   }
   return [...buckets.values()];
+}
+
+// ---------------------------------------------------------------------
+// 行商・資源取引画面 — 高品質な剛体資源1種＋特上品質な自然資源1種を、
+// 別の資源（品質問わず）との交換で買える画面。品目プール（リストA/B）
+// は行商の仕様書に列挙された固定7種/5種で、各種の数量は「買える品目の
+// 数量」と「取引要求として選ばれた場合の必要数量」を兼ねる（取引要求は
+// 必ずこの2リストの中から選ばれるため）。
+// ---------------------------------------------------------------------
+
+// リストA：剛体資源（琥珀糖鉱石含む、ザラメ鉱石/高純度糖鉱は対象外）。
+const RESOURCE_TRADE_RIGID_OFFERS = [
+  { speciesId: "amberSugarMineral", quantity: 3 },
+  { speciesId: "dropSpiralOre", quantity: 3 },
+  { speciesId: "cacaoLayeredRock", quantity: 3 },
+  { speciesId: "sorbetEternalIce", quantity: 3 },
+  { speciesId: "driedFructoseRock", quantity: 3 },
+  { speciesId: "honeyCrystalOre", quantity: 3 },
+  { speciesId: "sugarCaneFiber", quantity: 2 },
+];
+
+// リストB：自然資源（ベースクリームを除く5種すべて）。
+const RESOURCE_TRADE_NATURAL_OFFERS = [
+  { speciesId: "squeezedFructoseLiquid", quantity: 5 },
+  { speciesId: "gummyElasticMaterial", quantity: 5 },
+  { speciesId: "waferMembraneObject", quantity: 5 },
+  { speciesId: "sableSoftGravel", quantity: 5 },
+  { speciesId: "electroMagneticGelatin", quantity: 5 },
+];
+
+function pickRandom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+// 取引要求の抽選：exclude に含まれる種を除いたリストA+Bの中から1つ選ぶ。
+function pickResourceTradeRequirement(excludeSpeciesIds) {
+  const pool = [...RESOURCE_TRADE_RIGID_OFFERS, ...RESOURCE_TRADE_NATURAL_OFFERS].filter(
+    (entry) => !excludeSpeciesIds.includes(entry.speciesId)
+  );
+  return pickRandom(pool);
+}
+
+// 資源取引画面を開くたびに呼ぶ、新規オファー2件の生成。行商画面の他の
+// 抽選同様、呼び出し側（peddlerShop.js）が戻り値を保持し続けることで、
+// 同じ取引イベント内では再抽選にならない。制約は2つだけ：
+//  (a) 品物自身の種が、その取引要求になることはない（自己参照禁止）。
+//  (b) 2つの品物の取引要求が同じ種になることはない（要求同士の重複禁止）。
+export function generateResourceTradeOffers() {
+  const rigidItem = pickRandom(RESOURCE_TRADE_RIGID_OFFERS);
+  const naturalItem = pickRandom(RESOURCE_TRADE_NATURAL_OFFERS);
+  const rigidRequirement = pickResourceTradeRequirement([rigidItem.speciesId]);
+  const naturalRequirement = pickResourceTradeRequirement([naturalItem.speciesId, rigidRequirement.speciesId]);
+  return [
+    {
+      id: "rigid",
+      category: "rigid",
+      speciesId: rigidItem.speciesId,
+      tier: "high",
+      quantity: rigidItem.quantity,
+      requirementSpeciesId: rigidRequirement.speciesId,
+      requirementQuantity: rigidRequirement.quantity,
+      purchased: false,
+    },
+    {
+      id: "natural",
+      category: "natural",
+      speciesId: naturalItem.speciesId,
+      tier: "premium",
+      quantity: naturalItem.quantity,
+      requirementSpeciesId: naturalRequirement.speciesId,
+      requirementQuantity: naturalRequirement.quantity,
+      purchased: false,
+    },
+  ];
+}
+
+// offer.requirementSpeciesId を品質問わず必要数量ぶん所持しているか。
+export function hasEnoughForResourceTradeOffer(resources, offer) {
+  return sumHeldRegardlessOfCategory(resources, offer.requirementSpeciesId) >= offer.requirementQuantity;
 }

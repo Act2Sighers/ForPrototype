@@ -21,6 +21,8 @@ import {
   computeMaxHp,
   computeTimeEatsCheckoutTotal,
   findTimeEatsDef,
+  pickLowestQualityFrame,
+  pickLowestQualityNatural,
 } from "./data/resourceCatalog.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
@@ -450,6 +452,31 @@ export function consumeTimeEatsItem(item, qty = 1) {
   item.qty -= qty;
   if (item.qty <= 0) {
     state.run.timeEatsInventory = state.run.timeEatsInventory.filter((i) => i !== item);
+  }
+}
+
+// 行商の資源取引画面's own "取引" confirm: pays offer.requirementQuantity
+// of offer.requirementSpeciesId (品質問わず、最も品質の低いものから
+// 消費される -- pickLowestQualityFrame/pickLowestQualityNaturalと同じ
+// 流儀）、そして offer の品目（offer.tierの品質でoffer.quantityぶん）
+// を付与する。琥珀糖鉱石は{tier:count}バケツを持たないので、該当品質の
+// インスタンスを新規ロールして積む専用分岐が要る。呼び出し側は事前に
+// hasEnoughForResourceTradeOffer で充足を確認済みの前提。
+export function purchaseResourceTradeOffer(offer) {
+  const requirementIsNatural = Boolean(NATURAL_RESOURCES[offer.requirementSpeciesId]);
+  if (requirementIsNatural) {
+    consumeNaturalReservation(pickLowestQualityNatural(state.run.resources, offer.requirementSpeciesId, offer.requirementQuantity));
+  } else {
+    consumeRigidReservation(pickLowestQualityFrame(state.run.resources, offer.requirementSpeciesId, offer.requirementQuantity));
+  }
+
+  if (offer.category === "natural") {
+    grantTieredResource("natural", offer.speciesId, offer.tier, offer.quantity);
+  } else if (RIGID_RESOURCES[offer.speciesId].variableStats) {
+    const list = state.run.resources.rigid[offer.speciesId];
+    for (let i = 0; i < offer.quantity; i++) list.push(createAmberSugarMineralInstance(offer.tier));
+  } else {
+    grantTieredResource("rigid", offer.speciesId, offer.tier, offer.quantity);
   }
 }
 

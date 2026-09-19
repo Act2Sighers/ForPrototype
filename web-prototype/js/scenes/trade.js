@@ -20,6 +20,12 @@ export function TradeScene(container, params, api) {
   // 別のラインナップなので、雇用所/武器取引と違って単一の変数ではなく
   // モードをキーにしたオブジェクトで持つ）。
   const timeEatsLineups = { vendingMachine: null, cafe: null, foodTruck: null, candyHandout: null };
+  // 行商画面自身が保持する4サブ画面（雇用/武器/軽食/資源）の抽選状況を
+  // まとめて持ち回すための入れ物。peddlerShop.js が「店を出る」時に
+  // {peddlerState} タグ付きで返してくるものをそのまま保持し、再度開く
+  // 際にparams.peddlerStateとして渡し戻す -- hiringCandidates等と同じ
+  // 「取引イベント内は再抽選しない」慣習をこの画面自身にも適用する形。
+  let peddlerState = null;
 
   function render() {
     renderScreen(container, {
@@ -66,6 +72,11 @@ export function TradeScene(container, params, api) {
               text: "菓子配り",
               onClick: () => api.callScene("timeEats", { mode: "candyHandout", lineup: timeEatsLineups.candyHandout }),
             }),
+            h("button", {
+              class: "chip",
+              text: "行商人",
+              onClick: () => api.callScene("peddlerShop", { peddlerState }),
+            }),
           ]),
         ]),
       ],
@@ -100,6 +111,11 @@ export function TradeScene(container, params, api) {
       }
       if (result?.timeEatsMode) {
         timeEatsLineups[result.timeEatsMode] = result.timeEatsLineup;
+        render();
+        return;
+      }
+      if (result?.peddlerState) {
+        peddlerState = result.peddlerState;
         render();
         return;
       }

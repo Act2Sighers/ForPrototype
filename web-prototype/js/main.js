@@ -25,6 +25,8 @@ import { TailorShopScene } from "./scenes/tailorShop.js";
 import { TimeEatsScene } from "./scenes/timeEats.js";
 import { MaturationScene } from "./scenes/maturation.js";
 import { HiringScene } from "./scenes/hiring.js";
+import { PeddlerShopScene } from "./scenes/peddlerShop.js";
+import { ResourceTradeScene } from "./scenes/resourceTrade.js";
 import { ResultScene } from "./scenes/result.js";
 
 const registry = {
@@ -53,6 +55,8 @@ const registry = {
   timeEats: TimeEatsScene,
   maturation: MaturationScene,
   hiring: HiringScene,
+  peddlerShop: PeddlerShopScene,
+  resourceTrade: ResourceTradeScene,
   result: ResultScene,
 };
 

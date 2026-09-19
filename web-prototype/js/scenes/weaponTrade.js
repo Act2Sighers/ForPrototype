@@ -13,23 +13,38 @@ import {
 
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 const CANDIDATE_COUNT = 5;
+const PEDDLER_CANDIDATE_COUNT = 2;
+const PEDDLER_COST_MULTIPLIER = 0.5;
+
+function generateCandidates(mode) {
+  const count = mode === "peddler" ? PEDDLER_CANDIDATE_COUNT : CANDIDATE_COUNT;
+  const options = mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : undefined;
+  return pickRandomWeaponTypeIds(count).map((id) => createWeaponTradeCandidate(id, options));
+}
 
 function weaponSynergyNames(weapon) {
   return WEAPON_TYPES[weapon.baseTypeId].synergies.map((id) => SYNERGIES[id].name).join(" / ");
 }
 
-// 武器取引画面. Called from smithy.js's own "取引" button, which keeps
-// the candidate list (and each one's purchased flag) alive across
-// re-entries for the whole 取引イベント -- see smithy.js/trade.js's own
-// weaponTradeCandidates threading, mirroring exactly how trade.js
-// already does this for 雇用画面's own candidates. Placeholder pricing
-// for now (see resourceCatalog.js's computeWeaponMarketPrice): every
-// candidate is forged from ザラメ鉱石, price is just ザラメ鉱石×(性能値
-// 合計), no regard yet for ラン進捗率. "売却" calls weaponStorage.js's
-// own "sell" mode; "もどる" always hands the (possibly now-purchased)
-// candidate list back to the caller.
+// 武器取引画面. Two modes:
+//  - "normal" (default): called from smithy.js's own "取引" button,
+//    which keeps the candidate list (and each one's purchased flag)
+//    alive across re-entries for the whole 取引イベント -- see
+//    smithy.js/trade.js's own weaponTradeCandidates threading, mirroring
+//    exactly how trade.js already does this for 雇用画面's own
+//    candidates. 5 candidates, full price. "売却" calls
+//    weaponStorage.js's own "sell" mode.
+//  - "peddler": 行商の荷馬車「武器」から。抽選方法・価格計算式は通常
+//    モードと同じだが、候補は2枠だけ、価格は半額（切り上げ）。行商は
+//    正式な鍛冶屋ではないので売却は出さない。
+// Placeholder pricing for now (see resourceCatalog.js's
+// computeWeaponMarketPrice): every candidate is forged from ザラメ鉱石,
+// price is just ザラメ鉱石×(性能値合計), no regard yet for ラン進捗率.
+// "もどる" always hands the (possibly now-purchased) candidate list back
+// to the caller.
 export function WeaponTradeScene(container, params, api) {
-  const candidates = params.candidates ?? pickRandomWeaponTypeIds(CANDIDATE_COUNT).map(createWeaponTradeCandidate);
+  const mode = params.mode === "peddler" ? "peddler" : "normal";
+  const candidates = params.candidates ?? generateCandidates(mode);
 
   const expandedIds = new Set();
   let pending = null; // { weaponId, kind: "confirm" | "insufficient-funds" }
@@ -108,16 +123,17 @@ export function WeaponTradeScene(container, params, api) {
   }
 
   function render() {
+    const actions = [button("もどる", { variant: "ghost", onClick: () => api.closeScene(candidates) })];
+    if (mode === "normal") {
+      actions.push(button("売却", { onClick: () => api.callScene("weaponStorage", { mode: "sell" }) }));
+    }
     renderScreen(container, {
-      eyebrow: "SMITHY / TRADE",
-      title: "武器取引",
+      eyebrow: mode === "peddler" ? "PEDDLER / WEAPON TRADE" : "SMITHY / TRADE",
+      title: mode === "peddler" ? "武器取引（行商モード）" : "武器取引（通常モード）",
       subtitle: "購入したい武器を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, candidates.map(candidateRow))],
-      actions: [
-        button("もどる", { variant: "ghost", onClick: () => api.closeScene(candidates) }),
-        button("売却", { onClick: () => api.callScene("weaponStorage", { mode: "sell" }) }),
-      ],
+      actions,
     });
   }
 
