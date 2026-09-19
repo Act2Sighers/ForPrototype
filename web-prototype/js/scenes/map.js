@@ -18,6 +18,17 @@ function exhaustedAllyNames() {
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// マス種別ごとの色分け（.map-node--*、css/theme.cssの既存stat色トーク
+// ンを流用）。start/goalは対象外（既存の中立色のまま）。
+const NODE_TYPE_CLASS = {
+  battle: "map-node--battle",
+  exploration: "map-node--exploration",
+  episode: "map-node--episode",
+  village: "map-node--village",
+  snack: "map-node--snack",
+  workshop: "map-node--workshop",
+};
+
 function svg(tag, attrs = {}, children = []) {
   const el = document.createElementNS(SVG_NS, tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -106,6 +117,7 @@ export function MapScene(container, params, api) {
       const isLocked = !isCurrent && !isVisited && !isReachable;
 
       const classes = ["map-node"];
+      if (NODE_TYPE_CLASS[node.type]) classes.push(NODE_TYPE_CLASS[node.type]);
       if (isCurrent) classes.push("is-current");
       if (isVisited) classes.push("is-visited");
       if (isReachable) classes.push("is-reachable");
@@ -124,10 +136,17 @@ export function MapScene(container, params, api) {
       );
     });
 
-    const mapSvg = svg("svg", { class: "map-svg", viewBox: "0 0 640 400" }, [
-      ...edgeEls,
-      ...nodeEls,
-    ]);
+    // マップの実横幅はダンジョンの列数（最長到達マス数Xしだい）で伸び縮
+    // みする。表示幅をその座標幅に1:1で合わせる（CSSの固定widthではなく
+    // ここでpxを直接指定する）ことで、列間隔（dungeonGenerator.jsの
+    // COLUMN_SPACING）どおりの余白を保ったまま.map-scrollの横スクロール
+    // で見せられる。
+    const mapWidth = Math.max(...Object.values(dungeon.nodes).map((n) => n.x)) + 60;
+    const mapSvg = svg(
+      "svg",
+      { class: "map-svg", viewBox: `0 0 ${mapWidth} 400`, style: `width: ${mapWidth}px` },
+      [...edgeEls, ...nodeEls]
+    );
     const mapScroll = h("div", { class: "map-scroll" }, [mapSvg]);
 
     const hint =

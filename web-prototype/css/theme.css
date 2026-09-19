@@ -769,7 +769,8 @@ body {
 
 .map-svg {
   display: block;
-  width: 640px;
+  /* width is set inline per dungeon (map.js) -- its horizontal extent
+     scales with the generated map's column count. */
   max-width: none;
   height: auto;
 }
@@ -797,8 +798,17 @@ body {
   text-anchor: middle;
 }
 
+/* マス種別の色分け（戦闘=赤/探索=緑/遭遇=橙/集落=青/軽食=黄/工房=紫）。
+   is-current（今いるマス）だけは後段のembers強調が上書きする -- 特異度
+   は同じ2クラスぶんなので、ソース順で.is-currentを後に置いて勝たせる。 */
+.map-node.map-node--battle circle { fill: var(--stat-attack); }
+.map-node.map-node--exploration circle { fill: var(--stat-wisdom); }
+.map-node.map-node--episode circle { fill: var(--stat-hp); }
+.map-node.map-node--village circle { fill: var(--stat-defense); }
+.map-node.map-node--snack circle { fill: var(--stat-destruction); }
+.map-node.map-node--workshop circle { fill: var(--stat-coordination); }
+
 .map-node.is-visited circle {
-  fill: var(--panel-raised);
   stroke: var(--ember);
 }
 

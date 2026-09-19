@@ -19,6 +19,10 @@ const ROW_COUNT_MIN = 2;
 const ROW_COUNT_MAX = 4;
 // マス同士の縦方向の間隔（列のマス数によらず常に一定にする）。
 const ROW_SPACING = 90;
+// マス同士の横方向の間隔（列の数によらず常に一定にする -- 列数が多い
+// ほどマップ全体の横幅も伸びる。map.js側がこの実際の座標に合わせて
+// SVGの表示幅を広げ、横スクロールで見せる）。
+const COLUMN_SPACING = 130;
 
 const NON_BATTLE_TYPES = ["exploration", "episode", "village", "snack", "workshop"];
 
@@ -118,14 +122,14 @@ function connectColumns(colA, colB, edges) {
   }
 }
 
-// x/yはSVG座標（map.jsのviewBox "0 0 640 400"に合わせる）。yは常に
-// y=200を中心に、列のマス数によらず隣接マス同士の間隔がROW_SPACING固定
-// になるよう配置する（1個だけの列＝スタート/ゴールは自然にy=200になる）。
+// x/yはSVG座標（map.js側が実際のノード座標の範囲を見てviewBox/表示幅を
+// 動的に決める）。xは列ごとにCOLUMN_SPACING固定で右へ伸びていき、yは
+// 常にy=200を中心に、列のマス数によらず隣接マス同士の間隔がROW_SPACING
+// 固定になるよう配置する（1個だけの列＝スタート/ゴールは自然にy=200に
+// なる）。
 function buildRouteLayout() {
   const columnSizes = generateColumnSizes();
-  const totalColumns = columnSizes.length + 2;
-  const xStep = 520 / (totalColumns - 1);
-  const xFor = (colIndex) => 60 + colIndex * xStep;
+  const xFor = (colIndex) => 60 + colIndex * COLUMN_SPACING;
   const yFor = (rowIndex, rowCount) => 200 + (rowIndex - (rowCount - 1) / 2) * ROW_SPACING;
 
   const nodes = {};
@@ -147,7 +151,7 @@ function buildRouteLayout() {
     columns.push(colIds);
   });
 
-  nodes.goal = { id: "goal", type: "goal", label: "ゴール", x: xFor(totalColumns - 1), y: 200 };
+  nodes.goal = { id: "goal", type: "goal", label: "ゴール", x: xFor(columnSizes.length + 1), y: 200 };
   edges.goal = [];
   columns.push(["goal"]);
 
