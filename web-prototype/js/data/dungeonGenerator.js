@@ -211,12 +211,20 @@ function buildTypeBag(nodeCount, battleCount) {
 // 辺reverseEdgesから見た「1つ前のマス」「2つ前のマス」との関係だけで
 // 判定できる -- 列順（トポロジカル順）に割り当てていくので、判定に
 // 必要な先行マスは必ず判定時点で確定済み）：
+//  - 分岐マスの兄弟（同じ分岐元から出る他の経路の先）は全て異なる種別
+//    になるようにする（戦闘同士も含め、種別の重複を一切許さない）。
 //  - 戦闘: 直前が戦闘、かつその直前も戦闘なら（3連続になる）NG。
 //  - 非戦闘各種: 直前(距離1)・2つ前(距離2、経由マス問わず)のいずれかに
 //    同じ種別があればNG。
 //  - 集落⇔軽食: 直前(距離1)がもう片方ならNG（距離2は対象外）。
-function violatesConstraints(nodeId, type, assigned, reverseEdges) {
+function violatesConstraints(nodeId, type, assigned, edges, reverseEdges) {
   const parents = reverseEdges[nodeId] ?? [];
+
+  for (const parent of parents) {
+    const siblings = edges[parent] ?? [];
+    if (siblings.length < 2) continue;
+    if (siblings.some((sibling) => sibling !== nodeId && assigned[sibling] === type)) return true;
+  }
 
   if (type === "battle") {
     return parents.some((p) => {
@@ -252,12 +260,12 @@ function countBag(bag) {
 // は最悪ケースで組み合わせ爆発を起こす一方、局所的な制約であればこの
 // 「引き直し」の方が実用上ずっと速く、かつ十分な回数試せば高確率で
 // 見つかる。
-function tryAssign(nodeIds, bag, reverseEdges) {
+function tryAssign(nodeIds, bag, edges, reverseEdges) {
   const remaining = countBag(bag);
   const assigned = {};
   for (const nodeId of nodeIds) {
     const candidates = Object.keys(remaining).filter(
-      (type) => remaining[type] > 0 && !violatesConstraints(nodeId, type, assigned, reverseEdges)
+      (type) => remaining[type] > 0 && !violatesConstraints(nodeId, type, assigned, edges, reverseEdges)
     );
     if (candidates.length === 0) return null;
     const type = candidates[Math.floor(Math.random() * candidates.length)];
@@ -285,7 +293,7 @@ function findNodeTypeAssignment(columns, edges) {
     if (battleCount < 0 || battleCount > n) continue;
     const bag = buildTypeBag(n, battleCount);
     for (let attempt = 0; attempt < ASSIGN_ATTEMPTS_PER_BAG; attempt++) {
-      const assigned = tryAssign(middleNodeIds, bag, reverseEdges);
+      const assigned = tryAssign(middleNodeIds, bag, edges, reverseEdges);
       if (assigned) return assigned;
     }
   }
