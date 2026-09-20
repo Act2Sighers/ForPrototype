@@ -261,6 +261,7 @@ export function ExplorationScene(container, params, api) {
       title: "探索",
       subtitle: "探索が完了しました。",
       corner: resourceHud(state.run?.resources),
+      onPause: () => api.callScene("pause"),
       body,
       actions: [button("探索を終える", { variant: "primary", onClick: () => api.closeScene() })],
     });

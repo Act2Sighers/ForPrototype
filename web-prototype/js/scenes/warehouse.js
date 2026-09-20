@@ -12,9 +12,6 @@ import { describeCoating, groupCoatingsByName, describeCoatingGroupDetail } from
 // state.run.takenOutItemIdsへ積み、以後は糖衣置き場側に現れる（戻す
 // 手段は無い -- ランの終了時に自動的に倉庫側へ回収される）。
 //
-// Note: unlike every other called screen, the warehouse does NOT offer
-// a "ポーズ" option — it's only ever opened mid-run from the trade
-// screen, which already has its own ポーズ button one level up.
 export function WarehouseScene(container, params, api) {
   const pickedKeys = new Set(); // group keys ("attribute_effect") chosen this visit, not yet committed
   const expandedKeys = new Set();
@@ -64,6 +61,7 @@ export function WarehouseScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, groups.map(groupRow))
           : h("p", { class: "lead", text: "倉庫に糖衣はありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
         button("戻る", { variant: "ghost", onClick: () => api.closeScene() }),
         button(pickedKeys.size ? `持ち出す（${pickedKeys.size}）` : "持ち出す", {

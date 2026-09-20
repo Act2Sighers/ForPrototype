@@ -102,6 +102,7 @@ export function WeaponEnhanceScene(container, params, api) {
         h("p", { class: "lead", text: "（C以下→1、B→3、A→10、S→30）" }),
         h("div", { class: "enhance-layout" }, [weaponBox, detailBox]),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("もどる", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }

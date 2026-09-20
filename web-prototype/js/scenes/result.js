@@ -2,8 +2,8 @@ import { renderScreen, button, h } from "../dom.js";
 import state, { retryRun, endRun, settleRunEnd, autoSave } from "../state.js";
 
 const MODE_INFO = {
-  clear: { label: "クリア", className: "is-clear" },
-  gameover: { label: "ゲームオーバー", className: "is-gameover" },
+  clear: { label: "クリア！", className: "is-clear" },
+  gameover: { label: "ゲームオーバー…", className: "is-gameover" },
 };
 
 // computeRunScoreのbreakdownキー -> 内訳表示の見出し。resourceQuality
@@ -65,7 +65,7 @@ export function ResultScene(container, params, api) {
           api.navigateTo("map");
         },
       }),
-      button("挑戦終了", {
+      button("ワールドへ", {
         onClick: () => {
           endRun();
           api.navigateTo("world");

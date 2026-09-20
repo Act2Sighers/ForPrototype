@@ -163,6 +163,7 @@ export function ResourceStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, rigid.map(moduleRow))
           : h("p", { class: "lead", text: "選択できる剛体資源がありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("製造画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -205,6 +206,7 @@ export function ResourceStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, rows.map((entry) => materialSelectRow(entry, selectPattern)))
           : h("p", { class: "lead", text: "選択できる自然資源がありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("作成画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -221,6 +223,7 @@ export function ResourceStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, rows.map((entry) => materialSelectRow(entry, selectFlavor)))
           : h("p", { class: "lead", text: "選択できる剛体資源がありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("作成画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }

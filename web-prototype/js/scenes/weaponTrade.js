@@ -133,6 +133,7 @@ export function WeaponTradeScene(container, params, api) {
       subtitle: "購入したい武器を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, candidates.map(candidateRow))],
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }

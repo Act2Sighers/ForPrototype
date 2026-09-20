@@ -179,6 +179,7 @@ export function HiringScene(container, params, api) {
           : "雇用したい候補者を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, candidates.map(candidateRow))],
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }

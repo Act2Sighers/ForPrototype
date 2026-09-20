@@ -118,6 +118,7 @@ export function CoatingEditScene(container, params, api) {
         h("p", { class: "lead", text: "編集する隊員を選んでください。" }),
         h("div", { class: "enhance-layout" }, [characterBox, detailBox]),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
         button("編集を終える", { variant: "ghost", onClick: () => api.closeScene() }),
         button("全隊員の糖衣を外す", { disabled: !rosterHasAnyCoating, onClick: handleUnequipRoster }),

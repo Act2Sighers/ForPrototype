@@ -18,12 +18,13 @@ export const MODE_LABELS = {
   peddler: "行商",
 };
 
+// "peddler"は独自のeyebrow/title（軽食（荷馬車）系）をrender側で直接
+// 出すため、ここには含めない -- render()のonPause以下参照。
 const MODE_EYEBROWS = {
   vendingMachine: "VENDING MACHINE",
   cafe: "CAFE",
   foodTruck: "FOOD TRUCK",
   candyHandout: "SNACK GIVER",
-  peddler: "PEDDLER",
 };
 
 // 軽食画面の「本来の」4店舗モード（peddlerを除く）。集落マスの取引画面
@@ -174,10 +175,11 @@ export function TimeEatsScene(container, params, api) {
     }
 
     renderScreen(container, {
-      eyebrow: MODE_EYEBROWS[mode],
-      title: MODE_LABELS[mode],
+      eyebrow: mode === "peddler" ? "PEDDLER / TIMEEATS" : MODE_EYEBROWS[mode],
+      title: mode === "peddler" ? "軽食（荷馬車）" : MODE_LABELS[mode],
       subtitle: `購入したい時間食の数量をそれぞれ入力し、「お会計」で一括購入します。\n${MODE_HINTS[mode]}`,
       corner: resourceHud(state.run?.resources),
+      onPause: () => api.callScene("pause"),
       body,
       actions: [
         button(mode === "peddler" ? "もどる" : "店を出る", {

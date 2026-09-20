@@ -74,6 +74,7 @@ export function GalleryScene(container, params, api) {
       title: "ギャラリー",
       subtitle: "倉庫の糖衣と、退役した隊員を鑑賞できます。",
       body,
+      onPause: () => api.callScene("pause"),
       actions: [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }

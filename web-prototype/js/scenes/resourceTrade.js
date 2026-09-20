@@ -89,6 +89,7 @@ export function ResourceTradeScene(container, params, api) {
       subtitle: "交換したい資源を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, offers.map(offerRow))],
+      onPause: () => api.callScene("pause"),
       actions: [button("もどる", { variant: "ghost", onClick: () => api.closeScene(offers) })],
     });
   }

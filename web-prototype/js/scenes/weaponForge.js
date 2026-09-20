@@ -150,6 +150,7 @@ export function WeaponForgeScene(container, params, api) {
       eyebrow: "WORKSHOP / SMITHY / FORGE",
       title: "武器製造",
       body,
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }

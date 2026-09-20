@@ -99,6 +99,7 @@ export function MaturationScene(container, params, api) {
         weaponDetailLine(character),
         ...GROWTH_STAT_KEYS.map(allocRow),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
         button("割り振りを確定", { variant: "primary", disabled: remaining !== 0, onClick: confirmAllocation }),
       ],

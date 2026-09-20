@@ -10,8 +10,9 @@ import { MODE_LABELS, pickRandomTimeEatsStoreMode } from "./timeEats.js";
 //    フードトラック/菓子配り）のうちこの取引イベント開始時に1つだけ
 //    抽選されたもの、計2つのボタン。
 //  - "workshop"（工房マス）: 鍛冶屋 と 仕立て屋、計2つのボタン。
-// 画面下部の共通ボタン（ポーズ/部隊編成/武器/糖衣/荷物/倉庫を開く/
-// 先へ進む）はどちらのモードでも変わらない。
+// 画面下部の共通ボタン（倉庫を開く/先へ進む、ポーズは右上）はどちらの
+// モードでも変わらない。部隊編成/武器/糖衣/荷物への直接導線はこの画面
+// には無い（マップ画面側から行き来する想定）。
 export function TradeScene(container, params, api) {
   const mode = params.mode;
   if (mode !== "village" && mode !== "workshop") {
@@ -71,10 +72,6 @@ export function TradeScene(container, params, api) {
       ],
       onPause: () => api.callScene("pause"),
       actions: [
-        button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
-        button("武器", { onClick: () => api.callScene("weaponStorage") }),
-        button("糖衣", { onClick: () => api.callScene("coatingStorage") }),
-        button("荷物", { onClick: () => api.callScene("resourceStorage") }),
         button("倉庫を開く", { onClick: () => api.callScene("warehouse") }),
         button("先へ進む", { variant: "primary", onClick: () => api.closeScene() }),
       ],

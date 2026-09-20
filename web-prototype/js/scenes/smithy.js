@@ -3,8 +3,7 @@ import state from "../state.js";
 import { SYNERGIES, WEAPON_TYPES, hasEnoughFrame } from "../data/resourceCatalog.js";
 
 // 鍛冶画面. Only ever opened from trade.js's own お店 chip row (mid-run,
-// same as warehouse.js), so it omits ポーズ the same way that screen
-// does -- trade.js already has one a level up. One row per シナジー;
+// same as warehouse.js). One row per シナジー;
 // "鋳型一覧" expands to that シナジー's weapon types (derived straight
 // from WEAPON_TYPES' own synergies field, in its natural key order --
 // this happens to already match the user's own listed order for every
@@ -65,6 +64,7 @@ export function SmithyScene(container, params, api) {
       title: "鍛冶屋",
       subtitle: "製造したい武器種を選んでください。",
       body: [h("div", { class: "slot-list slot-list--grid" }, Object.keys(SYNERGIES).map(synergyRow))],
+      onPause: () => api.callScene("pause"),
       actions: [
         button("店を出る", { variant: "ghost", onClick: () => api.closeScene({ weaponTradeCandidates }) }),
         button("強化", { onClick: () => api.callScene("weaponEnhance") }),

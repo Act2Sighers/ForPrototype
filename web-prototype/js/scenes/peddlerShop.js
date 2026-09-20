@@ -5,8 +5,7 @@ import state from "../state.js";
 // と同格）から呼ばれる、前触れなく現れる小さな移動商店。荷馬車には
 // 雇用/武器/軽食/資源の4ボタンがあり、それぞれ hiring.js/weaponTrade.js/
 // timeEats.js/resourceTrade.js を mode:"peddler"（資源はそもそも行商
-// 専用画面なのでmode無し）で呼び出す。smithy.jsと同じ理由でポーズは
-// 出さない（trade.jsに既に1つある）。
+// 専用画面なのでmode無し）で呼び出す。
 //
 // この4画面はいずれも「同じ取引イベント内で再抽選が起きない」ことが
 // 要件 -- trade.js が雇用所/武器取引/軽食のラインナップをそれぞれ保持
@@ -66,6 +65,7 @@ export function PeddlerShopScene(container, params, api) {
           ]),
         ]),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
         button("店を出る", {
           variant: "primary",

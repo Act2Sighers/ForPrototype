@@ -200,6 +200,7 @@ export function TailorShopScene(container, params, api) {
       eyebrow: "WORKSHOP / TAILOR",
       title: "仕立て屋",
       body,
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }

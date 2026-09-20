@@ -146,6 +146,7 @@ export function WeaponStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, candidates.map(swapRow))
           : h("p", { class: "lead", text: "共通のシナジーを持つ未装備武器がありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("キャンセル", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -169,6 +170,7 @@ export function WeaponStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, entries.map(enhanceSelectRow))
           : h("p", { class: "lead", text: "所持している武器がありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("強化画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -239,6 +241,7 @@ export function WeaponStorageScene(container, params, api) {
       eyebrow: "WEAPON STORAGE / SELL",
       title: "武器置き場（売却）",
       body,
+      onPause: () => api.callScene("pause"),
       actions: [
         button("取引画面に戻る", { variant: "ghost", onClick: () => api.closeScene() }),
         button(selectedIds.size ? `まとめて売る（${selectedIds.size}）` : "まとめて売る", {

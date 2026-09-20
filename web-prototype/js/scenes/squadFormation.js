@@ -293,6 +293,7 @@ export function SquadFormationScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, characters.map(rowFn))
           : h("p", { class: "lead", text: "隊員がいません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }
@@ -404,6 +405,7 @@ export function SquadFormationScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, candidates.map((entry) => swapRow(entry.character, entry.location)))
           : h("p", { class: "lead", text: "共通のシナジーを持つ隊員がいません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("キャンセル", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -436,6 +438,7 @@ export function SquadFormationScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, candidates.map((entry) => selectPickRow(entry.character, entry.location)))
           : h("p", { class: "lead", text: "隊員がいません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [button("編集画面に戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
@@ -509,7 +512,7 @@ export function SquadFormationScene(container, params, api) {
       title: mode === "discharge" ? "部隊編成（除隊）" : "部隊編成",
       subtitle,
       headActions,
-      onPause: mode === "discharge" || editing ? undefined : () => api.callScene("pause"),
+      onPause: () => api.callScene("pause"),
       body,
       actions,
     });
