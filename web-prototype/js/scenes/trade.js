@@ -60,8 +60,8 @@ export function TradeScene(container, params, api) {
           ];
 
     renderScreen(container, {
-      eyebrow: mode === "village" ? "TRADE / VILLAGE" : "TRADE / WORKSHOP",
-      title: mode === "village" ? "取引（集落モード）" : "取引（工房モード）",
+      eyebrow: mode === "village" ? "VILLAGE" : "WORKSHOP",
+      title: mode === "village" ? "集落" : "工房",
       corner: resourceHud(state.run?.resources),
       body: [
         h("div", { class: "field-group" }, [

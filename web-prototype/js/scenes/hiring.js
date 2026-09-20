@@ -171,8 +171,8 @@ export function HiringScene(container, params, api) {
     );
 
     renderScreen(container, {
-      eyebrow: mode === "initial" ? "INITIAL HIRING" : mode === "peddler" ? "HIRING / PEDDLER" : "HIRING",
-      title: mode === "peddler" ? "雇用（行商モード）" : "雇用",
+      eyebrow: mode === "initial" ? "INITIAL HIRING" : mode === "peddler" ? "PEDDLER / HIRING" : "VILLAGE / HIRING",
+      title: mode === "initial" ? "初期雇用" : mode === "peddler" ? "雇用（荷馬車）" : "雇用所",
       subtitle:
         mode === "initial"
           ? "最初に雇用する隊員を選んでください（複数人選べます）。"

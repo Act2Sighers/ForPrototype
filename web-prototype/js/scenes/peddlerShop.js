@@ -52,7 +52,7 @@ export function PeddlerShopScene(container, params, api) {
   function render() {
     renderScreen(container, {
       eyebrow: "PEDDLER",
-      title: "行商",
+      title: "行商人",
       subtitle: "荷馬車を覗いてみましょう。",
       corner: resourceHud(state.run?.resources),
       body: [

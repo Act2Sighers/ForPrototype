@@ -87,8 +87,8 @@ export function MaturationScene(container, params, api) {
   function render() {
     const remaining = remainingPoints();
     renderScreen(container, {
-      eyebrow: "MATURATION",
-      title: "熟成画面",
+      eyebrow: "LEVEL UP",
+      title: "熟成",
       subtitle: `成長ポイントを能力値に割り振ってください。\n（成長ポイント: ${remaining} / ${growthPoints}）`,
       body: [
         h("div", { class: "maturation-header" }, [

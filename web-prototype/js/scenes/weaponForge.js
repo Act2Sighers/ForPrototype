@@ -147,7 +147,7 @@ export function WeaponForgeScene(container, params, api) {
     }
 
     renderScreen(container, {
-      eyebrow: "SMITHY / FORGE",
+      eyebrow: "WORKSHOP / SMITHY / FORGE",
       title: "武器製造",
       body,
       actions,

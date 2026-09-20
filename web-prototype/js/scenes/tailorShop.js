@@ -197,8 +197,8 @@ export function TailorShopScene(container, params, api) {
     }
 
     renderScreen(container, {
-      eyebrow: "TRADE / TAILOR",
-      title: "仕立て",
+      eyebrow: "WORKSHOP / TAILOR",
+      title: "仕立て屋",
       body,
       actions,
     });

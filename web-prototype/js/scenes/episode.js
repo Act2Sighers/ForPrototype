@@ -79,6 +79,13 @@ function applyEffect(effect, context) {
 // DUNGEON_SCRIPTS参照）。
 const MODES_WITH_SKIP = new Set(["encounter", "rest"]);
 
+const MODE_TITLES = {
+  opening: "オープニング",
+  encounter: "遭遇",
+  rest: "休憩",
+  ending: "エンディング",
+};
+
 function pickRandomScript(pool) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -250,7 +257,7 @@ export function EpisodeScene(container, params, api) {
 
     renderScreen(container, {
       eyebrow: "EPISODE",
-      title: "エピソード",
+      title: MODE_TITLES[mode],
       corner: resourceHud(state.run?.resources),
       onPause: () => api.callScene("pause"),
       body,

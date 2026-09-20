@@ -112,7 +112,7 @@ export function CoatingEditScene(container, params, api) {
     const characterHasAnyCoating = Boolean(character) && Object.values(character.equippedCoatings).some(Boolean);
 
     renderScreen(container, {
-      eyebrow: "COATING / EDIT",
+      eyebrow: "COATING EDIT",
       title: "糖衣編集",
       body: [
         h("p", { class: "lead", text: "編集する隊員を選んでください。" }),

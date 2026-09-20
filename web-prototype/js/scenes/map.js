@@ -255,8 +255,8 @@ export function MapScene(container, params, api) {
       : null;
 
     renderScreen(container, {
-      eyebrow: `MAP / ${dungeon.name}`,
-      title: "マップ",
+      eyebrow: "MAP",
+      title: dungeon.name,
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
       corner: resourceHud(state.run.resources),
       body: [alertBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),

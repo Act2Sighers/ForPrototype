@@ -18,6 +18,14 @@ export const MODE_LABELS = {
   peddler: "行商",
 };
 
+const MODE_EYEBROWS = {
+  vendingMachine: "VENDING MACHINE",
+  cafe: "CAFE",
+  foodTruck: "FOOD TRUCK",
+  candyHandout: "SNACK GIVER",
+  peddler: "PEDDLER",
+};
+
 // 軽食画面の「本来の」4店舗モード（peddlerを除く）。集落マスの取引画面
 // が「お店」に並べる1つをこの中から抽選するのと、軽食マス自体がこの
 // 画面を直接呼ぶ際にどのモードで開くかを抽選するのとで、どちらも同じ
@@ -166,8 +174,8 @@ export function TimeEatsScene(container, params, api) {
     }
 
     renderScreen(container, {
-      eyebrow: `TIMEEATS / ${MODE_LABELS[mode]}`,
-      title: `軽食画面（${MODE_LABELS[mode]}モード）`,
+      eyebrow: MODE_EYEBROWS[mode],
+      title: MODE_LABELS[mode],
       subtitle: `購入したい時間食の数量をそれぞれ入力し、「お会計」で一括購入します。\n${MODE_HINTS[mode]}`,
       corner: resourceHud(state.run?.resources),
       body,

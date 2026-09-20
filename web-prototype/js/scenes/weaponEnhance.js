@@ -94,7 +94,7 @@ export function WeaponEnhanceScene(container, params, api) {
     const detailBox = h("div", { class: `panel forge-box${weapon ? "" : " forge-box--disabled"}` }, detailChildren);
 
     renderScreen(container, {
-      eyebrow: "SMITHY / ENHANCE",
+      eyebrow: "WORKSHOP / SMITHY / ENHANCE",
       title: "武器強化",
       body: [
         h("p", { class: "lead", text: "強化する武器を選択してください。" }),

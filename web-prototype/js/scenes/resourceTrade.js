@@ -85,7 +85,7 @@ export function ResourceTradeScene(container, params, api) {
   function render() {
     renderScreen(container, {
       eyebrow: "PEDDLER / RESOURCE TRADE",
-      title: "資源取引",
+      title: "資源取引（荷馬車）",
       subtitle: "交換したい資源を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, offers.map(offerRow))],

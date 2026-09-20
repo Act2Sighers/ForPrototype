@@ -128,8 +128,8 @@ export function WeaponTradeScene(container, params, api) {
       actions.push(button("売却", { onClick: () => api.callScene("weaponStorage", { mode: "sell" }) }));
     }
     renderScreen(container, {
-      eyebrow: mode === "peddler" ? "PEDDLER / WEAPON TRADE" : "SMITHY / TRADE",
-      title: mode === "peddler" ? "武器取引（行商モード）" : "武器取引（通常モード）",
+      eyebrow: mode === "peddler" ? "PEDDLER / WEAPON TRADE" : "WORKSHOP / SMITHY / TRADE",
+      title: mode === "peddler" ? "武器取引（荷馬車）" : "武器取引",
       subtitle: "購入したい武器を選んでください。",
       corner: resourceHud(state.run?.resources),
       body: [h("div", { class: "slot-list slot-list--grid" }, candidates.map(candidateRow))],

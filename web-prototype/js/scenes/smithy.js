@@ -61,8 +61,8 @@ export function SmithyScene(container, params, api) {
 
   function render() {
     renderScreen(container, {
-      eyebrow: "SMITHY",
-      title: "鍛冶",
+      eyebrow: "WORKSHOP / SMITHY",
+      title: "鍛冶屋",
       subtitle: "製造したい武器種を選んでください。",
       body: [h("div", { class: "slot-list slot-list--grid" }, Object.keys(SYNERGIES).map(synergyRow))],
       actions: [
