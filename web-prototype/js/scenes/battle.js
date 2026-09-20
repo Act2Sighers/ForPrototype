@@ -6,6 +6,7 @@ import {
   increaseCondition,
   MONSTER_DATA,
   createMonsterFromData,
+  createBossMonsterFromData,
   applyHpDamage,
   applyHpHeal,
   CHARACTER_STAT_FULL_LABELS,
@@ -16,6 +17,7 @@ import {
   RIGID_QUALITY_LABELS,
   COATING_ATTRIBUTE_LABELS,
 } from "../data/resourceCatalog.js";
+import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import { rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -719,10 +721,51 @@ function statSnapshotText(unit, stat) {
 // 1つだけに切り替える。実際の画面遷移（勝利なら戦闘不能だった味方の
 // HP1/4復活を挟んでマップへ、敗北なら結果画面へ）はそのボタンを押した
 // 時点で行い、自動では進まない。
-export function BattleScene(container, params, api) {
-  const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
+// 通常戦闘の配置数：現在のマスの列番号と休憩発生クロック（ダンジョン
+// パラメータ）を見て、休憩を何回くぐり抜けた後かで2/3/4体と決める
+// （1回目の休憩前=2体、1〜2回目の間=3体、2回目の後=4体）。テスト
+// ダンジョン用の一次的な計算で、ダンジョンごとに変わる想定はまだ無い。
+function pickNormalEnemyCount(columnIndex, restClock) {
+  const passedCheckpoints = restClock.filter((checkpoint) => checkpoint < columnIndex).length;
+  return 2 + passedCheckpoints;
+}
+
+// 通常戦闘の敵構成：カルメヤ犬・チョコロック・電気ゼリー・メレンゲ猫・
+// フルーツリー・チューイング・マシン・飴アーミー・ユキドケイ（＝
+// MONSTER_DATAの全種、ボスはBOSS_MONSTER_DATA側の別カタログなので混ざ
+// らない）から重複ありランダムで選び、全員を同じレベル
+// （[現在の到達マス数]-1、スタート直後の1体目の戦闘でちょうどLv.1に
+// なる）まで配置時にレベルアップさせる。
+function buildNormalEnemyUnits() {
+  const dungeon = state.run.dungeon;
+  const dungeonParams = DUNGEON_PARAMS[dungeon.id];
+  const currentNode = dungeon.nodes[state.run.currentNodeId];
+  const monsterLevel = Math.max(1, state.run.visitedNodeIds.length - 1);
+  const count = pickNormalEnemyCount(currentNode.columnIndex, dungeonParams.restClock);
   const monsterDataIds = Object.keys(MONSTER_DATA);
-  const enemyUnits = Array.from({ length: allyUnits.length }, () => createBattleUnit(createMonsterFromData(pickRandom(monsterDataIds)), "enemy"));
+  return Array.from({ length: count }, () =>
+    createBattleUnit(createMonsterFromData(pickRandom(monsterDataIds), monsterLevel), "enemy")
+  );
+}
+
+// ボス戦の敵構成：ダンジョンパラメータのbossEncounterをそのまま固定で
+// 並べる（isBoss指定はBOSS_MONSTER_DATA、それ以外はMONSTER_DATAを
+// levelまでレベルアップさせて生成 -- data/testDungeon.jsのDUNGEON_PARAMS
+// 参照）。
+function buildBossEnemyUnits() {
+  const dungeonParams = DUNGEON_PARAMS[state.run.dungeon.id];
+  return dungeonParams.bossEncounter.map((entry) =>
+    createBattleUnit(
+      entry.isBoss ? createBossMonsterFromData(entry.dataId) : createMonsterFromData(entry.dataId, entry.level),
+      "enemy"
+    )
+  );
+}
+
+export function BattleScene(container, params, api) {
+  const mode = params?.mode === "boss" ? "boss" : "normal";
+  const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
+  const enemyUnits = mode === "boss" ? buildBossEnemyUnits() : buildNormalEnemyUnits();
   assignDisplayNames([...allyUnits, ...enemyUnits]);
 
   let turn = 1;
@@ -1546,8 +1589,8 @@ export function BattleScene(container, params, api) {
 
   function render() {
     renderScreen(container, {
-      eyebrow: "BATTLE",
-      title: "戦闘",
+      eyebrow: mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
+      title: mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
       body: [battleLog(), actionExecuteButton(), battleArena(), battleMobileRoster()],
       actions: battleActions(),
     });

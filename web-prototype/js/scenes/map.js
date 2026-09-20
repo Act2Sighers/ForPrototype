@@ -54,6 +54,7 @@ export function MapScene(container, params, api) {
   // resuming the map as-is -- see onResume below.
   let awaitingHiringAfterOpening = false;
   let awaitingResultAfterEnding = false;
+  let awaitingEndingAfterBossBattle = false;
   // 休憩/行商の仮想マスを解決した直後にセットする：現在地はそのまま
   // （まだ本来のマスへは実際に到達していない）に、reachableをこの1つ
   // だけへ絞り込む -- プレイヤーが仮想マスをクリックした時点でこれを
@@ -107,8 +108,14 @@ export function MapScene(container, params, api) {
       render();
       const node = dungeon.nodes[nodeId];
       if (node.type === "goal") {
+        // ゴールマス到達時はまずボス戦（勝利すればreviveIncapacitatedAllies
+        // を経てこのマップへcloseSceneで戻ってくる -- battle.jsの通常勝利
+        // と同じ流儀）、その後にエピローグへ進む。ボス戦敗北時は
+        // battle.js側が直接結果画面（ゲームオーバー）へnavigateToする
+        // ので、そちらではこのマップのonResumeは呼ばれない。
         awaitingResultAfterEnding = true;
-        api.callScene("episode", { mode: "ending" });
+        awaitingEndingAfterBossBattle = true;
+        api.callScene("battle", { mode: "boss" });
         return;
       }
       if (node.type === "episode") {
@@ -303,6 +310,11 @@ export function MapScene(container, params, api) {
       if (awaitingHiringAfterOpening) {
         awaitingHiringAfterOpening = false;
         api.callScene("hiring", { mode: "initial" });
+        return;
+      }
+      if (awaitingEndingAfterBossBattle) {
+        awaitingEndingAfterBossBattle = false;
+        api.callScene("episode", { mode: "ending" });
         return;
       }
       if (awaitingResultAfterEnding) {

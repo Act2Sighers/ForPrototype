@@ -15,12 +15,24 @@ export const DUNGEONS = [{ id: "test-dungeon", name: "テストダンジョン" 
 //  - peddlerCount: 1回のランで必ず発生させる行商イベントの回数。
 //  - environment: ダンジョンの環境（探索イベントの能力値補正などに
 //    使う想定、現状は空実装で"normal"のみ）。
+//  - bossEncounter: ゴールマスで戦闘（ボス戦モード）を呼ぶ際の固定の敵
+//    構成（battle.js参照）。各エントリは{dataId, isBoss}（ボス本体、
+//    resourceCatalog.jsのBOSS_MONSTER_DATAから固定の最終能力値で生成）
+//    または{dataId, level}（道連れの通常モンスター、MONSTER_DATAの
+//    Lv.1テンプレートから指定レベルまでランダムにレベルアップさせて
+//    生成）のどちらか。
 export const DUNGEON_PARAMS = {
   "test-dungeon": {
     longestReachableNodeCount: 12,
     restClock: [5, 10],
     peddlerCount: 2,
     environment: "normal",
+    bossEncounter: [
+      { dataId: "takeniniteiru", isBoss: true },
+      { dataId: "karumeDog", level: 12 },
+      { dataId: "merengeCat", level: 12 },
+      { dataId: "electricJelly", level: 12 },
+    ],
   },
 };
 

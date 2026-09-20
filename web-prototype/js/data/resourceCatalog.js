@@ -216,47 +216,100 @@ export function computeMonsterLevel(growth) {
   return growthSum(growth) - 2;
 }
 
-// モンスターデータ: 敵陣営用の同種テンプレート。隊員データと同じ
+// モンスターデータ: 敵陣営用の同種テンプレート、Lv.1時点の能力値割り振り
+// として持つ（道中の戦闘に配置する際は、ここを起点にlevelUpMonsterGrowth
+// でラン進捗ぶんレベルアップさせる -- battle.js参照）。隊員データと同じ
 // base+growth の考え方（CHARACTER_BASE＋growth＝表示される能力値、
 // growthの合計×12＝HP）を流用しているが、雇用候補には一切出ないよう
 // CHARACTER_DATAとは別カタログにしてある。プレイヤーの操作で成長する
 // ことは無いので bonusGrowth の概念は無い。
 // attribute：戦闘での属性攻撃/状態異常の元になる属性（COATING_ATTRIBUTE_LABELS
 // と同じキー体系。無属性＝衝撃相当のモンスターはこのフィールド自体を
-// 持たない）。テスト用の仮の割り当て：カルメヤ犬→浸水、チョコロック→
-// 汚染、電気ゼリー→腐敗。
+// 持たない）。
 export const MONSTER_DATA = {
-  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 }, attribute: "soak" },
-  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 }, attribute: "contamination" },
-  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "decay" },
+  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
+  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "cold" },
+  merengeCat: { id: "merengeCat", name: "メレンゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
+  fruitTree: { id: "fruitTree", name: "フルーツリー", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 1, coordination: 1 }, attribute: "humidity" },
+  chewingMachine: { id: "chewingMachine", name: "チューイング・マシン", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 1, coordination: 0 }, attribute: "dry" },
+  candyArmy: { id: "candyArmy", name: "飴アーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  yukiClock: { id: "yukiClock", name: "ユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
 };
 
-// createCharacterFromData と同じ形のインスタンスを、MONSTER_DATA から
-// 毎回新しい個体（idだけ別）として生成する。dataId はそのまま持たせて
-// おく（戦闘勝利報酬の算出時、MONSTER_REWARDSを引くのに使う）。
-export function createMonsterFromData(dataId) {
-  const data = MONSTER_DATA[dataId];
-  const growth = { ...data.growth };
+// ボスモンスターデータ: MONSTER_DATAと違い、growthはLv.1テンプレートでは
+// なく出現時点の最終的な割り振りをそのまま持つ（出現するタイミング・
+// 能力値の振り方がダンジョンごとに固定のため、レベルアップのシミュレー
+// トが要らない -- レベルはcomputeMonsterLevelでgrowthから自動的に決まる、
+// MONSTER_DATA同様ここでは明示的に持たない）。
+export const BOSS_MONSTER_DATA = {
+  takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
+};
+
+const MONSTER_GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+
+// レベルアップ1回につき、5つの成長値のうちランダムな1つを+1する（HPは
+// growthの合計×12で決まるので、これだけで「最大HPを12成長させ、HP以外の
+// いずれかの能力値を1成長させる」の両方を満たす -- computeMaxHp/
+// computeMonsterLevel参照）。能力値の割り振りは現状完全ランダム。
+function levelUpMonsterGrowth(growth, levelsToGain) {
+  const result = { ...growth };
+  for (let i = 0; i < levelsToGain; i++) {
+    const key = MONSTER_GROWTH_STAT_KEYS[Math.floor(Math.random() * MONSTER_GROWTH_STAT_KEYS.length)];
+    result[key] += 1;
+  }
+  return result;
+}
+
+function instantiateMonster(dataId, name, growth, attribute) {
   return {
     id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     dataId,
-    name: data.name,
+    name,
     level: computeMonsterLevel(growth),
     growth,
     currentHp: computeMaxHp(growth),
     skills: [],
     weapon: null,
-    attribute: data.attribute,
+    attribute,
   };
+}
+
+// createCharacterFromData と同じ形のインスタンスを、MONSTER_DATA から
+// 毎回新しい個体（idだけ別）として生成する。dataId はそのまま持たせて
+// おく（戦闘勝利報酬の算出時、MONSTER_REWARDSを引くのに使う）。
+// targetLevelを渡すと、テンプレート（常にLv.1）からそこまでランダムに
+// レベルアップさせてから生成する（道中の戦闘・ボス戦の道連れモンスター
+// 用 -- battle.js参照）。省略時はテンプレートのままLv.1個体を返す。
+export function createMonsterFromData(dataId, targetLevel) {
+  const data = MONSTER_DATA[dataId];
+  const templateLevel = computeMonsterLevel(data.growth);
+  const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
+  const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };
+  return instantiateMonster(dataId, data.name, growth, data.attribute);
+}
+
+// BOSS_MONSTER_DATA から個体を生成する（growthは固定の最終割り振りその
+// ままなので、createMonsterFromDataと違いレベルアップは行わない）。
+export function createBossMonsterFromData(dataId) {
+  const data = BOSS_MONSTER_DATA[dataId];
+  return instantiateMonster(dataId, data.name, { ...data.growth }, data.attribute);
 }
 
 // モンスターごとの固有報酬。category が "natural"/"rigid" のどちらの
 // カタログを見るかを示す（品質階層の有無は resourceId 側の
-// qualityTiers で判定するので、ここでは持たない）。
+// qualityTiers で判定するので、ここでは持たない）。MONSTER_DATA/
+// BOSS_MONSTER_DATAどちらのdataIdもここに載る。
 export const MONSTER_REWARDS = {
   karumeDog: { category: "rigid", resourceId: "coarseSugarMineral" },
   chocoRock: { category: "rigid", resourceId: "cacaoLayeredRock" },
   electricJelly: { category: "natural", resourceId: "electroMagneticGelatin" },
+  merengeCat: { category: "natural", resourceId: "baseCream" },
+  fruitTree: { category: "natural", resourceId: "squeezedFructoseLiquid" },
+  chewingMachine: { category: "natural", resourceId: "gummyElasticMaterial" },
+  candyArmy: { category: "rigid", resourceId: "dropSpiralOre" },
+  yukiClock: { category: "rigid", resourceId: "sorbetEternalIce" },
+  takeniniteiru: { category: "rigid", resourceId: "sugarCaneFiber" },
 };
 
 // L1(モンスターのレベル)を、報酬計算式のLH(10の位)/LM(3で割った商)/
