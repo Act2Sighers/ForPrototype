@@ -170,14 +170,14 @@ const PREP_MODULES = {
       t.pt.max = Math.max(1, t.pt.max - n);
     },
   },
-  // 「警護」：自身以外の自陣営ユニット1体を「警護対象」状態にする。
-  // 挑発/隠密と同じく、自陣営で行動可能なのが自分しかいなければ不発
-  // （isSoleSurvivor）。実際の「対象の差し替え」はopposingPoolFor側
-  // （Mainフェイズ限定）で行う -- unit.guardedByが立っている候補は、
-  // その守護者自身に差し替わる。
+  // 【ついて来て！】（内部の仕組みとしては「警護」）：自身以外の自陣営
+  // ユニット1体を「警護対象」状態にする。挑発/隠密と同じく、自陣営で
+  // 行動可能なのが自分しかいなければ不発（isSoleSurvivor）。実際の
+  // 「対象の差し替え」はopposingPoolFor側（Mainフェイズ限定）で行う --
+  // unit.guardedByが立っている候補は、その守護者自身に差し替わる。
   guardAlly: {
     id: "guardAlly",
-    label: "警護",
+    label: "ついて来て！",
     targetFaction: "ownExcludingSelf",
     statusLabel: "警護対象",
     allyOnly: true,
@@ -1301,6 +1301,11 @@ export function BattleScene(container, params, api) {
   // たか」を指す。advanceMainPhase参照。
   let mainOrder = [];
   let mainCursor = 0;
+  // Prepフェイズのステータス枠クリックによる行動対象指定用：「今どの
+  // ユニットの行動対象を選んでいるか」。null＝まだ誰も選んでいない
+  // （＝次のクリックは「対象を選ぶ主体」の指定として扱う）。
+  // handlePrepActorClick/handlePrepTargetClick参照。
+  let prepTargetPickingActor = null;
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -1471,10 +1476,15 @@ export function BattleScene(container, params, api) {
       unit.stealthed = false;
       unit.guardedBy = null;
     }
-    for (const unit of allyUnits) unit.action = null;
+    for (const unit of allyUnits) {
+      unit.action = null;
+      autoFillSelection(unit, viablePrepModuleIds(unit));
+    }
     for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : pickMonsterAction(unit, "prep");
+    prepTargetPickingActor = null;
   }
 
+  for (const unit of allyUnits) autoFillSelection(unit, viablePrepModuleIds(unit));
   for (const unit of enemyUnits) unit.action = pickMonsterAction(unit, "prep");
   pushPhaseHeader("オードブル！");
 
@@ -1533,6 +1543,49 @@ export function BattleScene(container, params, api) {
     });
   }
 
+  // 現フェイズでのそのユニットの「今選べる行動」idリスト（Prep/Mainの
+  // 違いをここで吸収する、UI側の共通の入口）。
+  function viableModuleIdsFor(unit) {
+    return phase === "main" ? viableMainModuleIds(unit) : viablePrepModuleIds(unit);
+  }
+
+  // 行動内容(module)が1つしか選べない場合は自動で選択し、行動対象も
+  // その時点で選べる候補が1人しかない（targetFaction:"none"で常に自分
+  // 自身、または候補が1人だけ）場合は自動で選択する。unit.actionが
+  // 既に部分的に埋まっている場合（プレイヤーが行動内容だけ選んだ状態
+  // など）は、そこから続きだけを埋める。viableIdsが空なら選べる行動が
+  // 無いということなので、何もしない（呼び出し側がスキップを判断する
+  // -- resetForNewPrepPhase/advanceMainPhase参照）。
+  function autoFillSelection(unit, viableIds) {
+    let moduleId = unit.action?.moduleId;
+    if (!moduleId && viableIds.length === 1) moduleId = viableIds[0];
+    if (!moduleId) return;
+    const module = currentModules()[moduleId];
+    let targetUnit = unit.action?.targetUnit ?? null;
+    if (!targetUnit) {
+      if (module.targetFaction === "none") {
+        targetUnit = unit;
+      } else {
+        const candidates = candidateUnits(unit, moduleId);
+        if (candidates.length === 1) targetUnit = candidates[0];
+      }
+    }
+    unit.action = { moduleId, targetUnit };
+  }
+
+  // Mainフェイズで、今の手番ユニットの行動内容・行動対象がどちらも
+  // 確定した瞬間、「行動実行！」の押下を待たずに即座にそのユニットの
+  // 行動を実行する（テンポ維持のための裁定）。これにより、Mainフェイズ
+  // では「行動実行！」ボタンの出番は実質無くなる（選択が完了した時点で
+  // 既に実行されているため）。Prepフェイズでは何もしない（Prepは全員
+  // 分をまとめて「行動実行！」で確定する一括方式のまま）。
+  function maybeAutoExecuteMain(unit) {
+    if (phase !== "main" || executing) return;
+    if (mainOrder[mainCursor] !== unit) return;
+    if (!unit.action || !unit.action.targetUnit) return;
+    runMainStep();
+  }
+
   function handleModuleChange(unit, moduleId) {
     if (!moduleId) {
       unit.action = null;
@@ -1543,43 +1596,81 @@ export function BattleScene(container, params, api) {
     // モジュールを選んだ時点で行動主体自身をダミーの対象として即確定
     // する（allAlliesReady()の「対象確定済み」判定をそのまま通すための
     // 便宜上の値で、実際の効果適用ではsteps側のstep.eachが陣営全員を
-    // 独自に処理するため参照されない）。
+    // 独自に処理するため参照されない）。それ以外は、候補が1人しかいな
+    // ければ自動で確定する（autoFillSelection相当をこの場で行う）。
     const module = currentModules()[moduleId];
-    unit.action = { moduleId, targetUnit: module.targetFaction === "none" ? unit : null };
+    const candidates = candidateUnits(unit, moduleId);
+    const targetUnit = module.targetFaction === "none" ? unit : candidates.length === 1 ? candidates[0] : null;
+    unit.action = { moduleId, targetUnit };
     render();
+    maybeAutoExecuteMain(unit);
   }
 
   function handleTargetChange(unit, targetUnit) {
     if (unit.action) unit.action.targetUnit = targetUnit;
     render();
-  }
-
-  // 行動内容は確定済みだが行動対象が未確定な選択枠を全て返す。
-  function pendingTargetUnits() {
-    return allyUnits.filter((u) => u.action && !u.action.targetUnit);
+    maybeAutoExecuteMain(unit);
   }
 
   // ワイドモード限定：ステータス枠を直接クリックした時の行動対象指定。
-  // 行動対象未確定の選択枠のうち、そのユニットが候補に含まれるもの
-  // 全てに同時に反映する（候補に無ければその枠には何もしない）。
+  // Prepフェイズは「誰の対象を選ぶか」→「その対象は誰か」の2段階
+  // （交互に行う、混同しない）。Mainフェイズは行動主体が常に1人（今の
+  // 手番のユニット）なので、対象選択の1段階のみ。
   function handleStatusCardClick(clickedUnit) {
     if (!isInteractive()) return;
-    let changed = false;
-    for (const unit of pendingTargetUnits()) {
-      if (candidateUnits(unit, unit.action.moduleId).includes(clickedUnit)) {
-        unit.action.targetUnit = clickedUnit;
-        changed = true;
-      }
+    if (phase === "prep") {
+      if (prepTargetPickingActor) handlePrepTargetClick(clickedUnit);
+      else handlePrepActorClick(clickedUnit);
+      return;
     }
-    if (changed) render();
+    handleMainTargetClick(clickedUnit);
   }
 
-  // このステータス枠をクリックすることで、行動対象未確定のどれかの
-  // 選択枠に指定できるか（見た目の手がかり用。実際の判定は
-  // handleStatusCardClick 内でも改めて行う）。
+  // Prepフェイズ第1段階：隊員のステータス枠をクリックして「この隊員の
+  // 行動対象をこれから選ぶ」と指定する。行動内容が未確定のうちは対象
+  // 候補を計算できないので何もしない。
+  function handlePrepActorClick(unit) {
+    if (unit.faction !== "ally" || isIncapacitated(unit) || !unit.action?.moduleId) return;
+    prepTargetPickingActor = unit;
+    render();
+  }
+
+  // Prepフェイズ第2段階：対象選択モード中に、候補のステータス枠を
+  // クリックして「行動対象はこれ」と確定する。候補でなければ何もしない
+  // （モードも維持する）。確定したらモードを解除する。
+  function handlePrepTargetClick(candidateUnit) {
+    const actor = prepTargetPickingActor;
+    const moduleId = actor.action?.moduleId;
+    if (!moduleId || !candidateUnits(actor, moduleId).includes(candidateUnit)) return;
+    prepTargetPickingActor = null;
+    handleTargetChange(actor, candidateUnit);
+  }
+
+  // Mainフェイズ：行動主体は常に今の手番のユニット1人なので、選択の
+  // 段階分けは不要。行動内容が確定していて、かつ候補に含まれる枠を
+  // クリックすると対象を確定する（確定した瞬間、maybeAutoExecuteMain
+  // 経由で即座に実行される）。
+  function handleMainTargetClick(candidateUnit) {
+    const unit = mainOrder[mainCursor];
+    if (!unit || !unit.action?.moduleId) return;
+    if (!candidateUnits(unit, unit.action.moduleId).includes(candidateUnit)) return;
+    handleTargetChange(unit, candidateUnit);
+  }
+
+  // このステータス枠が「今クリックすると意味のある操作になるか」（見た
+  // 目の点線表示用。実際の判定は各ハンドラ内でも改めて行う）。Prepは
+  // 対象選択モード中の候補のみ、Mainは今の手番ユニットの行動内容が
+  // 確定していればその候補。
   function isClickableAsTarget(unit) {
     if (!isInteractive()) return false;
-    return pendingTargetUnits().some((u) => candidateUnits(u, u.action.moduleId).includes(unit));
+    if (phase === "prep") {
+      if (!prepTargetPickingActor) return false;
+      const moduleId = prepTargetPickingActor.action?.moduleId;
+      return !!moduleId && candidateUnits(prepTargetPickingActor, moduleId).includes(unit);
+    }
+    const actor = mainOrder[mainCursor];
+    if (!actor?.action?.moduleId) return false;
+    return candidateUnits(actor, actor.action.moduleId).includes(unit);
   }
 
   // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
@@ -2037,6 +2128,7 @@ export function BattleScene(container, params, api) {
     mainOrder = buildMainOrder();
     mainCursor = 0;
     for (const unit of [...allyUnits, ...enemyUnits]) unit.action = null;
+    prepTargetPickingActor = null;
     pushPhaseHeader("メインディッシュ！");
   }
 
@@ -2091,6 +2183,21 @@ export function BattleScene(container, params, api) {
         mainCursor += 1;
         continue;
       }
+      // 行動内容・行動対象がどちらも自動で埋まる場合（選べる選択肢が
+      // 1つしかない等）は、プレイヤーへの要求をせずそのまま即実行する
+      // -- 続けて同じユニットにまだ使える行動があるかを再評価するため
+      // mainCursorは進めず、whileループの先頭からやり直す。
+      autoFillSelection(unit, viableMainModuleIds(unit));
+      if (unit.action && unit.action.targetUnit) {
+        if (await executeUnitAction(unit)) return;
+        continue;
+      }
+      // プレイヤーの選択待ちで停止する時点では、直前の行動（自分より
+      // 前に自動実行された敵・味方の分）の矢印はもう用済みなので消して
+      // おく。消さないと、statusCardClass側の「矢印表示中は行動対象の
+      // クリック指定枠を出さない」という排他判定に引っかかり、対象候補
+      // が点線にならずクリック指定ができなくなってしまう。
+      activeArrow = null;
       executing = false;
       render();
       return;
@@ -2116,40 +2223,49 @@ export function BattleScene(container, params, api) {
     render();
   }
 
-  // Mainフェイズの「行動実行！」ボタン：現在の手番ユニット（必ず味方、
-  // mainOrder[mainCursor]）が選択済みの1行動だけを実行し、その後の手番
-  // 送りはadvanceMainPhaseに委ねる（同じユニットにまだ使える行動が
-  // 残っていれば、advanceMainPhase側の判定でそのまま同じユニットの
-  // 手番として止まる）。
-  async function runMainStep() {
-    executing = true;
-    render();
-    const unit = mainOrder[mainCursor];
+  // 現在選択済みの行動を1つ実行する。勝敗が決していればconcludeBattle
+  // して打ち切りの合図としてtrueを返す。そうでなければ行動を空に戻して
+  // falseを返す（呼び出し側が次の手番へ進める）。runMainStep（プレイ
+  // ヤーのボタン操作、または選択完了による即時実行）とadvanceMainPhase
+  // （行動内容・行動対象がどちらも自動で埋まった場合の即時実行）の
+  // 両方から共有される。
+  async function executeUnitAction(unit) {
     await resolveMainAction(unit);
     const outcome = checkBattleEnd();
     if (outcome) {
       activeArrow = null;
       concludeBattle(outcome);
-      return;
+      return true;
     }
     unit.action = null;
+    return false;
+  }
+
+  // Mainフェイズの「行動実行！」ボタン（および行動内容・行動対象が
+  // どちらも確定した瞬間のmaybeAutoExecuteMain経由の自動呼び出し）：
+  // 現在の手番ユニット（必ず味方、mainOrder[mainCursor]）が選択済みの
+  // 1行動だけを実行し、その後の手番送りはadvanceMainPhaseに委ねる
+  // （同じユニットにまだ使える行動が残っていれば、advanceMainPhase側の
+  // 判定でそのまま同じユニットの手番として止まる）。
+  async function runMainStep() {
+    executing = true;
+    render();
+    const unit = mainOrder[mainCursor];
+    if (await executeUnitAction(unit)) return;
     await advanceMainPhase();
   }
 
-  // Prepフェイズは所持スキル（isModuleAvailableFor）だけで絞る（コスト
-  // の概念が無いため、それ以上の絞り込みは不要）。Mainフェイズは逐次
-  // 処理のため、選んでも不発になるだけの選択肢（PT不足・対象無し）は
-  // あらかじめ除く -- viableMainModuleIds参照。
+  // Prep/Mainどちらも「今選べる行動」（viableModuleIdsFor）だけを表示
+  // する -- 選んでも不発になるだけの選択肢（対象無し、Mainならさらに
+  // PT不足も）は最初から出さない。選べる行動が1つも無ければドロップ
+  // ダウン自体をグレーアウトする。
   function moduleSelectFor(unit) {
-    const options =
-      phase === "main"
-        ? viableMainModuleIds(unit).map((id) => MAIN_MODULES[id])
-        : Object.values(currentModules()).filter((m) => isModuleAvailableFor(unit, m));
+    const options = viableModuleIdsFor(unit).map((id) => currentModules()[id]);
     const select = h(
       "select",
       {
         class: "battle-action-select__dropdown",
-        disabled: !isInteractive() || !isActingNow(unit),
+        disabled: !isInteractive() || !isActingNow(unit) || options.length === 0,
         onChange: (e) => handleModuleChange(unit, e.target.value),
       },
       [h("option", { value: "", text: "－" }), ...options.map((m) => h("option", { value: m.id, text: m.label }))]
@@ -2190,8 +2306,9 @@ export function BattleScene(container, params, api) {
   // ワイドモードの専用列に並ぶ、隊員名付きの版。味方ステータス列とは
   // 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
   // 名前を添えている。行動内容・行動対象のどちらかが未確定の間はハイ
-  // ライトし、両方確定すると解除する。順次処理中、およびMainフェイズで
-  // 今の手番でないユニットは一律グレーアウト。
+  // ライトし、両方確定すると解除する。順次処理中、Mainフェイズで今の
+  // 手番でないユニット、および選べる行動が1つも無いユニットは一律
+  // グレーアウト。
   function actionSelectBox(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-action-select battle-action-select--down" }, [
@@ -2199,7 +2316,7 @@ export function BattleScene(container, params, api) {
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
-    const inactive = executing || !isActingNow(unit);
+    const inactive = executing || !isActingNow(unit) || viableModuleIdsFor(unit).length === 0;
     const modifier = inactive ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
     return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
   }
@@ -2245,8 +2362,11 @@ export function BattleScene(container, params, api) {
     if (activeArrow) {
       if (unit === activeArrow.actor) classes.push("battle-unit--actor");
       else if (unit === activeArrow.target) classes.push("battle-unit--target");
-    } else if (isClickableAsTarget(unit)) {
-      classes.push("battle-unit--clickable-target");
+    } else {
+      // Prepフェイズで「この隊員の行動対象を選ぶ」モード中のその隊員
+      // 自身も、矢印表示中の行動主体と同じ見た目でハイライトする。
+      if (phase === "prep" && unit === prepTargetPickingActor) classes.push("battle-unit--actor");
+      if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
     }
     return classes.length ? classes.join(" ") : null;
   }
@@ -2348,8 +2468,9 @@ export function BattleScene(container, params, api) {
 
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
   // ・行動選択プルダウンだけの縦並びリストを出す。Mainフェイズで今の
-  // 手番でないユニットは薄くグレーアウトする（プルダウン自体は
-  // moduleSelectFor/targetSelectFor側で既に無効化されている）。
+  // 手番でないユニット、および選べる行動が1つも無いユニットは薄く
+  // グレーアウトする（プルダウン自体はmoduleSelectFor/targetSelectFor
+  // 側で既に無効化されている）。
   function mobileUnitRow(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-mobile-unit battle-mobile-unit--down" }, [
@@ -2358,7 +2479,7 @@ export function BattleScene(container, params, api) {
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
-    const waiting = phase === "main" && !isActingNow(unit);
+    const waiting = (phase === "main" && !isActingNow(unit)) || viableModuleIdsFor(unit).length === 0;
     return h("div", { class: `battle-mobile-unit${waiting ? " battle-mobile-unit--waiting" : ""}` }, [
       h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), conditionBadge(unit)]),
       battleHpGauge(unit),
