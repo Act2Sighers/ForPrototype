@@ -1235,6 +1235,12 @@ body {
   opacity: 0.5;
 }
 
+/* Mainフェイズで今の手番でないユニット行：戦闘不能ほどではない薄い
+   グレーアウト（プルダウン自体は別途disabledになる）。 */
+.battle-mobile-unit--waiting {
+  opacity: 0.6;
+}
+
 .battle-column {
   display: flex;
   flex-direction: column;
@@ -1302,6 +1308,18 @@ body {
   stroke: var(--stat-defense);
   stroke-width: 2;
   opacity: 0.5;
+}
+
+/* 警護で「警護対象」になっているユニットが、そのターンのMainフェイズ中
+   ずっと誰に警護されているかを示す薄い青のコの字矢印（同陣営同士）。 */
+.battle-arrow-line--guard {
+  stroke: var(--frost);
+  opacity: 0.45;
+}
+
+.battle-arrow-head--guard {
+  fill: var(--frost);
+  opacity: 0.45;
 }
 
 .battle-center__vs {

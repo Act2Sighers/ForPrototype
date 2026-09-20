@@ -186,6 +186,7 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
   };
   return {
     id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    dataId,
     name: data.name,
     level: computeLevel(growth),
     growth,

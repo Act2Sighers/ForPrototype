@@ -98,17 +98,19 @@ function stealthMarkElements(edge, faction) {
 // 主体・対象それぞれの辺の中点(同じx座標のはず)を、味方陣営なら右側、
 // 敵陣営なら左側へ膨らませて繋ぐ。自分自身が対象の場合は幅の狭いコの
 // 字にする。矢じりは対象側の辺の中点に、内向きに付く。
-function loopArrowElements(x, yStart, yEnd, faction, isSelf) {
+function loopArrowElements(x, yStart, yEnd, faction, isSelf, variant) {
   const outwardSign = faction === "ally" ? 1 : -1;
   const offset = isSelf ? 14 : 26;
   const y0 = isSelf ? yStart - 10 : yStart;
   const y1 = isSelf ? yStart + 10 : yEnd;
   const xOuter = x + outwardSign * offset;
-  const path = svg("path", { d: `M${x},${y0} L${xOuter},${y0} L${xOuter},${y1} L${x},${y1}`, class: "battle-arrow-line", fill: "none" });
+  const lineClass = variant ? `battle-arrow-line battle-arrow-line--${variant}` : "battle-arrow-line";
+  const headClass = variant ? `battle-arrow-head battle-arrow-head--${variant}` : "battle-arrow-head";
+  const path = svg("path", { d: `M${x},${y0} L${xOuter},${y0} L${xOuter},${y1} L${x},${y1}`, class: lineClass, fill: "none" });
   const headLen = 8;
   const headWidth = 6;
   const baseX = xOuter > x ? x + headLen : x - headLen;
-  const head = svg("polygon", { points: `${x},${y1} ${baseX},${y1 - headWidth} ${baseX},${y1 + headWidth}`, class: "battle-arrow-head" });
+  const head = svg("polygon", { points: `${x},${y1} ${baseX},${y1 - headWidth} ${baseX},${y1 + headWidth}`, class: headClass });
   return [path, head];
 }
 
@@ -166,6 +168,23 @@ const PREP_MODULES = {
     apply: (t, n = 1) => {
       t.pt.current = Math.max(1, t.pt.current - n);
       t.pt.max = Math.max(1, t.pt.max - n);
+    },
+  },
+  // 「警護」：自身以外の自陣営ユニット1体を「警護対象」状態にする。
+  // 挑発/隠密と同じく、自陣営で行動可能なのが自分しかいなければ不発
+  // （isSoleSurvivor）。実際の「対象の差し替え」はopposingPoolFor側
+  // （Mainフェイズ限定）で行う -- unit.guardedByが立っている候補は、
+  // その守護者自身に差し替わる。
+  guardAlly: {
+    id: "guardAlly",
+    label: "警護",
+    targetFaction: "ownExcludingSelf",
+    statusLabel: "警護対象",
+    allyOnly: true,
+    apply: (actor, target, allyUnits, enemyUnits) => {
+      if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
+      target.guardedBy = actor;
+      return { applied: true };
     },
   },
 };
@@ -307,6 +326,75 @@ Object.assign(PREP_MODULES, {
   },
 });
 
+// キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
+// 選択肢（randomEnemyActionのフォールバック含む）には出さない。所持
+// スキル自体の制限はCHARACTER_SKILL_LOADOUTS/isModuleAvailableForが
+// 別途行う。
+Object.assign(PREP_MODULES, {
+  // 【下がって！】：挑発をそのままラップしただけ。
+  retreatCall: {
+    id: "retreatCall",
+    label: "下がって！",
+    targetFaction: "opposing",
+    allyOnly: true,
+    steps: [{ actionId: "provoke" }],
+  },
+  // 【お祭りのヨカン】：自身に鼓舞(1)、最適化(2)を順に行う。
+  festivalHunch: {
+    id: "festivalHunch",
+    label: "お祭りのヨカン",
+    targetFaction: "self",
+    allyOnly: true,
+    steps: [{ actionId: "inspire", params: { n: 1 } }, { actionId: "optimize", params: { n: 2 } }],
+  },
+  // 【日陰者のセイギ】：隠密をそのままラップしただけ。
+  shadowJustice: {
+    id: "shadowJustice",
+    label: "日陰者のセイギ",
+    targetFaction: "self",
+    allyOnly: true,
+    steps: [{ actionId: "stealth" }],
+  },
+  // 【お姉ちゃん頑張れ〜】：自身以外の自陣営全員に鼓舞(1)。対象候補の
+  // 選択自体が不要（targetFaction:"none"）で、each:"ownExcludingSelf"
+  // が自身を除いた自陣営の生存者全員を順番に処理する。
+  sisterCheer: {
+    id: "sisterCheer",
+    label: "お姉ちゃん頑張れ〜",
+    targetFaction: "none",
+    allyOnly: true,
+    steps: [{ actionId: "inspire", each: "ownExcludingSelf", params: { n: 1 } }],
+  },
+  // 【チェック】：相手陣営1体を威圧(1)し、同じ相手ではなく自身を対象に
+  // 鼓舞(1)を行う（陰陽と同じtarget:"self"override）。
+  check: {
+    id: "check",
+    label: "チェック",
+    targetFaction: "opposing",
+    allyOnly: true,
+    steps: [{ actionId: "intimidate", params: { n: 1 } }, { actionId: "inspire", target: "self", params: { n: 1 } }],
+  },
+  // 【ハイ・プロット】/【ロー・プロット】：どちらも自身にのみ作用する
+  // （targetFaction:"self"のため、各stepのtargetは何も指定しなくても
+  // 既にactor自身を指す）。鼓舞・威圧・最適化・牽制のapply()自体は
+  // 対象の陣営を問わず機能するため、通常は相手陣営向けの威圧・牽制を
+  // 自分自身に使う「IN⇔PTのトレードオフ」スキルとして成立する。
+  highPlot: {
+    id: "highPlot",
+    label: "ハイ・プロット",
+    targetFaction: "self",
+    allyOnly: true,
+    steps: [{ actionId: "optimize", params: { n: 5 } }, { actionId: "intimidate", params: { n: 2 } }],
+  },
+  lowPlot: {
+    id: "lowPlot",
+    label: "ロー・プロット",
+    targetFaction: "self",
+    allyOnly: true,
+    steps: [{ actionId: "restrain", params: { n: 5 } }, { actionId: "inspire", params: { n: 2 } }],
+  },
+});
+
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
@@ -330,6 +418,16 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 // 持つ以上、その攻撃は必ず属性攻撃として現れる、という整理。
 function isModuleAvailableFor(unit, module) {
   if (module.monsterOnly && unit.faction !== "enemy") return false;
+  if (module.allyOnly && unit.faction !== "ally") return false;
+  // 所持スキル制限：CHARACTER_SKILL_LOADOUTSに定義があるキャラクター
+  // は、そのリストに載っているモジュールしか選べない。未定義のキャラ
+  // クター（今回未実装分）は、従来通り全モジュールを自由選択できる
+  // （pickMonsterActionがMONSTER_SKILL_LOADOUTS未定義のモンスターを
+  // randomEnemyActionにフォールバックするのと同じ考え方）。
+  if (unit.faction === "ally") {
+    const loadout = CHARACTER_SKILL_LOADOUTS[unit.character.dataId];
+    if (loadout && !loadout.includes(module.id)) return false;
+  }
   if (module.attribute) return unit.character.attribute === module.attribute;
   if (module.id === "attack" && unit.character.attribute) return false;
   return true;
@@ -515,9 +613,14 @@ const MAIN_MODULES = {
     label: "回復",
     targetFaction: "own",
     effect: "hp",
-    apply: (actor, target) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "coordination"));
-      const healPower = successCountToR(successCount);
+    // params.aStat：判定に使う能動能力値の上書き（既定coordination）。
+    // params.b：回復力への加算（既定0、負値も可）。【処方箋】のような
+    // 「回復力そのものを動的に増減させる」スキルのための拡張 -- 合計は
+    // 最低1に切り上げる（successCountToR自体も最低1だが、bがマイナスの
+    // 時はそれだけでは足りないため改めて保証する）。
+    apply: (actor, target, params = {}) => {
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "coordination"));
+      const healPower = Math.max(1, successCountToR(successCount) + (params.b ?? 0));
       const healAmount = rollSum(healPower);
       applyHpHeal(target.character, healAmount);
       return { magnitude: healAmount, label: "回復" };
@@ -745,6 +848,121 @@ Object.assign(MAIN_MODULES, {
   },
 });
 
+// キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
+// 選択肢には出さない。即席攻撃はこのスキル自身が唯一のleafモジュール
+// （攻撃力を能動能力値ではなく固定2D6で計算する専用の攻撃）で、他の
+// スキルのように既存モジュールをstepsでラップしていない。
+Object.assign(MAIN_MODULES, {
+  // 【即席攻撃】：能動能力値の代わりに固定2D6（=能動能力値2相当）で
+  // ダメージを計算する攻撃。フレーク・シュガー/ロリポップ・スパイラル
+  // /サンライト・サッカルムが共有する。
+  quickAttack: {
+    id: "quickAttack",
+    label: "即席攻撃",
+    targetFaction: "opposing",
+    effect: "hp",
+    cost: 1,
+    allyOnly: true,
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(2);
+      const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
+      const c = Math.pow(2, -0.5 * target.stamina);
+      const damage = Math.ceil(((a * a) / (a + d)) * c);
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  // 【応急手当】：継続回復をそのままラップしただけ。
+  firstAid: {
+    id: "firstAid",
+    label: "応急手当",
+    targetFaction: "own",
+    cost: 1,
+    allyOnly: true,
+    steps: [{ actionId: "regen", params: { n: 1 } }],
+  },
+  // 【守りの手】：自身にプロテクト、強化魔法(防御力)(2)を順に行う。
+  guardingHand: {
+    id: "guardingHand",
+    label: "守りの手",
+    targetFaction: "self",
+    cost: 2,
+    allyOnly: true,
+    steps: [{ actionId: "protect" }, { actionId: "enhanceDefense", params: { n: 2 } }],
+  },
+  // 【攻めの手】：攻撃した後、対象が「釘付け」状態（target.pinnedByが
+  // 立っている）なら追加で貫通攻撃を行う。固定のchance確率ではなく、
+  // (unit,targetUnit)=>numberの関数chanceを使うことで、既存のchance
+  // 機構をそのまま「条件付き発動」として流用している。
+  attackingHand: {
+    id: "attackingHand",
+    label: "攻めの手",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    steps: [
+      { actionId: "attack" },
+      { actionId: "pierceAttack", chance: (unit, targetUnit) => (targetUnit.pinnedBy ? 1 : 0) },
+    ],
+  },
+  // 【ハニービービート】：相手陣営1体にスマッシュ、スマッシュ、攻撃を
+  // 順に行う。
+  honeyBeeBeat: {
+    id: "honeyBeeBeat",
+    label: "ハニービービート",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    steps: [{ actionId: "smash" }, { actionId: "smash" }, { actionId: "attack" }],
+  },
+  // 【ビターフィール】：相手陣営1体に継続ダメージ(5)を付与した後、
+  // （前ステップの対象とは無関係に）自身に継続ダメージ(2)を付与する。
+  bitterFeel: {
+    id: "bitterFeel",
+    label: "ビターフィール",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    steps: [{ actionId: "dot", params: { n: 5 } }, { actionId: "dot", target: "self", params: { n: 2 } }],
+  },
+  // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(3)、
+  // 弱体化魔法(防御力)(3)を順に行う。
+  perfectSupport: {
+    id: "perfectSupport",
+    label: "完璧なサポート",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    steps: [{ actionId: "weakenAttack", params: { n: 3 } }, { actionId: "weakenDefense", params: { n: 3 } }],
+  },
+  // 【フラッシュ】：相手陣営全員に攻撃した後、自身にも攻撃を行う（反動
+  // ダメージ）。targetFaction:"none"のため対象候補の選択自体が不要 --
+  // 最初のstepのeach:"opposing"が相手陣営全員を、2番目のstepは（何も
+  // 指定しなくても既にactor自身を指す既定のtargetUnitのまま）自身を
+  // 対象にする。
+  flash: {
+    id: "flash",
+    label: "フラッシュ",
+    targetFaction: "none",
+    cost: 4,
+    allyOnly: true,
+    steps: [{ actionId: "attack", each: "opposing" }, { actionId: "attack" }],
+  },
+  // 【処方箋】：残りPTを全額消費する代わりに、回復力へ「消費したPT-3」
+  // を加算する（最低1）。cost:"all"はresolveMainAction側で「PTが足り
+  // ず不発」判定をスキップし、その時点の残りPT全額を支払う特別な値。
+  // 支払ったPT量はunit.lastActionCostに一時保存され、params関数から
+  // 参照する。
+  prescription: {
+    id: "prescription",
+    label: "処方箋",
+    targetFaction: "own",
+    cost: "all",
+    allyOnly: true,
+    steps: [{ actionId: "heal", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
+  },
+});
+
 // 属性攻撃(attribute)：module.attributeを持つ自分専用の「攻撃」。この
 // idはisModuleAvailableForで、モンスター自身の属性と一致する時しか
 // 選べないようゲートされる（プレイヤーの隊員はattributeを持たない
@@ -841,6 +1059,24 @@ const MONSTER_SKILL_LOADOUTS = {
   },
 };
 
+// 隊員の所持スキル：CHARACTER_DATAのdataIdごとに、そのキャラクターが
+// 選択できるモジュールid（Prep/Main問わず1本のリストにまとめたもの、
+// isModuleAvailableForがフェイズ別レジストリから引いたmodule.idと
+// 突き合わせるだけなので、Prep用/Main用に分ける必要が無い）を持つ。
+// モンスターと違い、隊員側は「選ぶ・使う」のどちらもプレイヤー操作
+// なので確率(chance)の概念は無い。ここに定義の無いキャラクター
+// （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
+// 全モジュールを自由選択できる。
+const CHARACTER_SKILL_LOADOUTS = {
+  flakeSugar: ["guardAlly", "quickAttack", "guardingHand"],
+  cubeSugar: ["retreatCall", "firstAid", "attackingHand"],
+  honeyScrew: ["festivalHunch", "firstAid", "honeyBeeBeat"],
+  chocolatBitterTaste: ["shadowJustice", "firstAid", "bitterFeel"],
+  lollipopSpiral: ["sisterCheer", "quickAttack", "perfectSupport"],
+  flawlessNoColor: ["check", "firstAid", "flash"],
+  sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "prescription"],
+};
+
 const PREP_START_PT = 3;
 
 // 陣営ごとの隊員をラップする、戦闘限定の使い捨てデータ。IN/PT/行動選択
@@ -859,6 +1095,8 @@ function createBattleUnit(character, faction) {
     continuousHp: null,
     pinnedBy: null,
     stealthed: false,
+    guardedBy: null,
+    lastActionCost: 0,
     action: null,
     displayName: character.name,
   };
@@ -1055,9 +1293,14 @@ export function BattleScene(container, params, api) {
 
   let turn = 1;
   let phase = "prep"; // "prep" | "main"
-  let executing = false; // true for the whole duration of runPrepExecution/runMainExecution (blocks input)
+  let executing = false; // true while resolving an action / auto-advancing (blocks input)
   let activeArrow = null; // { actor, target } | null
   let battleOutcome = null; // "victory" | "defeat" | null -- once set, the action bar swaps to a single 戦闘を終える button
+  // Mainフェイズの逐次処理用：buildMainOrder()の結果をフェイズ開始時に
+  // 1度だけ確定させ（startMainPhase）、mainCursorで「今どこまで見終え
+  // たか」を指す。advanceMainPhase参照。
+  let mainOrder = [];
+  let mainCursor = 0;
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -1099,8 +1342,16 @@ export function BattleScene(container, params, api) {
     const opposing = actor.faction === "ally" ? enemyUnits : allyUnits;
     let pool = opposing.filter((u) => !isIncapacitated(u));
     if (phase === "main") {
-      if (actor.pinnedBy) pool = pool.filter((u) => u === actor.pinnedBy);
-      else pool = pool.filter((u) => !u.stealthed);
+      if (actor.pinnedBy) {
+        // 釘付けが成立している間は、警護による対象の差し替えは行わない
+        // （挑発の「確実にこの相手を狙わせる」という役割を優先する）。
+        pool = pool.filter((u) => u === actor.pinnedBy);
+      } else {
+        pool = pool.filter((u) => !u.stealthed);
+        // 警護：候補に「警護対象」状態のユニットが含まれる場合、実際の
+        // 対象候補としてはその守護者に差し替える（重複は除去）。
+        pool = [...new Set(pool.map((u) => (u.guardedBy && !isIncapacitated(u.guardedBy) ? u.guardedBy : u)))];
+      }
     }
     return pool;
   }
@@ -1134,6 +1385,17 @@ export function BattleScene(container, params, api) {
     return { moduleId, targetUnit };
   }
 
+  // costを持つモジュールの支払い可能判定。固定値（数値）は現在PTが
+  // それ以上あるか、"all"（残りコスト全消費）は現在PTが1以上あるか
+  // （0の状態でも選べてしまうと「0を払って無限に繰り返し選べる」PT
+  // チェーンの無限ループになってしまうため、0では不可とする）。costを
+  // 持たないモジュールは常にtrue。
+  function isAffordable(unit, module) {
+    if (!module.cost) return true;
+    if (module.cost === "all") return unit.pt.current > 0;
+    return unit.pt.current >= module.cost;
+  }
+
   // 所持スキル一覧（MONSTER_SKILL_LOADOUTS）から、指定フェイズで実際に
   // 使う{moduleId, chance}を1つ選ぶ：①PTが足りる・対象がいるものだけを
   // 候補にする、②発生確率の高い順に並べ、最後の1つ以外は自分の確率で
@@ -1145,7 +1407,7 @@ export function BattleScene(container, params, api) {
     const registry = phase === "prep" ? PREP_MODULES : MAIN_MODULES;
     const viable = skillList.filter(({ moduleId }) => {
       const module = registry[moduleId];
-      if (phase === "main" && module.cost && unit.pt.current < module.cost) return false;
+      if (phase === "main" && !isAffordable(unit, module)) return false;
       return candidateUnits(unit, moduleId).length > 0;
     });
     if (viable.length === 0) return null;
@@ -1184,10 +1446,10 @@ export function BattleScene(container, params, api) {
   }
 
   // モンスターのMainフェイズの手番：PTが支払える限り、使えるスキルが
-  // 尽きるまで連続で選択・実行を繰り返す（隊員側はプレイヤーが選んだ
-  // 1回だけ、という現状の仕様は変えない -- runMainExecution参照）。
-  // 連続行動の途中で勝敗が決した、または自分自身が戦闘不能になった
-  // 場合はそこで打ち切る。
+  // 尽きるまで連続で選択・実行を繰り返す（隊員側は1回選んで実行する
+  // たびにプレイヤーの選択へ戻る -- advanceMainPhase参照）。連続行動の
+  // 途中で勝敗が決した、または自分自身が戦闘不能になった場合はそこで
+  // 打ち切る。
   async function resolveMonsterMainTurn(unit) {
     while (true) {
       const action = pickMonsterAction(unit, "main");
@@ -1207,6 +1469,7 @@ export function BattleScene(container, params, api) {
       unit.pt = { current: PREP_START_PT, max: PREP_START_PT };
       unit.pinnedBy = null;
       unit.stealthed = false;
+      unit.guardedBy = null;
     }
     for (const unit of allyUnits) unit.action = null;
     for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : pickMonsterAction(unit, "prep");
@@ -1221,8 +1484,53 @@ export function BattleScene(container, params, api) {
     return !executing;
   }
 
+  // Prepフェイズの現在の状況で、対象候補が最低1つある所持スキルのid
+  // 一覧を返す（Prepにはコストの概念が無いため、対象候補の有無だけを
+  // 見る）。空なら、このユニットは今このタイミングで選べる行動が無い
+  // ということ（例：所持スキルが「自身以外の自陣営1体」を対象に取る
+  // ものだけで、自分が自陣営で唯一の生存者になっている場合）。
+  function viablePrepModuleIds(unit) {
+    return Object.keys(PREP_MODULES).filter((id) => {
+      const module = PREP_MODULES[id];
+      if (!isModuleAvailableFor(unit, module)) return false;
+      return candidateUnits(unit, id).length > 0;
+    });
+  }
+
+  // 選べる行動が1つも無いユニット（viablePrepModuleIdsが空）は、
+  // 「全員選択完了」の必須対象から除外する -- そうしないと、対象候補が
+  // 常に存在しない所持スキルしか持たないユニットが、行動不能なまま
+  // Prepフェイズを永久に完了できなくなってしまう。
   function allAlliesReady() {
-    return allyUnits.filter((u) => !isIncapacitated(u)).every((u) => u.action && u.action.targetUnit);
+    return allyUnits
+      .filter((u) => !isIncapacitated(u) && viablePrepModuleIds(u).length > 0)
+      .every((u) => u.action && u.action.targetUnit);
+  }
+
+  // Mainフェイズは逐次処理のため、今まさに選択待ちの1ユニット（必ず
+  // mainOrder[mainCursor]、味方）だけが選択済みかどうかを見る。
+  function mainActorReady() {
+    const unit = mainOrder[mainCursor];
+    return !!(unit && unit.action && unit.action.targetUnit);
+  }
+
+  // このユニットが「今、選択操作の対象」かどうか。Prepフェイズは全員
+  // 常に選択可能（現行仕様のまま）。Mainフェイズは逐次処理のため、
+  // 行動順で今の手番のユニットだけが選択可能。
+  function isActingNow(unit) {
+    return phase === "prep" || mainOrder[mainCursor] === unit;
+  }
+
+  // Mainフェイズの現在の手番ユニット（味方）について、今すぐ選べる
+  // （所持している・PTが足りる・対象がいる）行動のidを返す。空なら
+  // そのユニットの手番はスキップする（advanceMainPhase参照）。
+  function viableMainModuleIds(unit) {
+    return Object.keys(MAIN_MODULES).filter((id) => {
+      const module = MAIN_MODULES[id];
+      if (!isModuleAvailableFor(unit, module)) return false;
+      if (!isAffordable(unit, module)) return false;
+      return candidateUnits(unit, id).length > 0;
+    });
   }
 
   function handleModuleChange(unit, moduleId) {
@@ -1276,9 +1584,17 @@ export function BattleScene(container, params, api) {
 
   // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
   // 自体はMainフェイズと違い最初からの確定仕様で、以下の変更の対象外）。
-  // 戦闘不能のユニットはここで除外し、行動順に含めない。
+  // 味方と敵の人数が異なる場合（隊員が3人で敵が2体、など）でも安全な
+  // よう、どちらか長い方の人数までインデックスを回し、存在しない側は
+  // 単に飛ばす。戦闘不能のユニットはここで除外し、行動順に含めない。
   function buildAlternatingOrder() {
-    return allyUnits.flatMap((_, i) => [allyUnits[i], enemyUnits[i]]).filter((u) => !isIncapacitated(u));
+    const maxLen = Math.max(allyUnits.length, enemyUnits.length);
+    const order = [];
+    for (let i = 0; i < maxLen; i++) {
+      if (allyUnits[i]) order.push(allyUnits[i]);
+      if (enemyUnits[i]) order.push(enemyUnits[i]);
+    }
+    return order.filter((u) => !isIncapacitated(u));
   }
 
   // MainフェイズはINが高いユニットから順に行動する。IN同値のユニットが
@@ -1423,7 +1739,10 @@ export function BattleScene(container, params, api) {
   // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
   // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
   // 行わない。葉モジュールは実質「自分自身1個だけのsteps」として扱う。
+  // unit.actionが無い（viablePrepModuleIdsが空で選択自体を免除された）
+  // ユニットは何もしない。
   async function resolvePrepAction(unit) {
+    if (!unit.action) return;
     const { moduleId, targetUnit } = unit.action;
     const module = PREP_MODULES[moduleId];
     activeArrow = { actor: unit, target: targetUnit };
@@ -1564,7 +1883,12 @@ export function BattleScene(container, params, api) {
       const action = registry[step.actionId];
 
       if (step.each) {
-        const pool = step.each === "own" ? ownPoolFor(unit) : opposingPoolFor(unit);
+        const pool =
+          step.each === "own"
+            ? ownPoolFor(unit)
+            : step.each === "ownExcludingSelf"
+              ? ownPoolFor(unit).filter((u) => u !== unit)
+              : opposingPoolFor(unit);
         for (const t of pool) {
           usedTargets.push(t);
           if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets);
@@ -1620,7 +1944,13 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
-    if (module.cost) {
+    if (module.cost === "all") {
+      // 残りコスト全消費：PT不足による不発判定は行わず（0でも成立する）、
+      // その時点の残りPT全額を支払う。支払った量はunit.lastActionCostに
+      // 記録し、【処方箋】のようなparams関数から参照できるようにする。
+      unit.lastActionCost = unit.pt.current;
+      unit.pt.current = 0;
+    } else if (module.cost) {
       if (unit.pt.current < module.cost) {
         pushLog(`${unit.displayName}はPTが足りず、「${module.label}」は不発に終わった。`, unit.faction);
         render();
@@ -1628,6 +1958,7 @@ export function BattleScene(container, params, api) {
         return;
       }
       unit.pt.current -= module.cost;
+      unit.lastActionCost = module.cost;
     }
 
     // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
@@ -1696,12 +2027,15 @@ export function BattleScene(container, params, api) {
   }
 
   // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：味方
-  // ・敵とも選択を空に戻し（敵側はPTが許す限り連続使用ループの中で毎回
-  // 選び直すので、ここでの事前選択は不要 -- resolveMonsterMainTurn参照）、
-  // 見出し＋敵HP一覧をログに出す。ここではまだ実行しない（プレイヤーの
-  // 選択待ち）。
+  // ・敵とも選択を空に戻し、行動順(mainOrder)をこのフェイズの間だけ
+  // 固定して先頭からのカーソル(mainCursor)を0に戻し、見出し＋敵HP一覧
+  // をログに出す。ここではまだ誰の行動も実行しない -- advanceMainPhase
+  // が呼ばれて初めて、先頭から敵の自動行動→最初の味方の選択待ちへと
+  // 進む。
   function startMainPhase() {
     phase = "main";
+    mainOrder = buildMainOrder();
+    mainCursor = 0;
     for (const unit of [...allyUnits, ...enemyUnits]) unit.action = null;
     pushPhaseHeader("メインディッシュ！");
   }
@@ -1718,29 +2052,48 @@ export function BattleScene(container, params, api) {
     startMainPhase();
     render();
     await sleep(MAIN_PHASE_WAIT_MS);
-    executing = false;
-    render();
+    await advanceMainPhase();
   }
 
-  async function runMainExecution() {
-    executing = true;
-    render();
-
-    for (const unit of buildMainOrder()) {
+  // Mainフェイズのユニット送り：mainOrderを先頭（または前回止まった
+  // 位置）から見て、戦闘不能なユニットはスキップ、敵はCPUがPTの続く
+  // 限り連続実行、味方は「今すぐ選べる行動が1つも無い」間だけスキップ
+  // する。選べる行動が残っている味方に行き当たったら、そこでmainCursor
+  // を進めずに停止し（unit.actionは既にnull）、プレイヤーの選択を待つ
+  // -- 次に「行動実行！」が押された時、同じユニットの手番として再開
+  // する（まだ行動が残っていれば止まり、無くなっていれば次へ進む）。
+  // 行動順を最後まで見終えたらターン終了処理を行い、次のPrepフェイズ
+  // へ切り替える。
+  async function advanceMainPhase() {
+    while (mainCursor < mainOrder.length) {
+      const unit = mainOrder[mainCursor];
       // 同じフェイズ内で自分より先に動いた誰かに倒されていたら、この
       // ユニットの番はスキップする（行動順はフェイズ開始時点の生存者
       // で組んでいるため、途中で戦闘不能になることがある）。
-      if (isIncapacitated(unit)) continue;
+      if (isIncapacitated(unit)) {
+        mainCursor += 1;
+        continue;
+      }
       // モンスターはPTが支払える限り連続でスキルを使用できる（隊員は
       // プレイヤーが選んだ1回だけ）-- resolveMonsterMainTurn参照。
-      if (unit.faction === "enemy") await resolveMonsterMainTurn(unit);
-      else await resolveMainAction(unit);
-      const outcome = checkBattleEnd();
-      if (outcome) {
-        activeArrow = null;
-        concludeBattle(outcome);
-        return;
+      if (unit.faction === "enemy") {
+        await resolveMonsterMainTurn(unit);
+        const outcome = checkBattleEnd();
+        if (outcome) {
+          activeArrow = null;
+          concludeBattle(outcome);
+          return;
+        }
+        mainCursor += 1;
+        continue;
       }
+      if (viableMainModuleIds(unit).length === 0) {
+        mainCursor += 1;
+        continue;
+      }
+      executing = false;
+      render();
+      return;
     }
 
     activeArrow = null;
@@ -1763,20 +2116,43 @@ export function BattleScene(container, params, api) {
     render();
   }
 
+  // Mainフェイズの「行動実行！」ボタン：現在の手番ユニット（必ず味方、
+  // mainOrder[mainCursor]）が選択済みの1行動だけを実行し、その後の手番
+  // 送りはadvanceMainPhaseに委ねる（同じユニットにまだ使える行動が
+  // 残っていれば、advanceMainPhase側の判定でそのまま同じユニットの
+  // 手番として止まる）。
+  async function runMainStep() {
+    executing = true;
+    render();
+    const unit = mainOrder[mainCursor];
+    await resolveMainAction(unit);
+    const outcome = checkBattleEnd();
+    if (outcome) {
+      activeArrow = null;
+      concludeBattle(outcome);
+      return;
+    }
+    unit.action = null;
+    await advanceMainPhase();
+  }
+
+  // Prepフェイズは所持スキル（isModuleAvailableFor）だけで絞る（コスト
+  // の概念が無いため、それ以上の絞り込みは不要）。Mainフェイズは逐次
+  // 処理のため、選んでも不発になるだけの選択肢（PT不足・対象無し）は
+  // あらかじめ除く -- viableMainModuleIds参照。
   function moduleSelectFor(unit) {
+    const options =
+      phase === "main"
+        ? viableMainModuleIds(unit).map((id) => MAIN_MODULES[id])
+        : Object.values(currentModules()).filter((m) => isModuleAvailableFor(unit, m));
     const select = h(
       "select",
       {
         class: "battle-action-select__dropdown",
-        disabled: !isInteractive(),
+        disabled: !isInteractive() || !isActingNow(unit),
         onChange: (e) => handleModuleChange(unit, e.target.value),
       },
-      [
-        h("option", { value: "", text: "－" }),
-        ...Object.values(currentModules())
-          .filter((m) => isModuleAvailableFor(unit, m))
-          .map((m) => h("option", { value: m.id, text: m.label })),
-      ]
+      [h("option", { value: "", text: "－" }), ...options.map((m) => h("option", { value: m.id, text: m.label }))]
     );
     select.value = unit.action?.moduleId ?? "";
     return select;
@@ -1789,7 +2165,7 @@ export function BattleScene(container, params, api) {
       "select",
       {
         class: "battle-action-select__dropdown",
-        disabled: !isInteractive() || !moduleId,
+        disabled: !isInteractive() || !isActingNow(unit) || !moduleId,
         onChange: (e) => {
           const target = candidates.find((c) => c.character.id === e.target.value) ?? null;
           handleTargetChange(unit, target);
@@ -1814,7 +2190,8 @@ export function BattleScene(container, params, api) {
   // ワイドモードの専用列に並ぶ、隊員名付きの版。味方ステータス列とは
   // 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
   // 名前を添えている。行動内容・行動対象のどちらかが未確定の間はハイ
-  // ライトし、両方確定すると解除する。順次処理中は全て一律グレーアウト。
+  // ライトし、両方確定すると解除する。順次処理中、およびMainフェイズで
+  // 今の手番でないユニットは一律グレーアウト。
   function actionSelectBox(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-action-select battle-action-select--down" }, [
@@ -1822,7 +2199,8 @@ export function BattleScene(container, params, api) {
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
-    const modifier = executing ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
+    const inactive = executing || !isActingNow(unit);
+    const modifier = inactive ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
     return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
   }
 
@@ -1835,13 +2213,16 @@ export function BattleScene(container, params, api) {
   }
 
   // 携帯モードでもワイドモードでも共通の、テキストログ直下の実行ボタン。
-  // 全味方の行動内容・行動対象が確定するまで、また処理中は無効。
-  // Prep/Mainどちらのフェイズ中かで実行する処理を切り替える。
+  // Prepフェイズは全味方の行動内容・行動対象が確定するまで、Main
+  // フェイズは今の手番ユニット1人分が確定するまで無効（処理中も無効）。
+  // Prep/Mainどちらのフェイズ中かで実行する処理を切り替える -- Prepは
+  // 従来通り全員分を一括実行、Mainは手番ユニット1人分だけを実行して
+  // 手番送りする。
   function actionExecuteButton() {
     return h("button", {
       class: "btn btn--primary battle-execute-btn",
-      disabled: !isInteractive() || !allAlliesReady(),
-      onClick: phase === "prep" ? runPrepExecution : runMainExecution,
+      disabled: !isInteractive() || (phase === "prep" ? !allAlliesReady() : !mainActorReady()),
+      onClick: phase === "prep" ? runPrepExecution : runMainStep,
       text: "行動実行！",
     });
   }
@@ -1937,7 +2318,20 @@ export function BattleScene(container, params, api) {
       }
     }
 
-    // (3) 順次処理の一時的な矢印。上記2つより後に追加することで、常に
+    // (3) 警護の薄い青いコの字矢印：Mainフェイズのみ、警護した側・
+    // された側のどちらも戦闘不能でない場合のみ描く（同陣営同士のため
+    // コの字表示）。
+    if (phase === "main") {
+      for (const unit of [...allyUnits, ...enemyUnits]) {
+        if (!unit.guardedBy || isIncapacitated(unit) || isIncapacitated(unit.guardedBy)) continue;
+        const a = unitEdge(unit.guardedBy);
+        const b = unitEdge(unit);
+        if (!a || !b) continue;
+        for (const el of loopArrowElements(a.x, a.y, b.y, unit.faction, false, "guard")) overlay.appendChild(el);
+      }
+    }
+
+    // (4) 順次処理の一時的な矢印。上記3つより後に追加することで、常に
     // それらより表側（手前）に描かれる。
     if (activeArrow) {
       const a = unitEdge(activeArrow.actor);
@@ -1953,7 +2347,9 @@ export function BattleScene(container, params, api) {
   }
 
   // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
-  // ・行動選択プルダウンだけの縦並びリストを出す。
+  // ・行動選択プルダウンだけの縦並びリストを出す。Mainフェイズで今の
+  // 手番でないユニットは薄くグレーアウトする（プルダウン自体は
+  // moduleSelectFor/targetSelectFor側で既に無効化されている）。
   function mobileUnitRow(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-mobile-unit battle-mobile-unit--down" }, [
@@ -1962,7 +2358,8 @@ export function BattleScene(container, params, api) {
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
-    return h("div", { class: "battle-mobile-unit" }, [
+    const waiting = phase === "main" && !isActingNow(unit);
+    return h("div", { class: `battle-mobile-unit${waiting ? " battle-mobile-unit--waiting" : ""}` }, [
       h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), conditionBadge(unit)]),
       battleHpGauge(unit),
       actionSelectFields(unit),
