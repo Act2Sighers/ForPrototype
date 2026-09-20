@@ -840,8 +840,11 @@ body {
   stroke: var(--ember-strong);
 }
 
+/* ラベルは円の外（下側、ページの暗い背景の上）に出るため、円の内側用の
+   暗色（--ember-ink）を使うとほぼ判読不能になる。円と同系統の明るい
+   --ember-strongを使い、暗い背景の上でもはっきり読めるようにする。 */
 .map-node.is-current text {
-  fill: var(--ember-ink);
+  fill: var(--ember-strong);
   font-weight: 600;
 }
 

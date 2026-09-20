@@ -441,10 +441,12 @@ function rawStat(unit, key) {
 
 // 実効能力値：unit.correctionsに補正がかかっていればそれを加味した値。
 // 上記以外の全モジュール（攻撃/貫通攻撃/回復/プロテクト/スマッシュ/
-// 継続回復/継続ダメージのダイス数）はこちらを使う。0未満にはしない。
+// 継続回復/継続ダメージのダイス数）はこちらを使う。0未満にはしない
+// （攻撃力だけは0だと成立しなくなってしまうため、最低値を1にする）。
 function correctedStat(unit, key) {
   const c = unit.corrections[key];
-  return Math.max(0, rawStat(unit, key) + (c ? c.sign * c.n : 0));
+  const floor = key === "attack" ? 1 : 0;
+  return Math.max(floor, rawStat(unit, key) + (c ? c.sign * c.n : 0));
 }
 
 // 能力値補正の適用：同じ能力値に既存の補正があれば、強さ(n)を比較して
@@ -1294,7 +1296,7 @@ export function BattleScene(container, params, api) {
   let turn = 1;
   let phase = "prep"; // "prep" | "main"
   let executing = false; // true while resolving an action / auto-advancing (blocks input)
-  let activeArrow = null; // { actor, target } | null
+  let activeArrow = null; // { actor, target } | { actor, targets: [] } | null（後者は陣営全体を対象に取るスキル用）
   let battleOutcome = null; // "victory" | "defeat" | null -- once set, the action bar swaps to a single 戦闘を終える button
   // Mainフェイズの逐次処理用：buildMainOrder()の結果をフェイズ開始時に
   // 1度だけ確定させ（startMainPhase）、mainCursorで「今どこまで見終え
@@ -1380,6 +1382,19 @@ export function BattleScene(container, params, api) {
 
     // targetFaction === "opposing"
     return opposingPoolFor(actor);
+  }
+
+  // 矢印表示用：「陣営全体」を対象に取るスキル（先頭のstepがstep.each
+  // を持つもの。sisterCheer/flash/quagmire/staticClingなど）は、宣言の
+  // 時点で実際に効果が及ぶ全ユニットが確定しているので、それを返す。
+  // 単体対象のスキルはnull（呼び出し側は従来通り単一のtarget表示に
+  // フォールバックする）。
+  function declaredTargetsFor(unit, module) {
+    const each = module.steps?.[0]?.each;
+    if (!each) return null;
+    if (each === "own") return ownPoolFor(unit);
+    if (each === "ownExcludingSelf") return ownPoolFor(unit).filter((u) => u !== unit);
+    return opposingPoolFor(unit);
   }
 
   function randomEnemyAction(unit) {
@@ -1836,7 +1851,8 @@ export function BattleScene(container, params, api) {
     if (!unit.action) return;
     const { moduleId, targetUnit } = unit.action;
     const module = PREP_MODULES[moduleId];
-    activeArrow = { actor: unit, target: targetUnit };
+    const declaredTargets = declaredTargetsFor(unit, module);
+    activeArrow = declaredTargets ? { actor: unit, targets: declaredTargets } : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
@@ -2026,7 +2042,8 @@ export function BattleScene(container, params, api) {
   async function resolveMainAction(unit) {
     const { moduleId, targetUnit } = unit.action;
     const module = MAIN_MODULES[moduleId];
-    activeArrow = { actor: unit, target: targetUnit };
+    const declaredTargets = declaredTargetsFor(unit, module);
+    activeArrow = declaredTargets ? { actor: unit, targets: declaredTargets } : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
@@ -2361,7 +2378,7 @@ export function BattleScene(container, params, api) {
     if (isIncapacitated(unit)) classes.push("battle-unit--down");
     if (activeArrow) {
       if (unit === activeArrow.actor) classes.push("battle-unit--actor");
-      else if (unit === activeArrow.target) classes.push("battle-unit--target");
+      else if (activeArrow.targets ? activeArrow.targets.includes(unit) : unit === activeArrow.target) classes.push("battle-unit--target");
     } else {
       // Prepフェイズで「この隊員の行動対象を選ぶ」モード中のその隊員
       // 自身も、矢印表示中の行動主体と同じ見た目でハイライトする。
@@ -2452,8 +2469,24 @@ export function BattleScene(container, params, api) {
     }
 
     // (4) 順次処理の一時的な矢印。上記3つより後に追加することで、常に
-    // それらより表側（手前）に描かれる。
-    if (activeArrow) {
+    // それらより表側（手前）に描かれる。陣営全体を対象に取るスキル
+    // （activeArrow.targets配列がある場合）は、実際に効果が及ぶ全員へ
+    // 向けた矢印を同時に1本ずつ描く（自分自身へのコの字矢印1本で代用
+    // しない）。
+    if (activeArrow?.targets) {
+      const a = unitEdge(activeArrow.actor);
+      if (a) {
+        for (const target of activeArrow.targets) {
+          const b = unitEdge(target);
+          if (!b) continue;
+          const elements =
+            activeArrow.actor.faction !== target.faction
+              ? crossArrowElements(a, b)
+              : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === target);
+          for (const el of elements) overlay.appendChild(el);
+        }
+      }
+    } else if (activeArrow) {
       const a = unitEdge(activeArrow.actor);
       const b = unitEdge(activeArrow.target);
       if (a && b) {
