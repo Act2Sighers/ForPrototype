@@ -60,7 +60,12 @@ function pickRandomInt(min, max) {
 // 先頭と末尾）はそれぞれ独立に2〜4のランダムで決め、その間の列は
 // 「隣の列との差が1以内」を保ちながら、必ずX-1列目の値にちょうど
 // たどり着くようランダムに橋渡しする（残り列数的に間に合う候補だけを
-// 毎回ランダムに選ぶので、途中の値も偏りなくランダムになる）。
+// 毎回ランダムに選ぶので、途中の値も偏りなくランダムになる）。同じマス
+// 数の列が3回以上連続しないよう、直前2列が同数ならその値を候補から除く
+// （末尾のX-1列目は既に確定済みの値なので、その1つ手前を選ぶ際も同様に
+// 「直前列 = X-1列目の値」なら除く）。ROW_COUNT_MIN〜MAXが3値しか無く、
+// その中央値（3）はどのlastからも距離1以内なので、1値を除いても候補が
+// 空になることはない。
 function generateColumnSizes(middleColumnCount) {
   const first = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
   const last = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
@@ -71,8 +76,12 @@ function generateColumnSizes(middleColumnCount) {
   for (let i = 1; i < middleColumnCount - 1; i++) {
     const cur = sizes[i - 1];
     const remainingSteps = middleColumnCount - 1 - i; // このあと最終列まで残っている辺の数
+    const isLastLoopStep = i === middleColumnCount - 2;
+    const forbidden =
+      (i >= 2 && sizes[i - 2] === cur) || (isLastLoopStep && cur === last) ? cur : null;
     const candidates = [];
     for (let c = Math.max(ROW_COUNT_MIN, cur - 1); c <= Math.min(ROW_COUNT_MAX, cur + 1); c++) {
+      if (c === forbidden) continue;
       if (Math.abs(last - c) <= remainingSteps) candidates.push(c);
     }
     sizes[i] = candidates[Math.floor(Math.random() * candidates.length)];
