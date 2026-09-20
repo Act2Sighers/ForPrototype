@@ -51,12 +51,16 @@ export function CoatingStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, groups.map(groupRow))
           : h("p", { class: "lead", text: "糖衣置き場に糖衣はありません。" }),
       ],
+      // 「糖衣編集」は画面下部から退避させ、タイトル直下の右揃え行
+      // （headActions）へ移す -- 明るいピンク地に黒文字のハイライト
+      // （primaryと同じ配色）で目立たせる。
+      headActions: [button("糖衣編集", { variant: "primary", onClick: () => api.callScene("coatingEdit") })],
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
-        button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
-        button("糖衣編集", { onClick: () => api.callScene("coatingEdit") }),
+        button("マップ", { onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
+        button("糖衣", { disabled: true }),
         button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ],
     });

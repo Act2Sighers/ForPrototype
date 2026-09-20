@@ -52,7 +52,7 @@ export function WorldScene(container, params, api) {
       );
     }
 
-    const actions = [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
+    const actions = [];
 
     if (location?.kind === "castle") {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("gallery") }));
@@ -73,6 +73,7 @@ export function WorldScene(container, params, api) {
       title: "ワールド",
       subtitle: "行き先を選んでください。",
       body,
+      onPause: () => api.callScene("pause"),
       actions,
     });
   }

@@ -51,7 +51,15 @@ export function clear(el) {
 // user's real scroll position. A persisted value, kept current by a
 // scroll listener on every frame, stays correct no matter how many
 // renders happen before the next paint.
-export function renderScreen(container, { eyebrow, title, subtitle, body, actions = [], corner } = {}) {
+// `onPause`: when given, renders a small ポーズ button at the top-right of
+// the header (next to the eyebrow) instead of in the bottom action bar —
+// keeps it off the footer so sibling screens (部隊編成/武器/糖衣/荷物/…)
+// can share a consistent bottom-button layout regardless of whether ポーズ
+// applies. `headActions`: an optional right-aligned button row placed just
+// below the title/subtitle, for a screen's own "mode" buttons (編成を
+// 変える／糖衣編集 etc.) that also need to stay out of the footer for the
+// same reason.
+export function renderScreen(container, { eyebrow, title, subtitle, body, actions = [], corner, onPause, headActions } = {}) {
   const previousFrame = container.querySelector(".screen-frame");
   const scrollTop = container._savedScrollTop ?? (previousFrame ? previousFrame.scrollTop : 0);
 
@@ -59,9 +67,13 @@ export function renderScreen(container, { eyebrow, title, subtitle, body, action
   const frame = h("div", { class: "screen-frame" }, [
     corner && corner.length ? h("div", { class: "hud-corner" }, corner) : null,
     h("header", { class: "screen-head" }, [
-      h("div", { class: "screen-head__top" }, [eyebrow ? h("p", { class: "eyebrow", text: eyebrow }) : h("span")]),
+      h("div", { class: "screen-head__top" }, [
+        eyebrow ? h("p", { class: "eyebrow", text: eyebrow }) : h("span"),
+        onPause ? button("ポーズ", { variant: "ghost", onClick: onPause }) : null,
+      ]),
       h("h1", { class: "screen-title", text: title }),
       subtitle ? h("p", { class: "screen-sub", text: subtitle }) : null,
+      headActions && headActions.length ? h("div", { class: "screen-head__actions" }, headActions) : null,
     ]),
     h("div", { class: "screen-body" }, Array.isArray(body) ? body : [body]),
     actions.length ? h("footer", { class: "screen-actions" }, actions) : null,

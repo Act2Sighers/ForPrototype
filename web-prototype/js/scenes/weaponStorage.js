@@ -272,10 +272,11 @@ export function WeaponStorageScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, state.storedWeapons.map(normalRow))
           : h("p", { class: "lead", text: "使用していない武器はありません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
-        button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("マップ", { onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
+        button("武器", { disabled: true }),
         button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
         button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
       ],

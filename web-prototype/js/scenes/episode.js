@@ -232,7 +232,7 @@ export function EpisodeScene(container, params, api) {
       );
     }
 
-    const actions = [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
+    const actions = [];
     if (MODES_WITH_SKIP.has(mode)) {
       actions.push(button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }));
     }
@@ -252,6 +252,7 @@ export function EpisodeScene(container, params, api) {
       eyebrow: "EPISODE",
       title: "エピソード",
       corner: resourceHud(state.run?.resources),
+      onPause: () => api.callScene("pause"),
       body,
       actions,
     });

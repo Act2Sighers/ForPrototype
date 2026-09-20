@@ -260,8 +260,13 @@ export function MapScene(container, params, api) {
       subtitle: "イベントマスをたどって、スタートからゴールを目指します。",
       corner: resourceHud(state.run.resources),
       body: [alertBanner, mapScroll, h("p", { class: "map-hint", text: hint })].filter(Boolean),
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
+        // ダミー（常にグレーアウト）: 部隊編成/武器/糖衣/荷物置き場の
+        // 各画面がそれぞれ「マップ」「部隊編成」「武器」「糖衣」ダミー
+        // ボタンを同じ位置に持つのに揃え、兄弟画面を行き来してもボタン
+        // 位置が動かないようにするための1枠（このマップ自身のダミー）。
+        button("マップ", { disabled: true }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
         button("武器", { onClick: () => api.callScene("weaponStorage") }),
         button("糖衣", { onClick: () => api.callScene("coatingStorage") }),

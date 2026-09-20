@@ -474,6 +474,7 @@ export function SquadFormationScene(container, params, api) {
 
     let actions;
     let subtitle;
+    let headActions;
     if (mode === "discharge") {
       actions = [button("閉じる", { variant: "ghost", onClick: () => api.closeScene() })];
       subtitle = "退役させたい隊員の「除隊」を押してください。";
@@ -488,10 +489,14 @@ export function SquadFormationScene(container, params, api) {
       ];
       subtitle = "隊員を編成・待機スロット間で移動できます（編成には最低1人必要です。各スロット定員は6人です）。";
     } else {
+      // 「編成を変える」は画面下部から退避させ、タイトル直下の右揃え
+      // 行（headActions）へ移す -- 兄弟画面（武器/糖衣/荷物置き場）と
+      // 画面下部のボタン構成を揃えるため（マップ/部隊編成/武器/糖衣/
+      // 荷物の5つで固定、うち「部隊編成」は自分自身を指すダミー）。
+      headActions = [button("編成を変える", { variant: "primary", onClick: enterEdit })];
       actions = [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
-        button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
-        button("編成を変える", { variant: "primary", onClick: enterEdit }),
+        button("マップ", { onClick: () => api.closeScene() }),
+        button("部隊編成", { disabled: true }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
         button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
         button("荷物", { onClick: () => api.closeScene({ openNext: "resourceStorage" }) }),
@@ -503,6 +508,8 @@ export function SquadFormationScene(container, params, api) {
       eyebrow: mode === "discharge" ? "SQUAD / DISCHARGE" : "SQUAD",
       title: mode === "discharge" ? "部隊編成（除隊）" : "部隊編成",
       subtitle,
+      headActions,
+      onPause: mode === "discharge" || editing ? undefined : () => api.callScene("pause"),
       body,
       actions,
     });

@@ -207,6 +207,15 @@ body {
   flex-wrap: wrap;
 }
 
+/* 画面下部から退避させた「編成を変える」「糖衣編集」等、画面固有の
+   モード切り替えボタン用の行。タイトル/サブタイトルのすぐ下、右揃え。 */
+.screen-head__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .eyebrow {
   margin: 0;
   font-family: var(--font-mono);

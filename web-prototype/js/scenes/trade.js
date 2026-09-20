@@ -69,8 +69,8 @@ export function TradeScene(container, params, api) {
           h("div", { class: "chip-row" }, shopChips),
         ]),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("部隊編成", { onClick: () => api.callScene("squadFormation") }),
         button("武器", { onClick: () => api.callScene("weaponStorage") }),
         button("糖衣", { onClick: () => api.callScene("coatingStorage") }),

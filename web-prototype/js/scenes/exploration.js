@@ -175,8 +175,8 @@ export function ExplorationScene(container, params, api) {
           ? h("div", { class: "slot-list slot-list--grid" }, eligibleCharacters.map(assignRow))
           : h("p", { class: "lead", text: "割り当てられる隊員がいません。" }),
       ],
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("探索せずに去る", { variant: "ghost", onClick: () => api.closeScene() }),
         button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }),
         button("自動割り当て", { variant: "ghost", disabled: isAutoAssignDisabled(), onClick: autoAssign }),
@@ -220,8 +220,8 @@ export function ExplorationScene(container, params, api) {
       subtitle: "作業を進行しています…",
       corner: resourceHud(state.run?.resources),
       body,
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }),
       ],
     });

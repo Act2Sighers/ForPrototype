@@ -2529,7 +2529,7 @@ export function BattleScene(container, params, api) {
   function battleActions() {
     const skipButton = button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() });
     if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton];
-    return [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }), skipButton];
+    return [skipButton];
   }
 
   function render() {
@@ -2537,6 +2537,7 @@ export function BattleScene(container, params, api) {
       eyebrow: mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
       title: mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
       body: [battleLog(), actionExecuteButton(), battleArena(), battleMobileRoster()],
+      onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
     });
     // テキストログは常に最新行が見えるよう、描画のたびに一番下へ

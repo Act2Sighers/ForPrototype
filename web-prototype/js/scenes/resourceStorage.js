@@ -267,12 +267,13 @@ export function ResourceStorageScene(container, params, api) {
       title: "荷物置き場",
       subtitle: "所持している時間食・資源の一覧です。",
       body,
+      onPause: () => api.callScene("pause"),
       actions: [
-        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
-        button("閉じる", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("マップ", { onClick: () => api.closeScene() }),
         button("部隊編成", { onClick: () => api.closeScene({ openNext: "squadFormation" }) }),
         button("武器", { onClick: () => api.closeScene({ openNext: "weaponStorage" }) }),
         button("糖衣", { onClick: () => api.closeScene({ openNext: "coatingStorage" }) }),
+        button("荷物", { disabled: true }),
       ],
     });
   }
