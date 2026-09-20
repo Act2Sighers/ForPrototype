@@ -499,7 +499,7 @@ export const INITIAL_EMPLOYMENT_DATA = {
 // の除隊モード.
 // ---------------------------------------------------------------------
 
-function sumStatValues(stats) {
+export function sumStatValues(stats) {
   return STAT_KEYS.reduce((total, key) => total + stats[key], 0);
 }
 
@@ -817,6 +817,11 @@ export const RESOURCE_COLOR_CLASS = {
 // stats directly (see amberSugarMineralName), so unlike the other rigid
 // resources it needs no -/(none)/+/++ quality suffix.
 export const AMBER_QUALITY_POINTS = { low: 5, mid: 10, high: 15 };
+// 琥珀糖鉱石はqualityTiersを持たない（RIGID_RESOURCES参照）ため、ラン
+// 通算の入手数集計（createEmptyObtainedResources/computeResourceQualityScore）
+// が使う品質ランク一覧はAMBER_QUALITY_POINTSのキー順（低→高）をここで
+// 別途持たせておく。
+export const AMBER_OBTAINED_TIERS = ["low", "mid", "high"];
 const STAT_KEYS = ["sweetness", "hardness", "poisonResist", "stability", "flexibility"];
 const STAT_MAX_RANK = 4;
 
@@ -877,6 +882,26 @@ export function createEmptyResources() {
   return { natural, rigid };
 }
 
+// createEmptyResourcesの「ラン通算の入手数」版：所持数ではなく、ラン中に
+// 手に入れた延べ数を品質ごとに数え続けるための空バケツ（リザルト画面の
+// スコア計算専用、state.run.obtainedResourcesが実体を持つ）。使い切って
+// 手元から無くなった分もここでは減らない。琥珀糖鉱石だけは配列ではなく
+// {low,mid,high}のカウントバケツにする（個体そのものではなく、入手時の
+// 品質だけ分かれば良いため -- AMBER_OBTAINED_TIERS参照）。
+export function createEmptyObtainedResources() {
+  const natural = {};
+  for (const [key, species] of Object.entries(NATURAL_RESOURCES)) {
+    natural[key] = species.qualityTiers ? Object.fromEntries(species.qualityTiers.map((tier) => [tier, 0])) : 0;
+  }
+  const rigid = {};
+  for (const [key, species] of Object.entries(RIGID_RESOURCES)) {
+    if (species.variableStats) rigid[key] = Object.fromEntries(AMBER_OBTAINED_TIERS.map((tier) => [tier, 0]));
+    else if (species.qualityTiers) rigid[key] = Object.fromEntries(species.qualityTiers.map((tier) => [tier, 0]));
+    else rigid[key] = 0;
+  }
+  return { natural, rigid };
+}
+
 // Sums every tier's count for a {tier: count} bucket.
 function sumTiers(bucket) {
   return Object.values(bucket).reduce((total, qty) => total + qty, 0);
@@ -911,6 +936,29 @@ function groupAmberInstances(instances) {
 
 function amberStatSum(stats) {
   return STAT_KEYS.reduce((total, key) => total + stats[key], 0);
+}
+
+// 琥珀糖鉱石のqualityは個々のインスタンスには保存されない（ロール時に
+// 一度使われるだけ、amberSugarMineralNameが自身の性能値をそのまま名前
+// に埋め込む設計 -- createAmberSugarMineralInstance参照）。ロール時の
+// 配分点数（AMBER_QUALITY_POINTS）は品質ごとに固定なので、5性能値の
+// 合計から逆算すれば同じ品質を復元できる（ラン通算の入手数集計
+// state.run.obtainedResourcesで、instanceそのものしか持たない入手経路
+// 向けに使う -- resourceCatalog.js側は素の{low,mid,high}のランク付け
+// だけ知っていれば良く、grant系の呼び出し元がqualityを覚えているかは
+// 問わない）。
+export function amberQualityFromStats(stats) {
+  const sum = amberStatSum(stats);
+  let best = AMBER_OBTAINED_TIERS[0];
+  let bestDiff = Infinity;
+  for (const tier of AMBER_OBTAINED_TIERS) {
+    const diff = Math.abs(AMBER_QUALITY_POINTS[tier] - sum);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = tier;
+    }
+  }
+  return best;
 }
 
 // ---------------------------------------------------------------------
@@ -1716,4 +1764,82 @@ export function generateResourceTradeOffers() {
 // offer.requirementSpeciesId を品質問わず必要数量ぶん所持しているか。
 export function hasEnoughForResourceTradeOffer(resources, offer) {
   return sumHeldRegardlessOfCategory(resources, offer.requirementSpeciesId) >= offer.requirementQuantity;
+}
+
+// ---------------------------------------------------------------------
+// リザルトスコア
+// ---------------------------------------------------------------------
+
+export const SCORE_WEIGHTS = {
+  reachedNode: 20,
+  characterLevel: 2,
+  weaponPerformance: 2,
+  defeatedMonsterLevel: 2,
+  rescue: 5, // 減点（合計から引く）
+};
+
+// 資源の品質加点：品質階層を持つ種の中での「悪い方から数えた順位」
+// （0始まり）だけで決まり、階層の名前そのもの（low/mid/high/highest、
+// mid/high/premium）は見ない。剛体資源の階層(低/中/高/最高)と自然資源の
+// 階層(中/上/特上)は名前が食い違うが、どちらも「その種の中で何段階目か
+// 良いか」という意味では揃っているので、順位ベースでこの1本の重み配列
+// にまとめられる -- 琥珀糖鉱石（AMBER_OBTAINED_TIERS、3階層）も同じ考え
+// 方でそのまま乗る。階層を持たない種（ザラメ鉱石/ベースクリーム）だけ
+// FLAT_RESOURCE_WEIGHTという別枠。
+export const QUALITY_RANK_WEIGHTS = [3, 5, 10, 30];
+export const FLAT_RESOURCE_WEIGHT = 1;
+
+// state.run.obtainedResources（ラン通算の入手数、createEmptyObtainedResources
+// 参照）から資源の品質加点を集計する。
+function computeResourceQualityScore(obtained) {
+  let total = FLAT_RESOURCE_WEIGHT * (obtained.rigid.coarseSugarMineral + obtained.natural.baseCream);
+
+  for (const [speciesId, species] of Object.entries(NATURAL_RESOURCES)) {
+    if (!species.qualityTiers) continue;
+    const bucket = obtained.natural[speciesId];
+    species.qualityTiers.forEach((tier, rank) => {
+      total += bucket[tier] * QUALITY_RANK_WEIGHTS[rank];
+    });
+  }
+
+  for (const [speciesId, species] of Object.entries(RIGID_RESOURCES)) {
+    const tiers = species.variableStats ? AMBER_OBTAINED_TIERS : species.qualityTiers;
+    if (!tiers) continue;
+    const bucket = obtained.rigid[speciesId];
+    tiers.forEach((tier, rank) => {
+      total += bucket[tier] * QUALITY_RANK_WEIGHTS[rank];
+    });
+  }
+
+  return total;
+}
+
+// リザルト画面のスコア計算。ラン終了の瞬間（state.jsのsettleRunEnd）に
+// 一度だけ呼ばれる想定 -- 編成/待機隊員は退役処理でこの直後に空になる
+// ため、呼び出し側はその前のスナップショットを渡すこと。内訳
+// （breakdown）も返すので、画面側はtotalだけ出しても内訳を出しても良い。
+export function computeRunScore({
+  reachedNodeCount,
+  formationSlots,
+  standbySlots,
+  storedWeapons,
+  defeatedMonsterLevelSum,
+  rescueCount,
+  obtainedResources,
+}) {
+  const roster = [...formationSlots, ...standbySlots];
+  const characterLevelSum = roster.reduce((total, character) => total + computeLevel(character.growth), 0);
+  const weapons = [...roster.map((character) => character.weapon).filter(Boolean), ...storedWeapons];
+  const weaponPerformanceSum = weapons.reduce((total, weapon) => total + sumStatValues(weapon.stats), 0);
+
+  const breakdown = {
+    reachedNode: reachedNodeCount * SCORE_WEIGHTS.reachedNode,
+    characterLevel: characterLevelSum * SCORE_WEIGHTS.characterLevel,
+    weaponPerformance: weaponPerformanceSum * SCORE_WEIGHTS.weaponPerformance,
+    defeatedMonsterLevel: defeatedMonsterLevelSum * SCORE_WEIGHTS.defeatedMonsterLevel,
+    rescuePenalty: -(rescueCount * SCORE_WEIGHTS.rescue),
+    resourceQuality: computeResourceQualityScore(obtainedResources),
+  };
+  const total = Object.values(breakdown).reduce((sum, value) => sum + value, 0);
+  return { total, breakdown };
 }

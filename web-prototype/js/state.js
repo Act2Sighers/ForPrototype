@@ -8,8 +8,11 @@ import { DUNGEONS } from "./data/testDungeon.js";
 import {
   createColorfulPlasma,
   createEmptyResources,
+  createEmptyObtainedResources,
   computeTradeValue,
   createAmberSugarMineralInstance,
+  amberQualityFromStats,
+  computeRunScore,
   RIGID_RESOURCES,
   NATURAL_RESOURCES,
   craftWeapon,
@@ -111,6 +114,16 @@ export function startNewRun(dungeonId, difficultyId) {
     takenOutItemIds: [],
     // 資源 (materials/currency): reset to 0 at the top of every run.
     resources: createEmptyResources(),
+    // リザルトのスコア計算専用：ラン中に実際に使い切って手元から消えた
+    // 分も含め、手に入れた資源を品質ごとに延べ数で数え続ける（resources
+    // と違って減ることが無い）。createEmptyObtainedResources参照。
+    obtainedResources: createEmptyObtainedResources(),
+    // 同じくスコア計算専用：戦闘勝利のたびに、そのモンスター全員のレベル
+    // 合計を積み上げる（recordDefeatedMonsterLevels）。
+    defeatedMonsterLevelSum: 0,
+    // 同じくスコア計算専用：戦闘不能のまま勝利した味方を復活させた回数
+    // （recordRescue、battle.jsのreviveIncapacitatedAllies参照）。
+    rescueCount: 0,
     // 時間食 (軽食画面で購入した消耗品、荷物置き場に並ぶ): 資源と同じく
     // ラン単位で、ランが終わればリセットされる。
     timeEatsInventory: [],
@@ -142,6 +155,9 @@ export function retryRun() {
   state.run.currentNodeId = "start";
   state.run.visitedNodeIds = ["start"];
   state.run.resources = createEmptyResources();
+  state.run.obtainedResources = createEmptyObtainedResources();
+  state.run.defeatedMonsterLevelSum = 0;
+  state.run.rescueCount = 0;
   state.run.timeEatsInventory = [];
   state.run.purchasedFirstTimeOnlyIds = [];
   state.run.startEventTriggered = false;
@@ -194,6 +210,7 @@ export function hireCharacter(character, cost) {
 export function grantResource(category, id, amount) {
   if (!state.run) return;
   state.run.resources[category][id] += amount;
+  state.run.obtainedResources[category][id] += amount;
 }
 
 // Grants `amount` of one quality tier of a species tracked as a
@@ -206,6 +223,7 @@ export function grantTieredResource(category, id, tier, amount) {
   const bucket = state.run.resources[category][id];
   const before = Object.values(bucket).reduce((total, qty) => total + qty, 0);
   bucket[tier] += amount;
+  state.run.obtainedResources[category][id][tier] += amount;
   return { before, after: before + amount };
 }
 
@@ -216,7 +234,22 @@ export function grantAmberSugarMineral(quality) {
   const before = list.length;
   const instance = createAmberSugarMineralInstance(quality);
   list.push(instance);
+  state.run.obtainedResources.rigid.amberSugarMineral[quality] += 1;
   return { instance, before, after: list.length };
+}
+
+// exploration.jsのcommitHaul専用：既に個別にロール済みの琥珀糖鉱石
+// インスタンス群（quality引数を持たない）をまとめて付与する。品質は
+// grantAmberSugarMineralのように呼び出し側から渡されない代わりに、
+// 各インスタンス自身の性能値合計から逆算する（amberQualityFromStats
+// 参照 -- ロール時の配分点数は品質ごとに固定なので復元できる）。
+export function grantAmberSugarMineralInstances(instances) {
+  if (!state.run || instances.length === 0) return;
+  state.run.resources.rigid.amberSugarMineral.push(...instances);
+  for (const instance of instances) {
+    const quality = amberQualityFromStats(instance.stats);
+    state.run.obtainedResources.rigid.amberSugarMineral[quality] += 1;
+  }
 }
 
 // Removes a character (by id) from formation or standby, retires them,
@@ -235,7 +268,7 @@ export function dischargeCharacter(characterId) {
 
   const [character] = list.splice(idx, 1);
   const reward = computeTradeValue(character);
-  state.run.resources.rigid.coarseSugarMineral += reward;
+  grantResource("rigid", "coarseSugarMineral", reward);
   state.retiredSlots.push(character);
   return { character, reward };
 }
@@ -427,7 +460,7 @@ export function sellStoredWeapons(weaponIds) {
     total += computeWeaponMarketPrice(weapon);
     return false;
   });
-  state.run.resources.rigid.coarseSugarMineral += total;
+  grantResource("rigid", "coarseSugarMineral", total);
   return total;
 }
 
@@ -493,11 +526,24 @@ export function purchaseResourceTradeOffer(offer) {
   if (offer.category === "natural") {
     grantTieredResource("natural", offer.speciesId, offer.tier, offer.quantity);
   } else if (RIGID_RESOURCES[offer.speciesId].variableStats) {
-    const list = state.run.resources.rigid[offer.speciesId];
-    for (let i = 0; i < offer.quantity; i++) list.push(createAmberSugarMineralInstance(offer.tier));
+    for (let i = 0; i < offer.quantity; i++) grantAmberSugarMineral(offer.tier);
   } else {
     grantTieredResource("rigid", offer.speciesId, offer.tier, offer.quantity);
   }
+}
+
+// 戦闘勝利のたびにbattle.jsが呼ぶ：倒したモンスター全員のレベル合計を
+// スコア用カウンタへ積み上げる。
+export function recordDefeatedMonsterLevels(levelSum) {
+  if (!state.run) return;
+  state.run.defeatedMonsterLevelSum += levelSum;
+}
+
+// 戦闘不能のまま勝利した味方を復活させるたびにbattle.jsが呼ぶ（その
+// 戦闘で復活させた人数ぶん）。
+export function recordRescue(count) {
+  if (!state.run || count <= 0) return;
+  state.run.rescueCount += count;
 }
 
 // Moves the run's squad into retiredSlots once, at the moment the run
@@ -508,6 +554,18 @@ export function purchaseResourceTradeOffer(offer) {
 // itself; nothing separate needs clearing for them.
 export function settleRunEnd(mode) {
   if (!state.run || state.run.settled) return;
+  // スコアは編成/待機がまだ手つかずのこの時点で確定させる -- ゲーム
+  // オーバーだと編成側はこの直後に失われる（下のsurvivors参照）が、
+  // スコアの「全隊員」は生死を問わずこの瞬間のロスター全体を指す。
+  state.run.finalScore = computeRunScore({
+    reachedNodeCount: state.run.visitedNodeIds.length,
+    formationSlots: state.formationSlots,
+    standbySlots: state.standbySlots,
+    storedWeapons: state.storedWeapons,
+    defeatedMonsterLevelSum: state.run.defeatedMonsterLevelSum,
+    rescueCount: state.run.rescueCount,
+    obtainedResources: state.run.obtainedResources,
+  });
   const survivors =
     mode === "gameover"
       ? [...state.standbySlots]

@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { grantResource, grantTieredResource } from "../state.js";
+import state, { grantResource, grantTieredResource, recordDefeatedMonsterLevels, recordRescue } from "../state.js";
 import {
   computeStats,
   computeEffectiveMaxHp,
@@ -932,11 +932,16 @@ export function BattleScene(container, params, api) {
   // 戦闘不能のまま勝利した味方を、最大HPの1/4（切り上げ）で復活させる。
   // マップ画面に戻るタイミング（このボタンを押した瞬間）に行う。
   function reviveIncapacitatedAllies() {
+    let rescuedCount = 0;
     for (const unit of allyUnits) {
       if (!isIncapacitated(unit)) continue;
       const maxHp = computeEffectiveMaxHp(unit.character);
       unit.character.currentHp = Math.ceil(maxHp / 4);
+      rescuedCount += 1;
     }
+    // リザルトスコア用：戦闘不能のまま戦闘を終えた（＝ここで救済された）
+    // 人数ぶん減点カウンタへ積み上げる。
+    recordRescue(rescuedCount);
   }
 
   // 勝敗が決した瞬間に呼ぶ：結果と（勝利なら）報酬をログに残すだけで、
@@ -953,6 +958,8 @@ export function BattleScene(container, params, api) {
       const levelSum = enemyUnits.reduce((sum, u) => sum + u.character.level, 0);
       const conditionBonus = Math.ceil(levelSum / allyUnits.length);
       for (const unit of allyUnits) increaseCondition(unit.character, conditionBonus);
+      // リザルトスコア用：討伐した全モンスターのレベル合計を積み上げる。
+      recordDefeatedMonsterLevels(levelSum);
     } else {
       pushLog("▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
     }

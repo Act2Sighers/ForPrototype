@@ -1,6 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { resourceIndividualNodes } from "../resourceDisplay.js";
-import state, { grantResource, grantTieredResource } from "../state.js";
+import state, { grantResource, grantTieredResource, grantAmberSugarMineralInstances } from "../state.js";
 import { CHARACTER_STAT_LABELS, CHARACTER_STAT_FULL_LABELS, growCharacterStat } from "../data/resourceCatalog.js";
 import {
   computeGatherAbility,
@@ -117,7 +117,7 @@ export function ExplorationScene(container, params, api) {
     }
     for (const [key, value] of Object.entries(haul.rigid)) {
       if (key === "amberSugarMineral") {
-        if (value.length) state.run.resources.rigid.amberSugarMineral.push(...value);
+        if (value.length) grantAmberSugarMineralInstances(value);
       } else if (typeof value === "number") {
         if (value > 0) grantResource("rigid", key, value);
       } else {
