@@ -785,6 +785,25 @@ body {
   stroke: var(--ember);
 }
 
+/* 休憩発生クロックの境界を示す縦点線。SVG内で最初に描画される（＝
+   マップ本体より後ろ）。 */
+.map-checkpoint-line {
+  stroke: var(--stat-defense);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  opacity: 0.5;
+}
+
+/* 経路線分中央の常時表示ドット（経路と同色）。休憩/行商発生時は同じ
+   位置に仮想マス（.map-node--rest/.map-node--peddler）が重なって出る。 */
+.map-edge-dot {
+  fill: var(--panel-line-strong);
+}
+
+.map-edge-dot.is-traveled {
+  fill: var(--ember);
+}
+
 .map-node circle {
   fill: var(--panel);
   stroke: var(--panel-line-strong);
@@ -807,6 +826,10 @@ body {
 .map-node.map-node--village circle { fill: var(--stat-defense); }
 .map-node.map-node--snack circle { fill: var(--stat-destruction); }
 .map-node.map-node--workshop circle { fill: var(--stat-coordination); }
+/* 休憩＝青（集落と同色）、行商＝橙（遭遇と同色）-- 色の被りは仕様どおり
+   気にしない。 */
+.map-node.map-node--rest circle { fill: var(--stat-defense); }
+.map-node.map-node--peddler circle { fill: var(--stat-hp); }
 
 .map-node.is-visited circle {
   stroke: var(--ember);

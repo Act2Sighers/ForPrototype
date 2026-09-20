@@ -6,6 +6,24 @@ export const DIFFICULTIES = [{ id: "normal", name: "ノーマル" }];
 
 export const DUNGEONS = [{ id: "test-dungeon", name: "テストダンジョン" }];
 
+// ダンジョンパラメータ：ランダム生成に左右されない、ダンジョンごとの
+// 固定設定。
+//  - longestReachableNodeCount: 最長到達マス数（X）。dungeonGenerator.js
+//    が経路生成の列数として使う。
+//  - restClock: 休憩発生クロック。この配列に含まれる各列番号Cについて、
+//    C列とC+1列の間に休憩イベントの機会が生まれる（map.js参照）。
+//  - peddlerCount: 1回のランで必ず発生させる行商イベントの回数。
+//  - environment: ダンジョンの環境（探索イベントの能力値補正などに
+//    使う想定、現状は空実装で"normal"のみ）。
+export const DUNGEON_PARAMS = {
+  "test-dungeon": {
+    longestReachableNodeCount: 12,
+    restClock: [5, 10],
+    peddlerCount: 2,
+    environment: "normal",
+  },
+};
+
 // The world screen's destination list: 王城 (a non-dungeon "location"
 // that just opens the gallery) plus every dungeon. Kept separate from
 // DUNGEONS since the castle isn't dungeon data.

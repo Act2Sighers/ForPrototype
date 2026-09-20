@@ -178,6 +178,7 @@ export function ExplorationScene(container, params, api) {
       actions: [
         button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
         button("探索せずに去る", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }),
         button("自動割り当て", { variant: "ghost", disabled: isAutoAssignDisabled(), onClick: autoAssign }),
         button("探索開始！", { variant: "primary", disabled: totalAssigned === 0, onClick: startExploration }),
       ],
@@ -219,7 +220,10 @@ export function ExplorationScene(container, params, api) {
       subtitle: "作業を進行しています…",
       corner: resourceHud(state.run?.resources),
       body,
-      actions: [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })],
+      actions: [
+        button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }),
+        button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }),
+      ],
     });
   }
 

@@ -1532,8 +1532,9 @@ export function BattleScene(container, params, api) {
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
   // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
   function battleActions() {
-    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton })];
-    return [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
+    const skipButton = button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() });
+    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton];
+    return [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") }), skipButton];
   }
 
   function render() {

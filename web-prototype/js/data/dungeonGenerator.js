@@ -9,12 +9,16 @@
 // generateDungeon()がこの2段階をまとめて呼び、state.js の startNewRun
 // が呼び出す想定（生成結果は state.run.dungeon にそのまま保持され、
 // map.js が testDungeon.js の静的マップだった頃と同じ形
-// {id, name, nodes, edges} で消費する）。
+// {id, name, nodes, edges} で消費する）。最長到達マス数（X）はダンジョン
+// パラメータ（testDungeon.jsのDUNGEON_PARAMS）から読む、ランダム生成に
+// 左右されないダンジョン固有の設定。休憩/行商イベント自体はこの
+// モジュールが直接配置するものではない（map.jsが現在地と
+// DUNGEON_PARAMSを見て実行時に判定する）が、行商イベントが発生し得る
+// 経路を判定するpeddlerEligibleTargetはこのモジュールが提供する
+// （経路構造そのものに対する判定のため）。
 
-// 最長到達マス数（X、スタート+ゴールを含む列数）。中間列数は常に
-// LONGEST_REACHABLE_NODE_COUNT - 2。
-const LONGEST_REACHABLE_NODE_COUNT = 16;
-const MIDDLE_COLUMN_COUNT = LONGEST_REACHABLE_NODE_COUNT - 2;
+import { DUNGEON_PARAMS } from "./testDungeon.js";
+
 const ROW_COUNT_MIN = 2;
 const ROW_COUNT_MAX = 4;
 // マス同士の縦方向の間隔（列のマス数によらず常に一定にする）。
@@ -57,16 +61,16 @@ function pickRandomInt(min, max) {
 // 「隣の列との差が1以内」を保ちながら、必ずX-1列目の値にちょうど
 // たどり着くようランダムに橋渡しする（残り列数的に間に合う候補だけを
 // 毎回ランダムに選ぶので、途中の値も偏りなくランダムになる）。
-function generateColumnSizes() {
+function generateColumnSizes(middleColumnCount) {
   const first = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
   const last = pickRandomInt(ROW_COUNT_MIN, ROW_COUNT_MAX);
-  const sizes = new Array(MIDDLE_COLUMN_COUNT);
+  const sizes = new Array(middleColumnCount);
   sizes[0] = first;
-  sizes[MIDDLE_COLUMN_COUNT - 1] = last;
+  sizes[middleColumnCount - 1] = last;
 
-  for (let i = 1; i < MIDDLE_COLUMN_COUNT - 1; i++) {
+  for (let i = 1; i < middleColumnCount - 1; i++) {
     const cur = sizes[i - 1];
-    const remainingSteps = MIDDLE_COLUMN_COUNT - 1 - i; // このあと最終列まで残っている辺の数
+    const remainingSteps = middleColumnCount - 1 - i; // このあと最終列まで残っている辺の数
     const candidates = [];
     for (let c = Math.max(ROW_COUNT_MIN, cur - 1); c <= Math.min(ROW_COUNT_MAX, cur + 1); c++) {
       if (Math.abs(last - c) <= remainingSteps) candidates.push(c);
@@ -126,9 +130,11 @@ function connectColumns(colA, colB, edges) {
 // 動的に決める）。xは列ごとにCOLUMN_SPACING固定で右へ伸びていき、yは
 // 常にy=200を中心に、列のマス数によらず隣接マス同士の間隔がROW_SPACING
 // 固定になるよう配置する（1個だけの列＝スタート/ゴールは自然にy=200に
-// なる）。
-function buildRouteLayout() {
-  const columnSizes = generateColumnSizes();
+// なる）。columnIndexは1始まり（1=スタート、X=ゴール）で、休憩発生
+// クロックの判定（map.js）にそのまま使う。
+function buildRouteLayout(longestReachableNodeCount) {
+  const middleColumnCount = longestReachableNodeCount - 2;
+  const columnSizes = generateColumnSizes(middleColumnCount);
   const xFor = (colIndex) => 60 + colIndex * COLUMN_SPACING;
   const yFor = (rowIndex, rowCount) => 200 + (rowIndex - (rowCount - 1) / 2) * ROW_SPACING;
 
@@ -136,7 +142,7 @@ function buildRouteLayout() {
   const edges = {};
   const columns = [];
 
-  nodes.start = { id: "start", type: "start", label: "スタート", x: xFor(0), y: 200 };
+  nodes.start = { id: "start", type: "start", label: "スタート", x: xFor(0), y: 200, columnIndex: 1 };
   edges.start = [];
   columns.push(["start"]);
 
@@ -144,14 +150,21 @@ function buildRouteLayout() {
     const colIds = [];
     for (let r = 0; r < size; r++) {
       const id = `col${ci}_row${r}`;
-      nodes[id] = { id, type: null, x: xFor(ci + 1), y: yFor(r, size) };
+      nodes[id] = { id, type: null, x: xFor(ci + 1), y: yFor(r, size), columnIndex: ci + 2 };
       edges[id] = [];
       colIds.push(id);
     }
     columns.push(colIds);
   });
 
-  nodes.goal = { id: "goal", type: "goal", label: "ゴール", x: xFor(columnSizes.length + 1), y: 200 };
+  nodes.goal = {
+    id: "goal",
+    type: "goal",
+    label: "ゴール",
+    x: xFor(columnSizes.length + 1),
+    y: 200,
+    columnIndex: longestReachableNodeCount,
+  };
   edges.goal = [];
   columns.push(["goal"]);
 
@@ -284,8 +297,9 @@ function findNodeTypeAssignment(columns, edges) {
 const MAX_ROUTE_ATTEMPTS = 50;
 
 export function generateDungeon({ id, name }) {
+  const { longestReachableNodeCount } = DUNGEON_PARAMS[id];
   for (let attempt = 0; attempt < MAX_ROUTE_ATTEMPTS; attempt++) {
-    const { nodes, edges, columns } = buildRouteLayout();
+    const { nodes, edges, columns } = buildRouteLayout(longestReachableNodeCount);
     const assignment = findNodeTypeAssignment(columns, edges);
     if (!assignment) continue;
     for (const [nodeId, type] of Object.entries(assignment)) {
@@ -295,4 +309,25 @@ export function generateDungeon({ id, name }) {
     return { id, name, nodes, edges };
   }
   throw new Error("generateDungeon: failed to generate a valid map after many attempts");
+}
+
+// 行商イベントが発生し得る経路 (fromId -> toId) かどうか。対象になるのは
+// 以下を全て満たす場合のみ：
+//  - fromIdがスタートマスでない（スタート直後は対象外）
+//  - fromIdの出口がちょうど1本（分岐点そのものは対象外 -- 分岐先の
+//    どちらかに行商マスがあると、プレイヤーの選択を誘導してしまう
+//    ため、分岐が一切無いマスの後ろだけに限定する）
+//  - fromIdの列番号が休憩発生クロックに含まれない（休憩を常に優先する
+//    ため、休憩が起こり得る経路は行商の対象から外す）
+//  - 出口の先（toId）がゴールマスでない（ゴール直前は対象外）
+// fromIdの出口がちょうど1本という制約により、この条件を満たす経路は
+// fromId 1つにつき高々1本しかあり得ない。
+export function peddlerEligibleTarget(dungeon, dungeonParams, fromId) {
+  if (fromId === "start") return null;
+  const outEdges = dungeon.edges[fromId] ?? [];
+  if (outEdges.length !== 1) return null;
+  const [toId] = outEdges;
+  if (toId === "goal") return null;
+  if (dungeonParams.restClock.includes(dungeon.nodes[fromId].columnIndex)) return null;
+  return toId;
 }

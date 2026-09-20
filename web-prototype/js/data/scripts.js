@@ -160,3 +160,20 @@ export const ENCOUNTER_SCRIPT = {
     },
   },
 };
+
+// 休憩イベント用の台本。仮実装として、遭遇イベント用の台本の内容を
+// そのまま複製したもの（休憩専用の内容は今後用意する）。
+export const REST_SCRIPT = structuredClone(ENCOUNTER_SCRIPT);
+
+// ダンジョンごとに用意する台本一式。オープニング/エンディングは固定の
+// 1本を読み、遭遇/休憩はそれぞれの抽選プールからランダムに1つだけ選ぶ
+// （episode.jsのmode方式が使う -- 現状はどちらのプールも1本しか無いので
+// 実質固定だが、複数本を想定した抽選ロジックのまま扱っておく）。
+export const DUNGEON_SCRIPTS = {
+  "test-dungeon": {
+    opening: OPENING_SCRIPT,
+    ending: ENDING_SCRIPT,
+    encounterPool: [ENCOUNTER_SCRIPT],
+    restPool: [REST_SCRIPT],
+  },
+};

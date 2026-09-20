@@ -124,6 +124,14 @@ export function startNewRun(dungeonId, difficultyId) {
     // run — see consumeStartEventTrigger(), which map.js uses to call
     // the 雇用画面 in 初期雇用モード exactly once per run.
     startEventTriggered: false,
+    // 行商イベントの発生済み回数と、前回発生してから「通常のマス」
+    // （休憩/行商の仮想マスを除く、実際のダンジョンノード）を踏んだ回数
+    // -- map.jsが毎回の描画でこれらとDUNGEON_PARAMS.peddlerCountを見て
+    // 行商マスを出すかどうか判定する。moveRunToが通常マス到達のたびに
+    // movesSincePeddlerを進め、recordPeddlerTriggeredが発生のたびに
+    // カウンタをリセットする。
+    peddlerOccurrenceCount: 0,
+    movesSincePeddler: 0,
     settled: false,
   };
   return state.run;
@@ -137,6 +145,8 @@ export function retryRun() {
   state.run.timeEatsInventory = [];
   state.run.purchasedFirstTimeOnlyIds = [];
   state.run.startEventTriggered = false;
+  state.run.peddlerOccurrenceCount = 0;
+  state.run.movesSincePeddler = 0;
   state.run.settled = false;
 }
 
@@ -521,6 +531,21 @@ export function moveRunTo(nodeId) {
   if (!state.run.visitedNodeIds.includes(nodeId)) {
     state.run.visitedNodeIds.push(nodeId);
   }
+  // 休憩/行商の仮想マスはこの関数を通らない（map.js参照 -- 仮想マス解決
+  // 後は現在地をそのままに、本来の対象マスだけreachableへ絞り込む）ので、
+  // ここに来るのは常に「通常のマス」への到達のみ。行商のクールダウン
+  // 判定はこのカウントだけを見れば良い。
+  state.run.movesSincePeddler += 1;
+}
+
+// 行商イベント発生時に呼ぶ：発生済み回数を1増やし、クールダウンを
+// リセットする（map.jsが仮想行商マスをクリックした瞬間、
+// api.callScene("peddlerShop", ...)する前に呼ぶ想定 -- moveRunToと同じ
+// 「クリックした時点で即座に確定させる」流儀）。
+export function recordPeddlerTriggered() {
+  if (!state.run) return;
+  state.run.peddlerOccurrenceCount += 1;
+  state.run.movesSincePeddler = 0;
 }
 
 // A save slot bundles: its own label/timestamp, a deep copy of the

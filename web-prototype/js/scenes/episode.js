@@ -13,6 +13,7 @@ import {
   applyHpDamage,
   refreshWeaponPrefix,
 } from "../data/resourceCatalog.js";
+import { DUNGEON_SCRIPTS } from "../data/scripts.js";
 
 function interpolate(text, context) {
   return text.replace(/\{\{name\}\}/g, context.selectedCharacter?.name ?? "");
@@ -72,11 +73,40 @@ function applyEffect(effect, context) {
   }
 }
 
-// 台本 (script) interpreter shared by every オープニング/遭遇/エンディング
-// event: the caller (map.js) supplies a beat graph (see data/scripts.js)
-// and this scene just walks it -- see that file for the beat shapes.
+// mode（"opening"/"encounter"/"rest"/"ending"）ごとに読むべき台本が
+// 変わる -- オープニング/エンディングはダンジョン固有の1本、遭遇/休憩は
+// それぞれの抽選プールからランダムに1本選ぶ（data/scripts.jsの
+// DUNGEON_SCRIPTS参照）。
+const MODES_WITH_SKIP = new Set(["encounter", "rest"]);
+
+function pickRandomScript(pool) {
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function resolveScript(mode) {
+  const dungeonScripts = DUNGEON_SCRIPTS[state.run.dungeonId];
+  switch (mode) {
+    case "opening":
+      return dungeonScripts.opening;
+    case "ending":
+      return dungeonScripts.ending;
+    case "encounter":
+      return pickRandomScript(dungeonScripts.encounterPool);
+    case "rest":
+      return pickRandomScript(dungeonScripts.restPool);
+    default:
+      throw new Error(`episode scene requires a valid params.mode, got: ${mode}`);
+  }
+}
+
+// 台本 (script) interpreter shared by every オープニング/遭遇/休憩/
+// エンディング event: params.modeからDUNGEON_SCRIPTSを引いて台本を1つ
+// 確定し（mountのたびに1回だけ -- 再描画のたびに抽選し直さないよう
+// resolveScriptの呼び出しはここだけ）、以降this sceneはそれを歩く
+// だけ -- 台本の形はdata/scripts.js参照。
 export function EpisodeScene(container, params, api) {
-  const script = params.script;
+  const mode = params.mode;
+  const script = resolveScript(mode);
   const context = { selectedCharacter: null };
   let current = null;
   // Set once a branch's terminal "end" beat has run its effects -- the
@@ -203,6 +233,9 @@ export function EpisodeScene(container, params, api) {
     }
 
     const actions = [button("ポーズ", { variant: "ghost", onClick: () => api.callScene("pause") })];
+    if (MODES_WITH_SKIP.has(mode)) {
+      actions.push(button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }));
+    }
     if (isFinished) {
       actions.push(button(partyWiped ? "結果を見る" : "閉じる", { variant: "primary", onClick: closeOrGameOver }));
     } else if (current.next && !current.choices && current.type !== "characterSelect") {

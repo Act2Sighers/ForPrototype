@@ -1,9 +1,12 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
-import state, { moveRunTo, consumeStartEventTrigger } from "../state.js";
-import { EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
-import { OPENING_SCRIPT, ENCOUNTER_SCRIPT, ENDING_SCRIPT } from "../data/scripts.js";
+import state, { moveRunTo, consumeStartEventTrigger, recordPeddlerTriggered } from "../state.js";
+import { EVENT_SCENE_BY_NODE_TYPE, DUNGEON_PARAMS } from "../data/testDungeon.js";
+import { peddlerEligibleTarget } from "../data/dungeonGenerator.js";
 import { computeEffectiveMaxHp } from "../data/resourceCatalog.js";
 import { pickRandomTimeEatsStoreMode } from "./timeEats.js";
+
+// 通常マスを何回踏んだら行商イベントを再度出現させて良いか。
+const PEDDLER_COOLDOWN_MOVES = 3;
 
 // HPの現在値が最大値の1/3以下の隊員名一覧（何もいなければ空配列）。
 function exhaustedAllyNames() {
@@ -51,15 +54,23 @@ export function MapScene(container, params, api) {
   // resuming the map as-is -- see onResume below.
   let awaitingHiringAfterOpening = false;
   let awaitingResultAfterEnding = false;
+  // 休憩/行商の仮想マスを解決した直後にセットする：現在地はそのまま
+  // （まだ本来のマスへは実際に到達していない）に、reachableをこの1つ
+  // だけへ絞り込む -- プレイヤーが仮想マスをクリックした時点でこれを
+  // セットし、戻ってきたら本来のマスがreachableとして現れ、実際にそれを
+  // クリックした時点（handleNodeClick）でnullへ戻す。
+  let forcedNextNodeId = null;
 
   // exhaustedNames: イベントから戻った直後、消耗している隊員がいれば
   // 一度だけ見せる注意書き用（渡さなければ何も出さない -- 初回入場時や
   // openNext越しの遷移では呼ばない）。
   function render(exhaustedNames) {
     const dungeon = state.run.dungeon;
+    const dungeonParams = DUNGEON_PARAMS[dungeon.id];
     const currentId = state.run.currentNodeId;
+    const currentNode = dungeon.nodes[currentId];
     const visited = state.run.visitedNodeIds;
-    const reachable = dungeon.edges[currentId] ?? [];
+    const realReachable = dungeon.edges[currentId] ?? [];
 
     // Edges between two consecutively-visited nodes are drawn as "already
     // walked"; everything else is still just a possible route.
@@ -68,17 +79,40 @@ export function MapScene(container, params, api) {
       traveled.add(`${visited[i]}>${visited[i + 1]}`);
     }
 
+    // 休憩/行商の仮想マス判定。forcedNextNodeIdが立っている間（仮想マス
+    // を解決済みで、本来のマスへの到達待ち）は両方ともスキップする。
+    let reachable = realReachable;
+    let virtualStops = []; // [{kind: "rest" | "peddler", fromId, toId}]
+    if (forcedNextNodeId) {
+      reachable = [forcedNextNodeId];
+    } else if (realReachable.length > 0 && dungeonParams.restClock.includes(currentNode.columnIndex)) {
+      // 休憩発生クロックに該当する列：先へ向かう経路の全てが休憩の対象
+      // になる（休憩を優先するため、行商の判定はここでスキップする）。
+      virtualStops = realReachable.map((toId) => ({ kind: "rest", fromId: currentId, toId }));
+      reachable = [];
+    } else if (
+      state.run.peddlerOccurrenceCount < dungeonParams.peddlerCount &&
+      state.run.movesSincePeddler >= PEDDLER_COOLDOWN_MOVES
+    ) {
+      const target = peddlerEligibleTarget(dungeon, dungeonParams, currentId);
+      if (target) {
+        virtualStops = [{ kind: "peddler", fromId: currentId, toId: target }];
+        reachable = realReachable.filter((id) => id !== target);
+      }
+    }
+
     function handleNodeClick(nodeId) {
+      forcedNextNodeId = null;
       moveRunTo(nodeId);
       render();
       const node = dungeon.nodes[nodeId];
       if (node.type === "goal") {
         awaitingResultAfterEnding = true;
-        api.callScene("episode", { script: ENDING_SCRIPT });
+        api.callScene("episode", { mode: "ending" });
         return;
       }
       if (node.type === "episode") {
-        api.callScene("episode", { script: ENCOUNTER_SCRIPT });
+        api.callScene("episode", { mode: "encounter" });
         return;
       }
       if (node.type === "village" || node.type === "workshop") {
@@ -93,18 +127,56 @@ export function MapScene(container, params, api) {
       if (sceneId) api.callScene(sceneId);
     }
 
+    // 休憩/行商の仮想マスをクリックした時点：現在地はそのまま、
+    // forcedNextNodeIdだけをセットしてイベント画面へ進む。戻ってくると
+    // （onResumeが素通しでrender()し直すだけで）本来のマスがreachableに
+    // なる。
+    function handleVirtualStopClick(stop) {
+      forcedNextNodeId = stop.toId;
+      if (stop.kind === "peddler") {
+        recordPeddlerTriggered();
+        render();
+        api.callScene("peddlerShop", {});
+      } else {
+        render();
+        api.callScene("episode", { mode: "rest" });
+      }
+    }
+
+    const checkpointLineEls = [];
+    const columnX = {};
+    for (const node of Object.values(dungeon.nodes)) columnX[node.columnIndex] = node.x;
+    for (const c of dungeonParams.restClock) {
+      if (columnX[c] === undefined || columnX[c + 1] === undefined) continue;
+      const lineX = (columnX[c] + columnX[c + 1]) / 2;
+      checkpointLineEls.push(svg("line", { class: "map-checkpoint-line", x1: lineX, y1: 0, x2: lineX, y2: 400 }));
+    }
+
     const edgeEls = [];
+    const dotEls = [];
     for (const [fromId, targets] of Object.entries(dungeon.edges)) {
       const from = dungeon.nodes[fromId];
       for (const toId of targets) {
         const to = dungeon.nodes[toId];
+        const isTraveled = traveled.has(`${fromId}>${toId}`);
         edgeEls.push(
           svg("line", {
-            class: `map-edge${traveled.has(`${fromId}>${toId}`) ? " is-traveled" : ""}`,
+            class: `map-edge${isTraveled ? " is-traveled" : ""}`,
             x1: from.x,
             y1: from.y,
             x2: to.x,
             y2: to.y,
+          })
+        );
+        // 経路線分中央の常時表示ドット（経路と同色）。休憩/行商発生時は
+        // この位置に仮想マスが重なって描かれる（後段のnodeEls側、ドット
+        // より後に描画するので、常に上に乗る）。
+        dotEls.push(
+          svg("circle", {
+            class: `map-edge-dot${isTraveled ? " is-traveled" : ""}`,
+            cx: (from.x + to.x) / 2,
+            cy: (from.y + to.y) / 2,
+            r: 4,
           })
         );
       }
@@ -136,6 +208,20 @@ export function MapScene(container, params, api) {
       );
     });
 
+    const virtualStopEls = virtualStops.map((stop) => {
+      const from = dungeon.nodes[stop.fromId];
+      const to = dungeon.nodes[stop.toId];
+      const x = (from.x + to.x) / 2;
+      const y = (from.y + to.y) / 2;
+      const label = stop.kind === "rest" ? "休憩" : "行商";
+      const typeClass = stop.kind === "rest" ? "map-node--rest" : "map-node--peddler";
+      return svg(
+        "g",
+        { class: `map-node is-reachable ${typeClass}`, onClick: () => handleVirtualStopClick(stop) },
+        [svg("circle", { cx: x, cy: y, r: 26 }), svg("text", { x, y: y + 44 }, document.createTextNode(label))]
+      );
+    });
+
     // マップの実横幅はダンジョンの列数（最長到達マス数Xしだい）で伸び縮
     // みする。表示幅をその座標幅に1:1で合わせる（CSSの固定widthではなく
     // ここでpxを直接指定する）ことで、列間隔（dungeonGenerator.jsの
@@ -145,14 +231,15 @@ export function MapScene(container, params, api) {
     const mapSvg = svg(
       "svg",
       { class: "map-svg", viewBox: `0 0 ${mapWidth} 400`, style: `width: ${mapWidth}px` },
-      [...edgeEls, ...nodeEls]
+      [...checkpointLineEls, ...edgeEls, ...dotEls, ...nodeEls, ...virtualStopEls]
     );
     const mapScroll = h("div", { class: "map-scroll" }, [mapSvg]);
 
+    const totalChoices = reachable.length + virtualStops.length;
     const hint =
       currentId === "goal"
         ? "ゴールに到達しました。"
-        : reachable.length > 1
+        : totalChoices > 1
         ? "進むルートを選んでください。"
         : "進めるマスをクリックしてください（自動では進みません）。";
 
@@ -188,7 +275,7 @@ export function MapScene(container, params, api) {
   // sees the map interactive before it's covered.
   if (consumeStartEventTrigger()) {
     awaitingHiringAfterOpening = true;
-    api.callScene("episode", { script: OPENING_SCRIPT });
+    api.callScene("episode", { mode: "opening" });
   }
 
   return {
