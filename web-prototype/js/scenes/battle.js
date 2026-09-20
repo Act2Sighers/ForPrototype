@@ -18,7 +18,7 @@ import {
   COATING_ATTRIBUTE_LABELS,
 } from "../data/resourceCatalog.js";
 import { DUNGEON_PARAMS } from "../data/testDungeon.js";
-import { rollSum, rollJudgement, successCountToR } from "../dice.js";
+import { rollD6, rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
 // exploration.js's own __EXPLORATION_FAST__ hook. window.__BATTLE_FAST__
@@ -125,14 +125,16 @@ function edgePoint(rect, arenaRect, faction) {
 // 増減することの確認が目的。targetFaction: "own"=自陣営(自分自身も可)、
 // "opposing"=相手陣営。stat: 効果がINかPTかの識別用（ログ表示に使う）。
 const PREP_MODULES = {
-  optimize: { id: "optimize", label: "最適化", targetFaction: "own", stat: "in", apply: (t) => { t.in += 1; } },
-  restrain: { id: "restrain", label: "牽制", targetFaction: "opposing", stat: "in", apply: (t) => { t.in -= 1; } },
+  // n（強さ）は既定1 -- スキル側がstep.paramsで上書きするまでは、プレイ
+  // ヤーが直接選ぶ単体モジュールとして今まで通り常に1で動く。
+  optimize: { id: "optimize", label: "最適化", targetFaction: "own", stat: "in", apply: (t, n = 1) => { t.in += n; } },
+  restrain: { id: "restrain", label: "牽制", targetFaction: "opposing", stat: "in", apply: (t, n = 1) => { t.in -= n; } },
   inspire: {
     id: "inspire",
     label: "鼓舞",
     targetFaction: "own",
     stat: "pt",
-    apply: (t) => { t.pt.current += 1; t.pt.max += 1; },
+    apply: (t, n = 1) => { t.pt.current += n; t.pt.max += n; },
   },
   provoke: {
     id: "provoke",
@@ -161,9 +163,9 @@ const PREP_MODULES = {
     label: "威圧",
     targetFaction: "opposing",
     stat: "pt",
-    apply: (t) => {
-      t.pt.current = Math.max(1, t.pt.current - 1);
-      t.pt.max = Math.max(1, t.pt.max - 1);
+    apply: (t, n = 1) => {
+      t.pt.current = Math.max(1, t.pt.current - n);
+      t.pt.max = Math.max(1, t.pt.max - n);
     },
   },
 };
@@ -222,6 +224,89 @@ Object.assign(PREP_MODULES, {
   },
 });
 
+// モンスタースキル・Prepフェイズ。既存のPrepスキル同様、monsterOnly:true
+// を付けてプレイヤーの行動選択肢（moduleSelectFor）には出さない
+// （isModuleAvailableFor参照）。
+Object.assign(PREP_MODULES, {
+  excitement: {
+    id: "excitement",
+    label: "興奮",
+    targetFaction: "self",
+    monsterOnly: true,
+    steps: [{ actionId: "optimize" }],
+  },
+  interference: {
+    id: "interference",
+    label: "邪魔",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    steps: [{ actionId: "restrain" }],
+  },
+  staticCling: {
+    id: "staticCling",
+    label: "静電気",
+    targetFaction: "none",
+    monsterOnly: true,
+    steps: [{ actionId: "optimize", each: "own" }],
+  },
+  elegance: {
+    id: "elegance",
+    label: "優雅",
+    targetFaction: "self",
+    monsterOnly: true,
+    steps: [{ actionId: "inspire" }],
+  },
+  // 【食べ比べ】：相手陣営1体を選び、1D6の出目で鼓舞(1)/威圧(1)/威圧(2)の
+  // いずれかに分岐する。鼓舞・威圧そのものは対象の陣営を問わず機能する
+  // （apply()はどちらもPTを増減させるだけの処理で、targetFactionは候補
+  // 選択にしか使わない）ため、対象を相手陣営に固定した専用スキルとして
+  // 素直に流用できる。ダイス分岐は固定確率のstepsでは表現できないため、
+  // custom マーカーで resolvePrepAction 側の専用処理（resolveTasteTest）
+  // に振り分ける（steps は持たない）。
+  tasteTest: {
+    id: "tasteTest",
+    label: "食べ比べ",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    custom: "tasteTest",
+  },
+  // 【噛み合わせ】：牽制した後、（前ステップの対象とは無関係に）自身を
+  // 対象に最適化を行う -- 構造は既存の陰陽と同一。
+  biteMesh: {
+    id: "biteMesh",
+    label: "噛み合わせ",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
+  },
+  // 【団結】：自身を最適化する強さ(n)が固定値ではなく「自陣営の行動可能
+  // なユニットの数」（自身を含む）で毎回変わる。step.paramsを関数にして
+  // 解決時に都度算出する -- ownPoolForはBattleScene内のクロージャで
+  // トップレベルのこのオブジェクトからは見えないため、呼び出し側
+  // （resolveStepParams）が第3引数として渡す。
+  unity: {
+    id: "unity",
+    label: "団結",
+    targetFaction: "self",
+    monsterOnly: true,
+    steps: [{ actionId: "optimize", params: (unit, targetUnit, pools) => ({ n: pools.ownPoolFor(unit).length }) }],
+  },
+  clockUp: {
+    id: "clockUp",
+    label: "クロックアップ",
+    targetFaction: "self",
+    monsterOnly: true,
+    steps: [{ actionId: "optimize", params: { n: 5 } }],
+  },
+  fortress: {
+    id: "fortress",
+    label: "要塞",
+    targetFaction: "self",
+    monsterOnly: true,
+    steps: [{ actionId: "inspire", params: { n: 3 } }],
+  },
+});
+
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
@@ -235,11 +320,16 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
   return own.filter((u) => !isIncapacitated(u)).length <= 1;
 }
 
+// monsterOnly:true（モンスタースキル）は隊員側の行動選択肢
+// （moduleSelectFor）には出さない -- 隊員がスキルを持つようになるのは
+// 将来の対応で、それまでは体当たり/鳴き声のような明確にモンスター向け
+// の技を人間の隊員が選べてしまうのを防ぐ。
 // 属性攻撃(module.attribute持ち)は、行動主体のモンスター自身がその属性を
 // 持っている時しか選べない（隊員はattributeを持たないので常に対象外）。
 // 逆に、属性を持つモンスターは無属性の素の「攻撃」を選べない -- 属性を
 // 持つ以上、その攻撃は必ず属性攻撃として現れる、という整理。
 function isModuleAvailableFor(unit, module) {
+  if (module.monsterOnly && unit.faction !== "enemy") return false;
   if (module.attribute) return unit.character.attribute === module.attribute;
   if (module.id === "attack" && unit.character.attribute) return false;
   return true;
@@ -395,9 +485,12 @@ const MAIN_MODULES = {
     label: "攻撃",
     targetFaction: "opposing",
     effect: "hp",
-    apply: (actor, target) => {
-      const a = rollSum(correctedStat(actor, "attack"));
-      const d = rollSum(correctedStat(target, "defense"));
+    // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defense）。
+    // スキル側がstep.paramsで指定する（例：ティックの能動:賢さ、
+    // 受動:賢さ）。
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
       const c = Math.pow(2, -0.5 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
@@ -458,10 +551,10 @@ const MAIN_MODULES = {
     label: "継続回復",
     targetFaction: "own",
     effect: "continuous",
-    apply: (actor, target) => {
+    apply: (actor, target, n = 1) => {
       const { successCount } = rollJudgement(correctedStat(actor, "coordination"));
       const turns = successCountToR(successCount);
-      return applyContinuousStatus(target, 1, "heal", turns);
+      return applyContinuousStatus(target, n, "heal", turns);
     },
   },
   revive: {
@@ -481,10 +574,10 @@ const MAIN_MODULES = {
     label: "継続ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
-    apply: (actor, target) => {
+    apply: (actor, target, n = 1) => {
       const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
       const turns = successCountToR(successCount);
-      return applyContinuousStatus(target, 1, "damage", turns);
+      return applyContinuousStatus(target, n, "damage", turns);
     },
   },
   // 腐敗属性のデバフの土台：継続ダメージが「nD6合計÷2切り上げ」の
@@ -527,6 +620,129 @@ Object.assign(MAIN_MODULES, {
     cost: 3,
     steps: [{ actionId: "smash" }, { actionId: "attack" }],
   },
+  // モンスタースキル・Mainフェイズ。monsterOnly:trueでプレイヤーの行動
+  // 選択肢には出さない。属性を持つモンスターがこれらを使う場合、内部の
+  // 「攻撃」ステップは自動的に属性攻撃へ置き換わる（貫通攻撃は対象外 --
+  // runSteps内のapplyLeafWithAttributeSwap参照）。
+  tackle: {
+    id: "tackle",
+    label: "体当たり",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    steps: [{ actionId: "attack" }],
+  },
+  cry: {
+    id: "cry",
+    label: "鳴き声",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    steps: [{ actionId: "weakenAttack" }],
+  },
+  harden: {
+    id: "harden",
+    label: "固める",
+    targetFaction: "self",
+    cost: 1,
+    monsterOnly: true,
+    steps: [{ actionId: "enhanceDefense" }],
+  },
+  scratch: {
+    id: "scratch",
+    label: "引っ掻き",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    steps: [{ actionId: "pierceAttack" }],
+  },
+  electrocute: {
+    id: "electrocute",
+    label: "感電",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDestruction", params: { n: 2 } }],
+  },
+  discharge: {
+    id: "discharge",
+    label: "放電",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    steps: [{ actionId: "weakenDestruction" }],
+  },
+  // 【甘い果実】：healTarget:trueが、CPU側の対象選択で「候補からランダム
+  // に1体」ではなく「自陣営の残りHPが最も少ない1体」を選ばせる（同値は
+  // ランダム）。単体回復系のモンスタースキルに共通のルールとして、この
+  // フラグを立てる方針にした -- pickMonsterSkillTarget参照。
+  sweetFruit: {
+    id: "sweetFruit",
+    label: "甘い果実",
+    targetFaction: "own",
+    cost: 2,
+    monsterOnly: true,
+    healTarget: true,
+    steps: [{ actionId: "regen", params: { n: 2 } }],
+  },
+  sourFruit: {
+    id: "sourFruit",
+    label: "酸っぱい果実",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    steps: [{ actionId: "dot", params: { n: 2 } }],
+  },
+  tick: {
+    id: "tick",
+    label: "ティック",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    steps: [{ actionId: "attack", params: { aStat: "wisdom", dStat: "wisdom" } }],
+  },
+  charge: {
+    id: "charge",
+    label: "突撃",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    steps: [{ actionId: "smash" }, { actionId: "attack" }],
+  },
+  guard: {
+    id: "guard",
+    label: "防衛",
+    targetFaction: "self",
+    cost: 1,
+    monsterOnly: true,
+    steps: [{ actionId: "protect" }],
+  },
+  thaw: {
+    id: "thaw",
+    label: "雪解け",
+    targetFaction: "none",
+    cost: 3,
+    monsterOnly: true,
+    steps: [{ actionId: "smash", each: "opposing" }],
+  },
+  slam: {
+    id: "slam",
+    label: "スラム",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "smash" }],
+  },
+  // 【ラッシュ】：選択した1体に攻撃した後、（1回目とは別の）もう1体の
+  // 相手陣営ユニットにランダムに攻撃する -- 構造は既存の漁火と同一。
+  rush: {
+    id: "rush",
+    label: "ラッシュ",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
+  },
 });
 
 // 属性攻撃(attribute)：module.attributeを持つ自分専用の「攻撃」。この
@@ -555,6 +771,75 @@ Object.assign(
     })
   )
 );
+
+// モンスターの所持スキル：MONSTER_DATA/BOSS_MONSTER_DATAのdataIdごとに、
+// Prep/Mainそれぞれで使う{moduleId, chance}の配列を持つ。moduleIdは
+// PREP_MODULES/MAIN_MODULESのキー。選択方法（chooseMonsterSkillEntry
+// 参照）：①PTが足りる・対象がいるものだけを候補にする、②発生確率の
+// 高い順に並べ、最後の1つ以外は自分の確率で判定、最後の候補は無条件で
+// 発動する（「A 100%, B 0%」で「使えるなら必ずA、それ以外はB」になる
+// のもこの規則からそのまま出る）。所持スキルが定義されていないモンス
+// ター（将来の追加分）はpickMonsterAction側で旧来のrandomEnemyActionに
+// フォールバックする。
+const MONSTER_SKILL_LOADOUTS = {
+  karumeDog: {
+    prep: [{ moduleId: "excitement", chance: 1 }],
+    main: [
+      { moduleId: "tackle", chance: 0.7 },
+      { moduleId: "cry", chance: 0.3 },
+    ],
+  },
+  chocoRock: {
+    prep: [{ moduleId: "interference", chance: 1 }],
+    main: [
+      { moduleId: "tackle", chance: 0.4 },
+      { moduleId: "harden", chance: 0.6 },
+    ],
+  },
+  electricJelly: {
+    prep: [{ moduleId: "staticCling", chance: 1 }],
+    main: [
+      { moduleId: "electrocute", chance: 1 },
+      { moduleId: "discharge", chance: 0 },
+    ],
+  },
+  merengeCat: {
+    prep: [{ moduleId: "elegance", chance: 1 }],
+    main: [
+      { moduleId: "scratch", chance: 0.5 },
+      { moduleId: "cry", chance: 0.5 },
+    ],
+  },
+  fruitTree: {
+    prep: [{ moduleId: "tasteTest", chance: 1 }],
+    main: [
+      { moduleId: "sweetFruit", chance: 0.5 },
+      { moduleId: "sourFruit", chance: 0.5 },
+    ],
+  },
+  chewingMachine: {
+    prep: [{ moduleId: "biteMesh", chance: 1 }],
+    main: [{ moduleId: "tick", chance: 1 }],
+  },
+  candyArmy: {
+    prep: [{ moduleId: "unity", chance: 1 }],
+    main: [
+      { moduleId: "charge", chance: 1 },
+      { moduleId: "guard", chance: 0 },
+    ],
+  },
+  yukiClock: {
+    prep: [{ moduleId: "clockUp", chance: 1 }],
+    main: [{ moduleId: "thaw", chance: 1 }],
+  },
+  takeniniteiru: {
+    prep: [{ moduleId: "fortress", chance: 1 }],
+    main: [
+      { moduleId: "slam", chance: 0.5 },
+      { moduleId: "rush", chance: 0.5 },
+    ],
+  },
+};
 
 const PREP_START_PT = 3;
 
@@ -849,9 +1134,73 @@ export function BattleScene(container, params, api) {
     return { moduleId, targetUnit };
   }
 
+  // 所持スキル一覧（MONSTER_SKILL_LOADOUTS）から、指定フェイズで実際に
+  // 使う{moduleId, chance}を1つ選ぶ：①PTが足りる・対象がいるものだけを
+  // 候補にする、②発生確率の高い順に並べ、最後の1つ以外は自分の確率で
+  // 判定、最後の候補は無条件で発動する（詳しい規則はMONSTER_SKILL_LOADOUTS
+  // 自身のコメント参照）。候補が無ければnull（Mainフェイズの連続使用
+  // ループの終了合図、またはPrepフェイズでその所持スキルが今は使えない
+  // という意味）。
+  function chooseMonsterSkillEntry(unit, phase, skillList) {
+    const registry = phase === "prep" ? PREP_MODULES : MAIN_MODULES;
+    const viable = skillList.filter(({ moduleId }) => {
+      const module = registry[moduleId];
+      if (phase === "main" && module.cost && unit.pt.current < module.cost) return false;
+      return candidateUnits(unit, moduleId).length > 0;
+    });
+    if (viable.length === 0) return null;
+    const ordered = [...viable].sort((a, b) => b.chance - a.chance);
+    for (let i = 0; i < ordered.length; i++) {
+      if (i === ordered.length - 1 || Math.random() < ordered[i].chance) return ordered[i];
+    }
+    return null; // 理論上到達しない（最後の候補が無条件で返るため）
+  }
+
+  // あるスキルの候補から実際に使う対象を1体選ぶ：単体回復系
+  // （module.healTarget、【甘い果実】など）は自陣営の残りHPが最も少ない
+  // 1体（同値はランダム）、それ以外は候補からランダムに1体。
+  function pickMonsterSkillTarget(unit, moduleId, registry) {
+    const module = registry[moduleId];
+    const candidates = candidateUnits(unit, moduleId);
+    if (module.healTarget) {
+      const hpOf = (c) => c.character.currentHp ?? computeEffectiveMaxHp(c.character);
+      const minHp = Math.min(...candidates.map(hpOf));
+      return pickRandom(candidates.filter((c) => hpOf(c) === minHp));
+    }
+    return pickRandom(candidates);
+  }
+
+  // randomEnemyActionの後継：所持スキルが定義されているモンスターは
+  // chooseMonsterSkillEntryで選び、未定義（将来追加分の保険）は旧来通り
+  // ランダムに倒す。Mainフェイズで「もう使えるスキルが無い」場合は
+  // nullを返す（連続使用ループの終了合図）。
+  function pickMonsterAction(unit, phase) {
+    const loadout = MONSTER_SKILL_LOADOUTS[unit.character.dataId];
+    if (!loadout) return randomEnemyAction(unit);
+    const entry = chooseMonsterSkillEntry(unit, phase, loadout[phase] ?? []);
+    if (!entry) return null;
+    const registry = phase === "prep" ? PREP_MODULES : MAIN_MODULES;
+    return { moduleId: entry.moduleId, targetUnit: pickMonsterSkillTarget(unit, entry.moduleId, registry) };
+  }
+
+  // モンスターのMainフェイズの手番：PTが支払える限り、使えるスキルが
+  // 尽きるまで連続で選択・実行を繰り返す（隊員側はプレイヤーが選んだ
+  // 1回だけ、という現状の仕様は変えない -- runMainExecution参照）。
+  // 連続行動の途中で勝敗が決した、または自分自身が戦闘不能になった
+  // 場合はそこで打ち切る。
+  async function resolveMonsterMainTurn(unit) {
+    while (true) {
+      const action = pickMonsterAction(unit, "main");
+      if (!action) break;
+      unit.action = action;
+      await resolveMainAction(unit);
+      if (isIncapacitated(unit) || checkBattleEnd()) break;
+    }
+  }
+
   // 毎ターンのPrepフェイズ開始時: 全ユニットのIN/PTをリセットし、味方の
-  // 行動選択は空に、敵の行動選択はCPUがランダムに選び直す（非公開）。
-  // 戦闘不能の敵には行動を割り当てない（動けないため）。
+  // 行動選択は空に、敵の行動選択はCPUが選び直す（非公開）。戦闘不能の
+  // 敵には行動を割り当てない（動けないため）。
   function resetForNewPrepPhase() {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       unit.in = 0;
@@ -860,10 +1209,10 @@ export function BattleScene(container, params, api) {
       unit.stealthed = false;
     }
     for (const unit of allyUnits) unit.action = null;
-    for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : randomEnemyAction(unit);
+    for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : pickMonsterAction(unit, "prep");
   }
 
-  for (const unit of enemyUnits) unit.action = randomEnemyAction(unit);
+  for (const unit of enemyUnits) unit.action = pickMonsterAction(unit, "prep");
   pushPhaseHeader("オードブル！");
 
   // PrepフェイズもMainフェイズも同じ形（プレイヤー選択→行動実行）に
@@ -1039,7 +1388,7 @@ export function BattleScene(container, params, api) {
   // へ適用し、効果種別ごとの結果ログを1行積む。Prep版のapplyLeafModule
   // に相当（Mainと違いPTコスト・戦闘不能の判定はPrepフェイズには存在
   // しないため、resolvePrepAction側にもここにも無い）。
-  async function applyLeafPrepModule(unit, targetUnit, module) {
+  async function applyLeafPrepModule(unit, targetUnit, module, params = {}) {
     if (module.statusLabel) {
       const result = module.apply(unit, targetUnit, allyUnits, enemyUnits);
       pushLog(
@@ -1050,12 +1399,24 @@ export function BattleScene(container, params, api) {
       );
     } else {
       const before = statSnapshotText(targetUnit, module.stat);
-      module.apply(targetUnit);
+      module.apply(targetUnit, params.n ?? 1);
       const after = statSnapshotText(targetUnit, module.stat);
       pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
     }
     render();
     await sleep(ACTION_DELAY_MS);
+  }
+
+  // 【食べ比べ】専用の処理：1D6を振り、出目に応じて対象（相手陣営、
+  // スキル自身が既に解決済み）へ鼓舞(1)/威圧(1)/威圧(2)のいずれかを
+  // 適用する。鼓舞・威圧のapply()自体は陣営を問わず機能する（PTを増減
+  // させるだけの処理で、targetFactionは候補選択にしか使わない）ため、
+  // 既存のleafモジュールをそのまま相手陣営向けに流用できる。
+  async function resolveTasteTest(unit, targetUnit) {
+    const roll = rollD6();
+    if (roll === 1) await applyLeafPrepModule(unit, targetUnit, PREP_MODULES.inspire, { n: 1 });
+    else if (roll <= 5) await applyLeafPrepModule(unit, targetUnit, PREP_MODULES.intimidate, { n: 1 });
+    else await applyLeafPrepModule(unit, targetUnit, PREP_MODULES.intimidate, { n: 2 });
   }
 
   // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
@@ -1074,6 +1435,10 @@ export function BattleScene(container, params, api) {
     render();
     await sleep(ACTION_DELAY_MS);
 
+    if (module.custom === "tasteTest") {
+      await resolveTasteTest(unit, targetUnit);
+      return;
+    }
     await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
   }
 
@@ -1081,7 +1446,7 @@ export function BattleScene(container, params, api) {
   // へ適用し、効果種別ごとの結果ログを1行積む。戦闘不能/蘇生の判定は
   // 呼び出し側（resolveMainAction）で行動全体につき1回だけ済ませてある
   // 前提 -- 複合スキルの途中のステップでも改めてはチェックしない。
-  async function applyLeafModule(unit, targetUnit, module) {
+  async function applyLeafModule(unit, targetUnit, module, params = {}) {
     if (module.effect === "revive") {
       const result = module.apply(unit, targetUnit);
       pushLog(
@@ -1096,7 +1461,7 @@ export function BattleScene(container, params, api) {
       const after = targetUnit.stamina;
       pushLog(`${targetUnit.displayName}の体幹：${before} → ${after}`, unit.faction);
     } else if (module.effect === "correction") {
-      const result = module.apply(unit, targetUnit);
+      const result = module.apply(unit, targetUnit, params.n ?? 1);
       const statLabel = CHARACTER_STAT_FULL_LABELS[result.statKey];
       pushLog(
         result.applied
@@ -1105,7 +1470,7 @@ export function BattleScene(container, params, api) {
         unit.faction
       );
     } else if (module.effect === "continuous") {
-      const result = module.apply(unit, targetUnit);
+      const result = module.apply(unit, targetUnit, params.n ?? 1);
       const effectLabel = continuousEffectLabel(result.type);
       pushLog(
         result.applied
@@ -1115,7 +1480,7 @@ export function BattleScene(container, params, api) {
       );
     } else {
       const beforeHp = targetUnit.character.currentHp;
-      const { magnitude, label } = module.apply(unit, targetUnit);
+      const { magnitude, label } = module.apply(unit, targetUnit, params);
       const afterHp = targetUnit.character.currentHp;
       pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
       // 変調：自分以外の隊員が戦闘不能になった時+1（この分岐に来た時点で
@@ -1166,6 +1531,30 @@ export function BattleScene(container, params, api) {
   // usedTargetsは、このスキル呼び出し全体を通じて「これまでに対象に
   // なったユニット」を積み上げていく配列 -- opposingExcludingUsedの
   // 除外判定に使う（既定は最初のtargetUnit自身を1件目として開始）。
+  // step.params：固定オブジェクト、または(unit, targetUnit, pools) =>
+  // オブジェクトの関数（【団結】のような動的な強さに使う。poolsは
+  // {ownPoolFor, opposingPoolFor} -- トップレベルのモジュール定義から
+  // 見えないBattleScene内クロージャを、この形でだけ渡す）。省略時は
+  // {}（各モジュールのapply側の既定値がそのまま使われる）。
+  function resolveStepParams(unit, targetUnit, step) {
+    if (!step.params) return {};
+    return typeof step.params === "function" ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor }) : step.params;
+  }
+
+  // 属性を持つモンスターが使うスキルの中に「攻撃」モジュール（id:
+  // "attack"）が現れた場合、それがどのスキルの何ステップ目であっても
+  // 自動的に属性攻撃（attack本体＋レベル依存の状態異常）へ置き換える。
+  // 貫通攻撃は対象外（貫通攻撃そのものが大抵の属性攻撃より強いため、
+  // という設計判断）。Mainフェイズのモジュールにしか存在しない概念な
+  // ので、Prep側のregistry（PREP_MODULES）では常に素通しする。
+  async function applyLeafWithAttributeSwap(registry, applyLeaf, unit, target, action, params) {
+    if (registry === MAIN_MODULES && action.id === "attack" && unit.character.attribute) {
+      await applyAttributeAttack(unit, target, unit.character.attribute, params);
+      return;
+    }
+    await applyLeaf(unit, target, action, params);
+  }
+
   async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit]) {
     for (const step of steps) {
       if (step.chance !== undefined) {
@@ -1179,7 +1568,7 @@ export function BattleScene(container, params, api) {
         for (const t of pool) {
           usedTargets.push(t);
           if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets);
-          else await applyLeaf(unit, t, action);
+          else await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step));
         }
         continue;
       }
@@ -1193,7 +1582,7 @@ export function BattleScene(container, params, api) {
       }
       usedTargets.push(stepTarget);
       if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets);
-      else await applyLeaf(unit, stepTarget, action);
+      else await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step));
     }
   }
 
@@ -1202,9 +1591,11 @@ export function BattleScene(container, params, api) {
   // 参照）。まず素の「攻撃」を必ず1回行い、対象が戦闘不能にならなければ
   // actorのレベル依存の確率（attributeProcChance）で状態異常を追加付与
   // する。汚染だけは1つに決まらず、候補6種類から重複なく2つを毎回選び
-  // 直して両方付与する。
-  async function applyAttributeAttack(unit, targetUnit, attribute) {
-    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack);
+  // 直して両方付与する。paramsは攻撃本体の能動/受動能力値の上書き
+  // （【ティック】のような、attribute置き換え元のスキル自身が指定した
+  // ものをそのまま引き継ぐ -- applyLeafWithAttributeSwap参照）。
+  async function applyAttributeAttack(unit, targetUnit, attribute, params = {}) {
+    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack, params);
     if (isIncapacitated(targetUnit)) return;
     if (Math.random() >= attributeProcChance(unit)) return;
     const keys = attribute === "contamination" ? shuffleInPlace([...CONTAMINATION_DEBUFF_KEYS]).slice(0, 2) : [attribute];
@@ -1304,14 +1695,14 @@ export function BattleScene(container, params, api) {
     }
   }
 
-  // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：CPU
-  // が敵の行動を選び直し（非公開、戦闘不能の敵は除く）、味方の選択は
-  // 空に戻し、見出し＋敵HP一覧をログに出す。ここではまだ実行しない
-  // （プレイヤーの選択待ち）。
+  // Prepフェイズの順次処理が終わったら、Mainフェイズへ切り替える：味方
+  // ・敵とも選択を空に戻し（敵側はPTが許す限り連続使用ループの中で毎回
+  // 選び直すので、ここでの事前選択は不要 -- resolveMonsterMainTurn参照）、
+  // 見出し＋敵HP一覧をログに出す。ここではまだ実行しない（プレイヤーの
+  // 選択待ち）。
   function startMainPhase() {
     phase = "main";
-    for (const unit of allyUnits) unit.action = null;
-    for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : randomEnemyAction(unit);
+    for (const unit of [...allyUnits, ...enemyUnits]) unit.action = null;
     pushPhaseHeader("メインディッシュ！");
   }
 
@@ -1340,7 +1731,10 @@ export function BattleScene(container, params, api) {
       // ユニットの番はスキップする（行動順はフェイズ開始時点の生存者
       // で組んでいるため、途中で戦闘不能になることがある）。
       if (isIncapacitated(unit)) continue;
-      await resolveMainAction(unit);
+      // モンスターはPTが支払える限り連続でスキルを使用できる（隊員は
+      // プレイヤーが選んだ1回だけ）-- resolveMonsterMainTurn参照。
+      if (unit.faction === "enemy") await resolveMonsterMainTurn(unit);
+      else await resolveMainAction(unit);
       const outcome = checkBattleEnd();
       if (outcome) {
         activeArrow = null;
