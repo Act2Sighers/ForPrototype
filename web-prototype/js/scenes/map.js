@@ -261,6 +261,17 @@ export function MapScene(container, params, api) {
         button("荷物", { onClick: () => api.callScene("resourceStorage") }),
       ],
     });
+
+    // 横スクロール位置の自動調整：現在地の列と、次に進む先の列（reachable
+    // /virtualStopsの行き先はどちらも必ず同じ1列に属する）のちょうど
+    // 中央が画面中央に来るようにする。進む先が無い（ゴール到達時）は
+    // 現在地だけを中央に据える。renderScreen直後・.screenがis-active
+    // な状態でだけ呼ばれるので、clientWidthはこの時点で正しく取れる。
+    const nextTargetIds = reachable.length > 0 ? reachable : virtualStops.map((stop) => stop.toId);
+    const nextColumnX = nextTargetIds.length > 0 ? dungeon.nodes[nextTargetIds[0]].x : currentNode.x;
+    const centerX = (currentNode.x + nextColumnX) / 2;
+    const maxScrollLeft = Math.max(0, mapScroll.scrollWidth - mapScroll.clientWidth);
+    mapScroll.scrollLeft = Math.min(maxScrollLeft, Math.max(0, centerX - mapScroll.clientWidth / 2));
   }
 
   render();
