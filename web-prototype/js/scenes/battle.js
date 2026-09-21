@@ -1147,6 +1147,81 @@ Object.assign(MAIN_MODULES, {
       { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defense" }) },
     ],
   },
+  // 【シェアカット】（ピザカッター）：対象選択の必要なし（targetFaction:
+  // "none"）。実際の可変回数・毎回ランダム対象の攻撃はcustom resolver
+  // （resolveShareCut、BattleScene内）が持つ -- 固定回数・固定候補
+  // 前提の既存stepsエンジンでは表現できないため。
+  shareCut: {
+    id: "shareCut",
+    label: "シェアカット",
+    targetFaction: "none",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    custom: "shareCut",
+  },
+  // 【アレンジ】（レシピブック）：自陣営・相手陣営どちらの1体でも選べる
+  // （targetFaction:"any"）。継続回復⇔継続ダメージの交換／全補正の
+  // バフ⇔デバフ反転／体幹×-1、という複数フィールドにまたがる処理を
+  // 一度に行うため、既存のeffect種別（hp/stamina/correction/
+  // continuous）のどれにも当てはまらず、custom resolver
+  // （resolveArrange）で直接対象を書き換える。
+  arrange: {
+    id: "arrange",
+    label: "アレンジ",
+    targetFaction: "any",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    custom: "arrange",
+  },
+  // 【ピール】（スライサー）：相手陣営全員に、体幹が1以上ある時だけ
+  // 体幹を1減らしHPを固定8削る（peelHitが葉、each:"opposing"がラップ
+  // する）。体幹0以下の相手には何も起きない（peelHit自身がmagnitude:0
+  // で不発を表現する）。
+  peel: {
+    id: "peel",
+    label: "ピール",
+    targetFaction: "none",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "peelHit", each: "opposing" }],
+  },
+  peelHit: {
+    id: "peelHit",
+    label: "ピール",
+    targetFaction: "opposing",
+    effect: "hp",
+    apply: (actor, target) => {
+      if (target.stamina < 1) return { magnitude: 0, label: "ダメージ" };
+      target.stamina -= 1;
+      applyHpDamage(target.character, 8);
+      return { magnitude: 8, label: "ダメージ" };
+    },
+  },
+  // 【ブレンド】（ミキサー）：相手陣営1体を選んで使う（不発ありの方式
+  // --「選べるが不発」に統一するユーザー指示に従う）。対象の体幹が
+  // -1以下の時だけ、その脆弱性を全て支払って「4×(-体幹)」の固定
+  // ダメージを与え体幹を0に戻す。体幹が0以上の相手には何も起きない。
+  // 単体のleafモジュールとして、自分自身がsteps無しでapplyを直接持つ
+  // （quickAttackなどと同じ形）。
+  blend: {
+    id: "blend",
+    label: "ブレンド",
+    targetFaction: "opposing",
+    effect: "hp",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    apply: (actor, target) => {
+      if (target.stamina >= 0) return { magnitude: 0, label: "ダメージ" };
+      const damage = 4 * -target.stamina;
+      target.stamina = 0;
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
 });
 
 // 属性攻撃(attribute)：module.attributeを持つ自分専用の「攻撃」。この
@@ -1572,6 +1647,9 @@ export function BattleScene(container, params, api) {
     // のような「自分以外の味方を選ばせ、自分自身は別ステップで固定的に
     // 対象にする」構成に使う）。
     if (module.targetFaction === "ownExcludingSelf") return ownPoolFor(actor).filter((u) => u !== actor);
+    // any：自陣営・相手陣営を問わず生存者全員（【アレンジ】のような
+    // 「どちらの陣営の1体でも選べる」構成に使う）。
+    if (module.targetFaction === "any") return [...ownPoolFor(actor), ...opposingPoolFor(actor)];
 
     // targetFaction === "opposing"
     return opposingPoolFor(actor);
@@ -2279,13 +2357,69 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【シェアカット】専用の解決関数：使用者の5能力値（補正なし/rawStat）
+  // の中で最も高い値に並んでいる個数をXとし、相手陣営の生存者から
+  // 毎回改めてランダムに選んだ対象へX回「攻撃」を行う（重複・除外なし
+  // -- ユーザー指示により対象選択の候補管理は行わない簡略版）。相手
+  // 陣営が全滅するなどして候補がいなくなった時点で打ち切る。
+  async function resolveShareCut(unit) {
+    const statKeys = ["attack", "defense", "destruction", "wisdom", "coordination"];
+    const values = statKeys.map((key) => rawStat(unit, key));
+    const max = Math.max(...values);
+    const hitCount = values.filter((v) => v === max).length;
+    for (let i = 0; i < hitCount; i++) {
+      const pool = opposingPoolFor(unit);
+      if (pool.length === 0) break;
+      const target = pickRandom(pool);
+      await applyLeafModule(unit, target, MAIN_MODULES.attack, {});
+    }
+  }
+
+  // 【アレンジ】専用の解決関数：対象の継続回復⇔継続ダメージの交換
+  // （継続割合ダメージは対象外、ユーザー指示の説明範囲外のため据え置
+  // き）／全ての能力値補正のバフ⇔デバフ反転／体幹への-1倍、という
+  // 複数フィールドにまたがる処理を一括で行う。既存のeffect種別
+  // （hp/stamina/correction/continuous）のどれにも当てはまらないため
+  // custom resolverとして直接対象を書き換える。何も変化しなかった
+  // 場合（継続効果なし・補正なし・体幹0）はその旨を1行だけログする。
+  async function resolveArrange(unit, targetUnit) {
+    let changed = false;
+    if (targetUnit.continuousHp && (targetUnit.continuousHp.type === "heal" || targetUnit.continuousHp.type === "damage")) {
+      const beforeLabel = continuousEffectLabel(targetUnit.continuousHp.type);
+      targetUnit.continuousHp.type = targetUnit.continuousHp.type === "heal" ? "damage" : "heal";
+      const afterLabel = continuousEffectLabel(targetUnit.continuousHp.type);
+      pushLog(`${targetUnit.displayName}の${beforeLabel}が${afterLabel}に変わった！`, unit.faction);
+      changed = true;
+    }
+    for (const statKey of ["attack", "defense", "destruction", "wisdom", "coordination"]) {
+      const correction = targetUnit.corrections[statKey];
+      if (!correction) continue;
+      correction.sign *= -1;
+      const statLabel = CHARACTER_STAT_FULL_LABELS[statKey];
+      pushLog(`${targetUnit.displayName}の${statLabel}の補正が反転した（${correction.sign > 0 ? "+" : "-"}${correction.n}）！`, unit.faction);
+      changed = true;
+    }
+    if (targetUnit.stamina !== 0) {
+      const before = targetUnit.stamina;
+      targetUnit.stamina *= -1;
+      pushLog(`${targetUnit.displayName}の体幹：${before} → ${targetUnit.stamina}`, unit.faction);
+      changed = true;
+    }
+    if (!changed) {
+      pushLog(`${targetUnit.displayName}には特に変化がなかった。`, unit.faction);
+    }
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
   // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
   // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
-  // エンジン（固定回数・固定候補）では表現しづらいスキル（例：
-  // 【シェアカット】の可変回数・毎回ランダム対象ヒット）を、
+  // エンジン（固定回数・固定候補）では表現しづらいスキルを、
   // module.custom: "<key>"で対応するresolverへ振り分ける。
   const MAIN_CUSTOM_RESOLVERS = {
     bounce: resolveBounce,
+    shareCut: resolveShareCut,
+    arrange: resolveArrange,
   };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも

@@ -435,17 +435,17 @@ export const WEAPON_TYPES = {
   fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 }, skillId: "shellBreak" },
   knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 }, skillId: "hornBreak" },
   dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"], frame: { speciesId: "honeyCrystalOre", quantity: 1 }, skillId: "bounce" },
-  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 } },
+  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "arrange" },
   straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 }, skillId: "surprise" },
   paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "ecology" },
   timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"], frame: { speciesId: "sugarCaneFiber", quantity: 2 }, skillId: "alert" },
   fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"], frame: { speciesId: "cacaoLayeredRock", quantity: 2 }, skillId: "sunnySideUp" },
-  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 } },
+  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 }, skillId: "blend" },
   jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 }, skillId: "pickles" },
-  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 } },
+  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 }, skillId: "shareCut" },
   shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "cheers" },
   icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "iceBreak" },
-  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 } },
+  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 }, skillId: "peel" },
 };
 
 // A weapon's name is "<prefix><weapon type>" (e.g. "質素な" + "フライ
