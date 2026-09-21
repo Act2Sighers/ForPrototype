@@ -1,6 +1,7 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { characterInfoCard } from "../characterCard.js";
 import state, { canAffordCost, hasSquadRoom, hireCharacter } from "../state.js";
+import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import {
   CHARACTER_DATA,
   INITIAL_EMPLOYMENT_DATA,
@@ -16,12 +17,21 @@ const NORMAL_CANDIDATE_COUNT = 5;
 const PEDDLER_CANDIDATE_COUNT = 2;
 const PEDDLER_COST_MULTIPLIER = 0.5;
 
+// 通常雇用/行商モードの候補生成に渡すラン進捗率(m/X)。初期雇用は対象外
+// (createHiringCandidateのflatCost経路のみを使い、progressは渡さない)。
+function currentProgress() {
+  return {
+    currentNodeCount: state.run.visitedNodeIds.length,
+    longestReachableNodeCount: DUNGEON_PARAMS[state.run.dungeon.id].longestReachableNodeCount,
+  };
+}
+
 function generateCandidates(mode) {
   if (mode === "initial") {
     return Object.keys(INITIAL_EMPLOYMENT_DATA).map((id) => ({ ...createHiringCandidate(id, { flatCost: 1 }), hired: false }));
   }
   const count = mode === "peddler" ? PEDDLER_CANDIDATE_COUNT : NORMAL_CANDIDATE_COUNT;
-  const options = mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : undefined;
+  const options = { progress: currentProgress(), ...(mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : {}) };
   return pickRandomEmploymentIds(count).map((id) => ({ ...createHiringCandidate(id, options), hired: false }));
 }
 
@@ -38,8 +48,10 @@ function generateCandidates(mode) {
 //    are passed in via params.candidates (trade.js keeps them alive for
 //    the whole trade visit, re-passing the same array — hired flags and
 //    all — every time the player reopens 雇用所) rather than drawn fresh
-//    here; see trade.js. Real cost via computeTradeValue. Closing ("店
-//    を出る") is never gated, and 除隊 is available.
+//    here; see trade.js. レベル・武器・費用はラン進捗率に応じて
+//    スケールする（createHiringCandidateのprogress経路、
+//    currentProgress()参照）。Closing ("店を出る") は never gated, and
+//    除隊 is available.
 //  - "peddler": 行商の荷馬車「雇用」から。通常モードと同じ抽選方法/価格
 //    計算式だが、候補は2枠だけ、価格は半額（切り上げ）。行商は正式な
 //    雇用所ではないので除隊は出さない（通常モードと同じ除隊ガード
@@ -68,7 +80,7 @@ export function HiringScene(container, params, api) {
   }
 
   function confirmHire(candidate) {
-    const character = createCharacterFromData(candidate.characterDataId);
+    const character = createCharacterFromData(candidate.characterDataId, candidate.bonusGrowth ?? {});
     character.weapon = candidate.weapon;
     hireCharacter(character, candidate.cost);
     candidate.hired = true;
@@ -141,7 +153,7 @@ export function HiringScene(container, params, api) {
           characterInfoCard({
             name: candidate.name,
             level: candidate.level,
-            growth: CHARACTER_DATA[candidate.characterDataId].growth,
+            growth: candidate.growth,
             weapon: candidate.weapon,
             synergies: CHARACTER_DATA[candidate.characterDataId].synergies,
           })

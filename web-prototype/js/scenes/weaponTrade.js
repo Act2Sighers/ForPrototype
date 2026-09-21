@@ -1,5 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { canAffordCost, purchaseWeapon } from "../state.js";
+import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import {
   RIGID_RESOURCES,
   WEAPON_TYPES,
@@ -16,9 +17,18 @@ const CANDIDATE_COUNT = 5;
 const PEDDLER_CANDIDATE_COUNT = 2;
 const PEDDLER_COST_MULTIPLIER = 0.5;
 
+// 武器取引の候補生成に渡すラン進捗率(m/X)。武器取引に「初期」モードは
+// 存在しないので、通常/行商どちらでも常に渡す。
+function currentProgress() {
+  return {
+    currentNodeCount: state.run.visitedNodeIds.length,
+    longestReachableNodeCount: DUNGEON_PARAMS[state.run.dungeon.id].longestReachableNodeCount,
+  };
+}
+
 function generateCandidates(mode) {
   const count = mode === "peddler" ? PEDDLER_CANDIDATE_COUNT : CANDIDATE_COUNT;
-  const options = mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : undefined;
+  const options = { progress: currentProgress(), ...(mode === "peddler" ? { costMultiplier: PEDDLER_COST_MULTIPLIER } : {}) };
   return pickRandomWeaponTypeIds(count).map((id) => createWeaponTradeCandidate(id, options));
 }
 
@@ -37,9 +47,9 @@ function weaponSynergyNames(weapon) {
 //  - "peddler": 行商の荷馬車「武器」から。抽選方法・価格計算式は通常
 //    モードと同じだが、候補は2枠だけ、価格は半額（切り上げ）。行商は
 //    正式な鍛冶屋ではないので売却は出さない。
-// Placeholder pricing for now (see resourceCatalog.js's
-// computeWeaponMarketPrice): every candidate is forged from ザラメ鉱石,
-// price is just ザラメ鉱石×(性能値合計), no regard yet for ラン進捗率.
+// 価格はザラメ鉱石×(性能値合計)（computeWeaponMarketPrice）。性能値合計
+// 自体がラン進捗率に応じて上昇する（computeWeaponTradeStatSum、
+// currentProgress()参照）ので、価格式そのものは変えていない。
 // "もどる" always hands the (possibly now-purchased) candidate list back
 // to the caller.
 export function WeaponTradeScene(container, params, api) {

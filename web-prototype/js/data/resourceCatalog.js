@@ -67,6 +67,50 @@ function growthSum(growth) {
   return growth.attack + growth.defense + growth.destruction + growth.wisdom + growth.coordination;
 }
 
+function mergeGrowth(base, bonus) {
+  return {
+    attack: base.attack + (bonus.attack ?? 0),
+    defense: base.defense + (bonus.defense ?? 0),
+    destruction: base.destruction + (bonus.destruction ?? 0),
+    wisdom: base.wisdom + (bonus.wisdom ?? 0),
+    coordination: base.coordination + (bonus.coordination ?? 0),
+  };
+}
+
+// ラン進捗率に応じた通常雇用/武器取引のグレード上昇の計算式一式。m
+// (現在の到達マス数)・X(最長到達マス数)は呼び出し側(hiring.js/
+// weaponTrade.js)がstate.run.visitedNodeIds.length/DUNGEON_PARAMSから
+// 渡す -- このファイルはstateに依存しない方針を保つため、生の数値だけ
+// を受け取る。
+const GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+
+// モンスターレベルの `Math.max(1, m - 1)`（battle.js参照）と同じ考え方:
+// スタートマス直後（m=1）では下限の1にクランプする。
+export function computeHiringLevel(currentNodeCount) {
+  return Math.max(1, currentNodeCount - 1);
+}
+
+// 追加成長ポイントをステータス5種へ完全ランダムに1点ずつ配分する（上限
+// なし -- growCharacterStatにも上限がない）。将来「成長優先度」を導入
+// する際は、この関数を優先度付き抽選に差し替える想定。
+export function rollBonusGrowth(totalPoints) {
+  const bonus = Object.fromEntries(GROWTH_STAT_KEYS.map((key) => [key, 0]));
+  for (let i = 0; i < totalPoints; i++) {
+    const key = GROWTH_STAT_KEYS[Math.floor(Math.random() * GROWTH_STAT_KEYS.length)];
+    bonus[key] += 1;
+  }
+  return bonus;
+}
+
+// 武器取引の性能値合計グレード式。Mは最長到達マス数(X)の2/3(切り上げ)
+// で、スタートマス直後(m=1)では性能値合計7(武器評価Bの最低値)、Mマス
+// 目以降では性能値合計16(武器評価Aの最高値)で頭打ちになる。
+export function computeWeaponTradeStatSum(currentNodeCount, longestReachableNodeCount) {
+  const gradeCapNode = Math.ceil((longestReachableNodeCount * 2) / 3);
+  const raw = (9 * (currentNodeCount - 2)) / (gradeCapNode - 2);
+  return 7 + Math.max(0, Math.min(9, Math.ceil(raw)));
+}
+
 export function computeMaxHp(growth) {
   return growthSum(growth) * 12;
 }
@@ -174,16 +218,11 @@ export const CHARACTER_DATA = {
 // not the individual — the same template can be hired more than once,
 // e.g. ビスケット・ベーカー showing up in every 初期雇用 pool).
 // bonusGrowth optionally adds on top of the template for a
-// stronger-than-default recruit (not used anywhere yet).
+// stronger-than-default recruit -- see createHiringCandidate's
+// run-progress-scaled 通常雇用 candidates below.
 export function createCharacterFromData(dataId, bonusGrowth = {}) {
   const data = CHARACTER_DATA[dataId];
-  const growth = {
-    attack: data.growth.attack + (bonusGrowth.attack ?? 0),
-    defense: data.growth.defense + (bonusGrowth.defense ?? 0),
-    destruction: data.growth.destruction + (bonusGrowth.destruction ?? 0),
-    wisdom: data.growth.wisdom + (bonusGrowth.wisdom ?? 0),
-    coordination: data.growth.coordination + (bonusGrowth.coordination ?? 0),
-  };
+  const growth = mergeGrowth(data.growth, bonusGrowth);
   return {
     id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     dataId,
@@ -526,6 +565,27 @@ export function forgeWeapon(weaponTypeId, materialId) {
   });
 }
 
+// forgeWeaponと同じ生成形だが、特定の資源ではなく狙った性能値合計から
+// 5ステータスをランダムに振り分ける（rollAmberSugarMineralStatsと同じ
+// 分配ロジックを流用）。通常雇用/武器取引のラン進捗率スケーリング候補
+// 専用 -- どの資源で作られたかという設定は端から存在しないので、材料
+// 指定は不要。
+export function forgeWeaponWithStatSum(weaponTypeId, totalPoints) {
+  return createWeapon({
+    id: `weapon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    baseTypeId: weaponTypeId,
+    stats: rollAmberSugarMineralStats(totalPoints),
+  });
+}
+
+// characterDataIdのキャラが所持可能な武器種（1つ以上シナジーが重複する
+// もの）からランダムに1つ抽選する。通常雇用の候補生成専用。
+export function pickCompatibleWeaponTypeId(characterDataId) {
+  const synergies = new Set(CHARACTER_DATA[characterDataId].synergies);
+  const compatibleIds = Object.keys(WEAPON_TYPES).filter((id) => WEAPON_TYPES[id].synergies.some((s) => synergies.has(s)));
+  return compatibleIds[Math.floor(Math.random() * compatibleIds.length)];
+}
+
 // ---------------------------------------------------------------------
 // 初期雇用データ (initial-employment data)
 // ---------------------------------------------------------------------
@@ -619,30 +679,60 @@ export function pickRandomEmploymentIds(count) {
 // A 雇用画面 candidate: forges its weapon once, up front, so the rating
 // and cost shown stay consistent with what hiring actually grants (see
 // hiring.js, which reuses this same weapon instance rather than forging
-// a new one when the candidate is actually hired). `flatCost`, when
-// given, overrides computeTradeValue -- used by 初期雇用モード, whose
-// cost is a flat ザラメ鉱石x1 regardless of stats.
-export function createHiringCandidate(employmentId, { flatCost, costMultiplier = 1 } = {}) {
+// a new one when the candidate is actually hired). Two distinct modes:
+//  - `flatCost` given (初期雇用モード専用): cost is a flat ザラメ鉱石x1
+//    regardless of stats, level/weapon come straight from
+//    INITIAL_EMPLOYMENT_DATA's own fixed weaponTypeId/materialId, no
+//    ラン進捗率 scaling at all -- 初期雇用データはこの雇用専用の別物
+//    という前提のまま。
+//  - `progress` given (通常雇用/行商モード): レベルはcomputeHiringLevel
+//    (m-1をLv.1下限でクランプ)、武器種はそのキャラが所持可能な武器から
+//    ランダム、武器の性能値合計と成長値の追加分はどちらもラン進捗率
+//    (computeWeaponTradeStatSum)に応じて上昇し、コストは
+//    ザラメ鉱石×[レベル+武器の性能値合計]。
+export function createHiringCandidate(employmentId, { flatCost, costMultiplier = 1, progress } = {}) {
   const entry = INITIAL_EMPLOYMENT_DATA[employmentId];
   const data = CHARACTER_DATA[entry.characterDataId];
-  const weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
+
+  if (!progress) {
+    const weapon = forgeWeapon(entry.weaponTypeId, entry.materialId);
+    return {
+      employmentId,
+      characterDataId: entry.characterDataId,
+      name: data.name,
+      level: computeLevel(data.growth),
+      growth: data.growth,
+      weapon,
+      cost: flatCost ?? Math.ceil(computeTradeValue({ growth: data.growth, weapon }) * costMultiplier),
+    };
+  }
+
+  const targetLevel = computeHiringLevel(progress.currentNodeCount);
+  const bonusPoints = Math.max(0, targetLevel + 4 - growthSum(data.growth));
+  const bonusGrowth = rollBonusGrowth(bonusPoints);
+  const growth = mergeGrowth(data.growth, bonusGrowth);
+  const level = computeLevel(growth);
+  const statSum = computeWeaponTradeStatSum(progress.currentNodeCount, progress.longestReachableNodeCount);
+  const weapon = forgeWeaponWithStatSum(pickCompatibleWeaponTypeId(entry.characterDataId), statSum);
   return {
     employmentId,
     characterDataId: entry.characterDataId,
     name: data.name,
-    level: computeLevel(data.growth),
+    level,
+    growth,
+    bonusGrowth,
     weapon,
-    cost: flatCost ?? Math.ceil(computeTradeValue({ growth: data.growth, weapon }) * costMultiplier),
+    cost: Math.ceil((level + sumStatValues(weapon.stats)) * costMultiplier),
   };
 }
 
 // ---------------------------------------------------------------------
 // 武器取引画面 / 武器置き場画面（売却モード）
 // ---------------------------------------------------------------------
-// Placeholder pricing per the user's own instruction: both buy and sell
-// price are just ザラメ鉱石×(性能値合計), with no regard yet for ラン
-// 進捗率 (deferred across every event, not just this one, until more of
-// 取引/戦闘 exists) or which specific 武器評価/prefix the weapon has.
+// 買値・売値はどちらもザラメ鉱石×(性能値合計) -- 性能値合計自体が
+// computeWeaponTradeStatSumでラン進捗率に応じて上昇するので、価格式
+// そのものはこのままで良い（性能値評価/prefixそのものは価格式に
+// 絡めない）。
 
 export function computeWeaponMarketPrice(weapon) {
   return sumStatValues(weapon.stats);
@@ -652,12 +742,14 @@ export function pickRandomWeaponTypeIds(count) {
   return shuffledCopy(Object.keys(WEAPON_TYPES)).slice(0, count);
 }
 
-// A 武器取引画面 candidate: always forged from ザラメ鉱石 for now (see
-// this section's own note above) -- weaponTrade.js forges it once, up
-// front, so the price shown matches what buying it actually grants,
-// the same way createHiringCandidate does for 雇用画面.
-export function createWeaponTradeCandidate(weaponTypeId, { costMultiplier = 1 } = {}) {
-  const weapon = forgeWeapon(weaponTypeId, "coarseSugarMineral");
+// A 武器取引画面 candidate: 性能値合計はラン進捗率(computeWeaponTradeStatSum)
+// で決まる目標値からランダムに振り分けて生成する（forgeWeaponWithStatSum、
+// 特定の資源は使わない）。weaponTrade.jsが一度だけ生成してそのまま持つ
+// ので、表示価格と実際の購入価格は常に一致する。武器取引に「初期」
+// モードは存在しないため、progressは必須。
+export function createWeaponTradeCandidate(weaponTypeId, { costMultiplier = 1, progress }) {
+  const statSum = computeWeaponTradeStatSum(progress.currentNodeCount, progress.longestReachableNodeCount);
+  const weapon = forgeWeaponWithStatSum(weaponTypeId, statSum);
   return { weapon, price: Math.ceil(computeWeaponMarketPrice(weapon) * costMultiplier), purchased: false };
 }
 
