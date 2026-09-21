@@ -68,9 +68,12 @@ function freshProfile() {
     // だけ（js/data/restEpisodes.js参照）。ラン単位ではなくプロフィール
     // 単位で永続する。
     restEpisodeProgress: {},
-    // 休憩イベント：一度でも抽選済みの休憩台本のid一覧（restEpisodes.js
-    // の各台本のid）。未抽選優先の抽選（pickRestEpisode参照）で使う。
-    seenRestEpisodeIds: [],
+    // 一度でも読み終えた台本のid一覧（オープニング/遭遇/エンディング/
+    // 休憩71本のいずれも -- js/data/scripts.jsのEPISODE_ARCHIVE_ENTRIES
+    // 各要素のid）。休憩イベントの未抽選優先の抽選（pickRestEpisode
+    // 参照）と、探査記録画面（archive.js、宿舎から入る）の既読一覧
+    // 表示の両方で使う。
+    seenEpisodeIds: [],
   };
 }
 
@@ -261,18 +264,19 @@ export function grantAmberSugarMineralInstances(instances) {
   }
 }
 
-// 休憩イベント（js/data/restEpisodes.js）で1本引いた後に呼ぶ記録処理。
-// characterIdが渡された場合（隊員個別エピソード）はその隊員の進捗を
-// 1段階進める -- 呼び出し側（episode.js）が既にpickRestEpisodeで
-// 「次に引くべき1段階」を選んでいるので、ここでは単純にインクリメント
-// するだけでよい。どちらの場合もidをseenRestEpisodeIdsへ記録する
-// （重複追加はしない）。
-export function recordRestEpisodeDraw(episodeId, characterId) {
+// 台本（オープニング/遭遇/エンディング/休憩のいずれか）を1本読み終えた
+// 後に呼ぶ記録処理。characterIdが渡された場合（休憩の隊員個別
+// エピソード）はその隊員の進捗を1段階進める -- 呼び出し側（episode.js）
+// が既にpickRestEpisodeで「次に引くべき1段階」を選んでいるので、ここ
+// では単純にインクリメントするだけでよい。どちらの場合もidを
+// seenEpisodeIdsへ記録する（重複追加はしない）。回想モード（既読の
+// 台本を読み返すだけの再生）では呼ばない -- episode.js参照。
+export function recordEpisodeSeen(episodeId, characterId) {
   if (characterId) {
     state.restEpisodeProgress[characterId] = (state.restEpisodeProgress[characterId] ?? 0) + 1;
   }
-  if (!state.seenRestEpisodeIds.includes(episodeId)) {
-    state.seenRestEpisodeIds.push(episodeId);
+  if (!state.seenEpisodeIds.includes(episodeId)) {
+    state.seenEpisodeIds.push(episodeId);
   }
 }
 
@@ -647,7 +651,7 @@ function slotSnapshot() {
       storedWeapons: state.storedWeapons,
       coatingCraftCounts: state.coatingCraftCounts,
       restEpisodeProgress: state.restEpisodeProgress,
-      seenRestEpisodeIds: state.seenRestEpisodeIds,
+      seenEpisodeIds: state.seenEpisodeIds,
     }),
     run: state.run ? structuredClone(state.run) : null,
   };

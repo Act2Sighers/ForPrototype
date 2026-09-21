@@ -13,6 +13,7 @@ export const SCENE_LABELS = {
   trade: "取引画面",
   warehouse: "倉庫画面",
   gallery: "ギャラリー画面",
+  archive: "探査記録画面",
   squadFormation: "部隊編成画面",
   weaponStorage: "武器置き場画面",
   resourceStorage: "荷物置き場画面",

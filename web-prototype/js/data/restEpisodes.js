@@ -57,23 +57,30 @@ function simpleRewardScript(text) {
   };
 }
 
+// 探査記録画面（archive.js）でのタイトル表記用の全角数字（1〜6で足りる）。
+const ZENKAKU_DIGITS = ["", "１", "２", "３", "４", "５", "６"];
+
 const ARC_STEPS = [
-  { key: "monologue1", text: (name) => `これは${name}の独白その１です。` },
-  { key: "monologue2", text: (name) => `これは${name}の独白その２です。` },
-  { key: "backstory1", text: (name) => `これは${name}の裏話その１です。` },
-  { key: "backstory2", text: (name) => `これは${name}の裏話その２です。` },
-  { key: "truth", text: (name) => `これは${name}の真相です。` },
-  { key: "memory", text: (name) => `これは${name}の思い出です。` },
+  { key: "monologue1", titleLabel: "独白１", text: (name) => `これは${name}の独白その１です。` },
+  { key: "monologue2", titleLabel: "独白２", text: (name) => `これは${name}の独白その２です。` },
+  { key: "backstory1", titleLabel: "裏話１", text: (name) => `これは${name}の裏話その１です。` },
+  { key: "backstory2", titleLabel: "裏話２", text: (name) => `これは${name}の裏話その２です。` },
+  { key: "truth", titleLabel: "真相", text: (name) => `これは${name}の真相です。` },
+  { key: "memory", titleLabel: "思い出", text: (name) => `これは${name}の思い出です。` },
 ];
 
-// [1-42] 隊員個別エピソード：7人×6段階＝42本。
+// [1-42] 隊員個別エピソード：7人×6段階＝42本。タイトルは
+// 「隊員フレークの独白１」のような短い表記（探査記録画面用、本文とは
+// 別）。
 function buildSoloEpisodes() {
   const episodes = [];
   for (const characterId of NAMED_REST_CHARACTER_IDS) {
     const name = fullName(characterId);
+    const firstName = FIRST_NAME[characterId];
     ARC_STEPS.forEach((step, stepIndex) => {
       episodes.push({
         id: `rest-solo-${characterId}-${step.key}`,
+        title: `隊員${firstName}の${step.titleLabel}`,
         requiredCharacterIds: [characterId],
         characterId,
         stepIndex,
@@ -85,7 +92,8 @@ function buildSoloEpisodes() {
 }
 
 // [43-48]/[49-52] 固定ペア（人数固定のエピソード数：フレーク&キューブは
-// 6本、ハニー&ショコラは4本）。
+// 6本、ハニー&ショコラは4本）。タイトルは「ハニーとショコラ その２」の
+// ような表記。
 function buildFixedDuoEpisodes(idA, idB, count) {
   const episodes = [];
   const labelA = FIRST_NAME[idA];
@@ -93,6 +101,7 @@ function buildFixedDuoEpisodes(idA, idB, count) {
   for (let i = 1; i <= count; i++) {
     episodes.push({
       id: `rest-duo-${idA}-${idB}-${i}`,
+      title: `${labelA}と${labelB} その${ZENKAKU_DIGITS[i]}`,
       requiredCharacterIds: [idA, idB],
       script: simpleRewardScript(`これは${labelA}と${labelB}のエピソード［${i}］です。`),
     });
@@ -101,6 +110,8 @@ function buildFixedDuoEpisodes(idA, idB, count) {
 }
 
 // [53-58]/[59-64]/[65-70] centerId×他の個別アーク持ち6人、各1本ずつ。
+// タイトルは「ロリポップとキューブ」のような表記（番号なし、相手ごとに
+// 1本しかないため）。
 function buildStarDuoEpisodes(centerId) {
   const episodes = [];
   const centerLabel = FIRST_NAME[centerId];
@@ -108,6 +119,7 @@ function buildStarDuoEpisodes(centerId) {
     if (partnerId === centerId) continue;
     episodes.push({
       id: `rest-duo-${centerId}-${partnerId}`,
+      title: `${centerLabel}と${FIRST_NAME[partnerId]}`,
       requiredCharacterIds: [centerId, partnerId],
       script: simpleRewardScript(`これは${centerLabel}と${FIRST_NAME[partnerId]}のエピソードです。`),
     });
@@ -119,6 +131,7 @@ function buildStarDuoEpisodes(centerId) {
 // （requiredCharacterIdsが空＝常に抽選対象）。
 const DUMMY_EPISODE = {
   id: "rest-dummy",
+  title: "ダミー",
   requiredCharacterIds: [],
   script: simpleRewardScript("これはダミーのエピソードです。"),
 };

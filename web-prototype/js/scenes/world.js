@@ -56,6 +56,8 @@ export function WorldScene(container, params, api) {
 
     if (location?.kind === "castle") {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("gallery") }));
+    } else if (location?.kind === "dormitory") {
+      actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("archive") }));
     } else if (location?.kind === "dungeon" && selectedDifficultyId) {
       actions.push(
         button("挑戦開始", {

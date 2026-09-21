@@ -1,6 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { rollJudgement } from "../dice.js";
-import state, { grantResource, grantTieredResource, grantAmberSugarMineral, recordRestEpisodeDraw } from "../state.js";
+import state, { grantResource, grantTieredResource, grantAmberSugarMineral, recordEpisodeSeen } from "../state.js";
 import {
   RIGID_RESOURCES,
   NATURAL_RESOURCES,
@@ -17,7 +17,7 @@ import {
   applyHpDamage,
   refreshWeaponPrefix,
 } from "../data/resourceCatalog.js";
-import { DUNGEON_SCRIPTS } from "../data/scripts.js";
+import { DUNGEON_SCRIPTS, EPISODE_ARCHIVE_ENTRIES } from "../data/scripts.js";
 
 // 遭遇イベント（judge済みの隊員個別能力値でのD6判定）で使う5つの能力値
 // キー・武器性能値キー。CHARACTER_STAT_LABELS/WEAPON_STAT_LABELSの
@@ -205,10 +205,12 @@ function applyEffect(effect, context) {
   }
 }
 
-// mode（"opening"/"encounter"/"rest"/"ending"）ごとに読むべき台本が
-// 変わる -- オープニング/エンディングはダンジョン固有の1本、遭遇/休憩は
-// それぞれの抽選プールからランダムに1本選ぶ（data/scripts.jsの
-// DUNGEON_SCRIPTS参照）。
+// mode（"opening"/"encounter"/"rest"/"ending"/"recall"）ごとに読むべき
+// 台本が変わる -- オープニング/エンディングはダンジョン固有の1本、
+// 遭遇/休憩はそれぞれの抽選プールからランダムに1本選ぶ（data/scripts.js
+// のDUNGEON_SCRIPTS参照）。recallは探査記録画面（宿舎、archive.js）
+// から呼ばれる回想専用モードで、params.scriptIdで指定された既読の台本
+// を、報酬適用なし・判定バイパスありで読み返すだけ。
 const MODES_WITH_SKIP = new Set(["encounter", "rest"]);
 
 const MODE_TITLES = {
@@ -222,6 +224,9 @@ function pickRandomScript(pool) {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+// opening/ending/encounterは全てDUNGEON_SCRIPTS側で{id, title, script}
+// のdescriptor形になっているので、休憩（pickRestEpisode）・回想
+// （EPISODE_ARCHIVE_ENTRIESからのid引き）と同じ形をそのまま返せる。
 function resolveScript(mode) {
   const dungeonScripts = DUNGEON_SCRIPTS[state.run.dungeonId];
   switch (mode) {
@@ -243,7 +248,7 @@ function resolveScript(mode) {
 //  2. 隊員個別エピソード（characterId持ち）は、その隊員の進捗
 //     （state.restEpisodeProgress）が指す「次の1段階」だけが候補になる
 //     （独白1→独白2→…の順序厳守。既に全段階消化済みの隊員は候補なし）。
-//  3. 未抽選（state.seenRestEpisodeIds未収録）のものがあれば、その中から
+//  3. 未抽選（state.seenEpisodeIds未収録）のものがあれば、その中から
 //     一様ランダムに選ぶ。無ければ、候補全体（＝既に全て抽選済み）から
 //     一様ランダムに選ぶ。
 // ダミー（[71]、requiredCharacterIds: []）は常に候補に入るため、
@@ -263,7 +268,7 @@ function candidateEligible(descriptor) {
 function pickRestEpisode() {
   const pool = DUNGEON_SCRIPTS[state.run.dungeonId].restPool;
   const eligible = pool.filter(candidateEligible);
-  const unseen = eligible.filter((d) => !state.seenRestEpisodeIds.includes(d.id));
+  const unseen = eligible.filter((d) => !state.seenEpisodeIds.includes(d.id));
   return pickRandomScript(unseen.length > 0 ? unseen : eligible);
 }
 
@@ -274,14 +279,27 @@ function pickRestEpisode() {
 // だけ -- 台本の形はdata/scripts.js参照。
 export function EpisodeScene(container, params, api) {
   const mode = params.mode;
+  const isRecall = mode === "recall";
   // 休憩イベントだけ選定ロジックが特殊（在籍判定/順序厳守/未抽選優先）
-  // なので、resolveScript()とは別にpickRestEpisode()で選んだ
-  // descriptorを保持しておく -- 台本終了時にrecordRestEpisodeDrawへ
-  // 渡す（下のgoto参照）。
-  const restDescriptor = mode === "rest" ? pickRestEpisode() : null;
-  const script = mode === "rest" ? restDescriptor.script : resolveScript(mode);
+  // なので、resolveScript()とは別にpickRestEpisode()で選んだdescriptor
+  // を保持しておく -- 台本終了時にrecordEpisodeSeenへ渡す（下のgoto
+  // 参照）。回想モード（探査記録画面、宿舎から入る）は
+  // params.scriptIdで指定された既読の台本をEPISODE_ARCHIVE_ENTRIESから
+  // 引く。
+  const descriptor =
+    mode === "rest"
+      ? pickRestEpisode()
+      : isRecall
+      ? EPISODE_ARCHIVE_ENTRIES.find((entry) => entry.id === params.scriptId)
+      : resolveScript(mode);
+  const script = descriptor.script;
   const context = { selectedCharacter: null };
   let current = null;
+  let currentBeatId = null;
+  // 回想モード限定：「戻る」ボタン用のビートid履歴（goto呼び出しの
+  // たびに直前のビートidを積む。endビートは積まれない -- 終端に達したら
+  // 即座に呼び出し元へ戻るため）。
+  const history = [];
   // Set once a branch's terminal "end" beat has run its effects -- the
   // last line stays on screen with the effect text appended below it
   // (rather than the scene closing immediately), and the player needs
@@ -322,9 +340,24 @@ export function EpisodeScene(container, params, api) {
     return { textNodes: [prefix, resultSpan, "】。"], next: success ? beat.success : beat.failure };
   }
 
+  // 回想モードでは、判定ビート（judgement/difficultyJudgement）は
+  // サイコロを振らず、プレイヤーが成功/失敗の分岐を任意に選べる
+  // 選択肢として提示する（state.run が無い可能性がある回想モードから
+  // currentDifficulty/rollJudgementを呼ばないためでもある）。
+  function manualBranchChoice(beat) {
+    return {
+      text: "（回想モード：判定はスキップされます。分岐を選んでください）",
+      choices: [
+        { label: "成功", next: beat.success },
+        { label: "失敗", next: beat.failure },
+      ],
+    };
+  }
+
   function resolveBeat(beat) {
-    if (beat.type === "difficultyJudgement") return resolveDifficultyJudgement(beat);
+    if (beat.type === "difficultyJudgement") return isRecall ? manualBranchChoice(beat) : resolveDifficultyJudgement(beat);
     if (beat.type !== "judgement") return beat;
+    if (isRecall) return manualBranchChoice(beat);
     const character = context.selectedCharacter;
     const statValue = computeStats(character)[beat.statKey];
     const { rolls, successCount } = rollJudgement(statValue);
@@ -339,9 +372,17 @@ export function EpisodeScene(container, params, api) {
   function goto(beatId) {
     const beat = resolveBeat(script.beats[beatId]);
     if (beat.type === "end") {
-      // 休憩イベントが1本読み切られた（＝台本の唯一のendに到達した）
-      // タイミングで、その1本を既読/進捗として記録する。
-      if (restDescriptor) recordRestEpisodeDraw(restDescriptor.id, restDescriptor.characterId);
+      if (isRecall) {
+        // 回想モードでは報酬処理を一切行わず（state.runが無い可能性が
+        // あるため、effectはそもそも適用できない）、読み終えたら即座に
+        // 呼び出し元（探査記録画面）へ戻る。
+        api.closeScene();
+        return;
+      }
+      // 台本を1本読み切った（＝endビートに到達した）タイミングで、
+      // その1本を既読として記録する（休憩の隊員個別エピソードだけは
+      // 進捗も1段階進める -- descriptor.characterId参照）。
+      recordEpisodeSeen(descriptor.id, descriptor.characterId);
       const descriptions = (beat.effects ?? []).map((effect) => applyEffect(effect, context)).filter(Boolean);
       // 戦闘イベント外であれどこであれ、編成スロットの隊員全員のHPが0に
       // なった時点でゲームオーバーとする（変調の過剰蓄積による実効最大
@@ -360,7 +401,20 @@ export function EpisodeScene(container, params, api) {
       render();
       return;
     }
+    if (isRecall && currentBeatId !== null) history.push(currentBeatId);
     current = beat;
+    currentBeatId = beatId;
+    effectDescriptions = null;
+    render();
+  }
+
+  // 回想モード限定：履歴を1つ戻って再表示する（末尾のendビートは
+  // historyに積まれないので、goBackでendに戻ることはない）。
+  function goBack() {
+    if (history.length === 0) return;
+    const previousId = history.pop();
+    current = resolveBeat(script.beats[previousId]);
+    currentBeatId = previousId;
     effectDescriptions = null;
     render();
   }
@@ -436,21 +490,26 @@ export function EpisodeScene(container, params, api) {
     if (MODES_WITH_SKIP.has(mode)) {
       actions.push(button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }));
     }
+    if (isRecall && history.length > 0 && !isFinished) {
+      actions.push(button("戻る", { variant: "ghost", onClick: goBack }));
+    }
     if (isFinished) {
       actions.push(button(partyWiped ? "結果を見る" : "閉じる", { variant: "primary", onClick: closeOrGameOver }));
     } else if (current.next && !current.choices && current.type !== "characterSelect") {
       // If advancing leads straight into an effect-less "end" beat, this
       // click will close the scene immediately (see goto() above) rather
       // than show an effects screen -- so label it "閉じる" rather than
-      // "すすめる" to match what it actually does.
+      // "すすめる" to match what it actually does. 回想モードのendは
+      // effectsの有無に関わらず常に即座に閉じる（goto参照）ので、常に
+      // 「閉じる」になる。
       const nextBeat = script.beats[current.next];
-      const nextClosesImmediately = nextBeat?.type === "end" && !(nextBeat.effects ?? []).length;
+      const nextClosesImmediately = nextBeat?.type === "end" && (isRecall || !(nextBeat.effects ?? []).length);
       actions.push(button(nextClosesImmediately ? "閉じる" : "すすめる", { variant: "primary", onClick: () => goto(current.next) }));
     }
 
     renderScreen(container, {
       eyebrow: "EPISODE",
-      title: MODE_TITLES[mode],
+      title: isRecall ? descriptor.title : MODE_TITLES[mode],
       corner: resourceHud(state.run?.resources),
       onPause: () => api.callScene("pause"),
       body,

@@ -37,10 +37,12 @@ export const DUNGEON_PARAMS = {
 };
 
 // The world screen's destination list: 王城 (a non-dungeon "location"
-// that just opens the gallery) plus every dungeon. Kept separate from
-// DUNGEONS since the castle isn't dungeon data.
+// that just opens the gallery), 宿舎 (opens 探査記録画面, js/scenes/
+// archive.js) plus every dungeon. Kept separate from DUNGEONS since
+// neither the castle nor the dormitory is dungeon data.
 export const WORLD_LOCATIONS = [
   { id: "castle", name: "王城", kind: "castle" },
+  { id: "dormitory", name: "宿舎", kind: "dormitory" },
   ...DUNGEONS.map((d) => ({ id: d.id, name: d.name, kind: "dungeon" })),
 ];
 

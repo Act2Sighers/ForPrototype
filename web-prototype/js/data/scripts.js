@@ -199,19 +199,43 @@ export const ENCOUNTER_JUDGEMENT_SCRIPT = {
   },
 };
 
-// ダンジョンごとに用意する台本一式。オープニング/エンディングは固定の
-// 1本を読み、遭遇はencounterPoolからランダムに1つだけ選ぶ
-// （episode.jsのmode方式が使う）。ENCOUNTER_SCRIPT（甘蔗繊維質）は
-// データとしては残すが、テストダンジョンの実際の抽選プールには含め
-// ない（＝遭遇イベントは判定式の新台本のみを使う）。
+// ダンジョンごとに用意する台本一式。opening/ending/encounterPoolの各
+// 台本は{id, title, script}のdescriptor形にそろえてある（休憩の
+// REST_EPISODE_POOL側と同じ形 -- episode.jsのresolveScript/
+// pickRestEpisodeがどちらもdescriptorを返せるようにするため）。idは
+// 探査記録画面（EPISODE_ARCHIVE_ENTRIES）での既読記録・回想モードの
+// 引き直しにも使う。
+// ENCOUNTER_SCRIPT（甘蔗繊維質）はencounterPoolには含めない（＝遭遇
+// イベントは判定式の新台本のみを実際に使う）。
 // 休憩（restPool）はREST_EPISODE_POOL（js/data/restEpisodes.js、71本の
 // descriptor配列）をそのまま渡す -- 単純な一様抽選ではなく、episode.js
 // のpickRestEpisodeが在籍判定/順序厳守/未抽選優先のロジックで1本選ぶ。
+const OPENING_ENTRY = { id: "opening", title: "オープニング", script: OPENING_SCRIPT };
+const ENDING_ENTRY = { id: "ending", title: "エンディング", script: ENDING_SCRIPT };
+const ENCOUNTER_JUDGEMENT_ENTRY = { id: "encounter-judgement", title: "遭遇", script: ENCOUNTER_JUDGEMENT_SCRIPT };
+
 export const DUNGEON_SCRIPTS = {
   "test-dungeon": {
-    opening: OPENING_SCRIPT,
-    ending: ENDING_SCRIPT,
-    encounterPool: [ENCOUNTER_JUDGEMENT_SCRIPT],
+    opening: OPENING_ENTRY,
+    ending: ENDING_ENTRY,
+    encounterPool: [ENCOUNTER_JUDGEMENT_ENTRY],
     restPool: REST_EPISODE_POOL,
   },
 };
+
+// 探査記録画面（宿舎から入る、js/scenes/archive.js）が表示する全台本の
+// 一覧。並び順はユーザー指定：まずダンジョン固有の3本（オープニング/
+// 遭遇/エンディング）、その後に隊員エピソード71本（REST_EPISODE_POOL
+// の既存の並び順＝以前指定した番号順のまま）。実際に既読かどうかは
+// state.seenEpisodeIdsとの突き合わせで画面側が判定する（ここでは
+// 「見た可能性のある台本」の完全な一覧を用意するだけ）。
+// 甘蔗繊維質はencounterPoolに含まれないため通常プレイでは既読になり
+// 得ないが、回想モード（分岐選択/判定バイパス/戻る）のテスト台本として
+// idで引けるよう末尾に登録しておく。
+export const EPISODE_ARCHIVE_ENTRIES = [
+  OPENING_ENTRY,
+  ENCOUNTER_JUDGEMENT_ENTRY,
+  ENDING_ENTRY,
+  ...REST_EPISODE_POOL,
+  { id: "encounter-sugarcane", title: "遭遇：甘蔗繊維質", script: ENCOUNTER_SCRIPT },
+];
