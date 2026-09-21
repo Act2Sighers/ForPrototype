@@ -461,6 +461,19 @@ function isModuleAvailableFor(unit, module) {
     const weaponTypeId = unit.character.weapon?.baseTypeId;
     if (!weaponTypeId || WEAPON_TYPES[weaponTypeId]?.skillId !== module.id) return false;
   }
+  // 前提技制限：module.requiresPriorActionIdsを持つモジュール（例：
+  // 【サニーサイドアップ】：スマッシュまたはプロテクトの使用直後にのみ
+  // 選択可）は、このMainフェイズ中に自分が直前に実行した技が内部で
+  // 使った葉アクションのid一覧（unit.lastLeafActionIds）に、対象の
+  // どれか1つでも含まれている時だけ選択可能。ハニービービートの
+  // スマッシュや守りの手のプロテクトのような、複合スキルの中の1
+  // ステップとしての使用もここに含まれる（module.id単体だけを見ると
+  // 素のスマッシュ/プロテクトを直接選べるキャラクターがいないため、
+  // 複合スキル経由の使用も拾えないと誰にとっても到達不能になる）。
+  // 他の武器固有スキル（バウンス/ブレンドなど）が採る「選べるが不発」
+  // 方式とは違い、これだけは選択肢自体を隠す（ユーザー指示：技の性質上
+  // 「この順番で使う」ことが前提のため）。
+  if (module.requiresPriorActionIds && !module.requiresPriorActionIds.some((id) => (unit.lastLeafActionIds ?? []).includes(id))) return false;
   // 所持スキル制限：CHARACTER_SKILL_LOADOUTSに定義があるキャラクター
   // は、そのリストに載っているモジュールしか選べない（weaponOnlyの
   // モジュールは上の武器チェックだけで判定済みなのでここは経由しない）。
@@ -1078,6 +1091,62 @@ Object.assign(MAIN_MODULES, {
     weaponOnly: true,
     steps: [{ actionId: "attack", params: { aStat: "coordination" } }],
   },
+  // 【バウンス】（ディッパー）：自身のIN値で分岐する特殊スキル。実際の
+  // 分岐処理はcustom resolver（resolveBounce、BattleScene内）が持つ。
+  // targetFaction:"self"のため対象選択は不要。
+  bounce: {
+    id: "bounce",
+    label: "バウンス",
+    targetFaction: "self",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    custom: "bounce",
+  },
+  // 【サニーサイドアップ】（フライパン）：直前に使った技がスマッシュ/
+  // プロテクトを内包する場合だけ選択肢に出る（requiresPriorActionIds、
+  // isModuleAvailableFor参照 -- ハニービービートのスマッシュや守りの手
+  // のプロテクトのような、複合スキルの中の1ステップとしての使用も含む）。
+  // 自陣営1体に回復（回復力ボーナス+2）。
+  sunnySideUp: {
+    id: "sunnySideUp",
+    label: "サニーサイドアップ",
+    targetFaction: "own",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    requiresPriorActionIds: ["smash", "protect"],
+    steps: [{ actionId: "heal", params: { b: 2 } }],
+  },
+  // 【アラート】（タイマー）：継続ダメージのnを「現在のターン数÷2
+  // （切り上げ）」にする（resolveStepParamsが渡すpools.turnを参照）。
+  // 戦闘が長引くほど強くなる。
+  alert: {
+    id: "alert",
+    label: "アラート",
+    targetFaction: "opposing",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "dot", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
+  },
+  // 【エコロジー】（カミザラ）：自身にプロテクトをかけ、そのプロテクト
+  // で増えた体幹の量（lastResult.magnitude）をそのまま継続回復のnに
+  // 使う（Stage0のステップ間結果参照フックの最初の実使用）。継続回復
+  // の判定ステータスは防御力に上書き。targetFaction:"self"のため対象
+  // 選択は不要。
+  ecology: {
+    id: "ecology",
+    label: "エコロジー",
+    targetFaction: "self",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [
+      { actionId: "protect" },
+      { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defense" }) },
+    ],
+  },
 });
 
 // 属性攻撃(attribute)：module.attributeを持つ自分専用の「攻撃」。この
@@ -1214,6 +1283,15 @@ function createBattleUnit(character, faction) {
     stealthed: false,
     guardedBy: null,
     lastActionCost: 0,
+    // 直前に実際に実行した（コスト支払いまで進んだ）Mainモジュールが
+    // 内部で実行した葉アクションのidの一覧（複合スキルなら中身の
+    // 全ステップ分、単体モジュールならそれ自身のidのみ）。module.
+    // requiresPriorActionIdsを持つスキル（【サニーサイドアップ】：
+    // スマッシュ/プロテクトを内包する技の使用直後にのみ選択可 --
+    // 【ハニービービート】のスマッシュや【守りの手】のプロテクトの
+    // ような、複合スキルの中の1ステップとしての使用も対象に含める）
+    // のためだけに使う -- 毎Prepフェイズ開始時にリセットする。
+    lastLeafActionIds: [],
     action: null,
     displayName: character.name,
   };
@@ -1605,6 +1683,10 @@ export function BattleScene(container, params, api) {
       unit.pinnedBy = null;
       unit.stealthed = false;
       unit.guardedBy = null;
+      // 【サニーサイドアップ】の「直前に使った技」判定は同じMainフェイズ
+      // 内限定 -- ターンをまたいで前の技を覚えていると不自然なので、
+      // 新しいPrepフェイズが始まるたびにリセットする。
+      unit.lastLeafActionIds = [];
     }
     for (const unit of allyUnits) {
       unit.action = null;
@@ -2081,8 +2163,10 @@ export function BattleScene(container, params, api) {
   // 除外判定に使う（既定は最初のtargetUnit自身を1件目として開始）。
   // step.params：固定オブジェクト、または(unit, targetUnit, pools,
   // lastResult) => オブジェクトの関数（【団結】のような動的な強さに使う。
-  // poolsは{ownPoolFor, opposingPoolFor} -- トップレベルのモジュール
-  // 定義から見えないBattleScene内クロージャを、この形でだけ渡す）。
+  // poolsは{ownPoolFor, opposingPoolFor, turn} -- トップレベルの
+  // モジュール定義から見えないBattleScene内クロージャを、この形でだけ
+  // 渡す（turnは【アラート】のような「現在のターン数」を参照するスキル
+  // 用、呼び出しの都度その時点の値を読む）。
   // lastResult：直前のleafステップのapply()戻り値（【エコロジー】の
   // ような「プロテクトで増えた体幹の量をそのまま次のステップのnに使う」
   // 構成のためのフック -- スキルの最初のステップではundefined）。
@@ -2090,7 +2174,7 @@ export function BattleScene(container, params, api) {
   function resolveStepParams(unit, targetUnit, step, lastResult) {
     if (!step.params) return {};
     return typeof step.params === "function"
-      ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor }, lastResult)
+      ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor, turn }, lastResult)
       : step.params;
   }
 
@@ -2111,7 +2195,12 @@ export function BattleScene(container, params, api) {
     return await applyLeaf(unit, target, action, params);
   }
 
-  async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit]) {
+  // leafIds：実際に適用された葉アクション（action.steps持ちの複合スキル
+  // ではなく、apply()を持つ末端そのもの）のidを積み上げる配列 --
+  // 【サニーサイドアップ】のrequiresPriorActionIds判定のためだけに使う
+  // （resolveMainAction側がunit.lastLeafActionIdsをそのまま渡し、この
+  // 関数が中身を書き換える）。省略時は使い捨ての空配列。
+  async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit], leafIds = []) {
     let lastResult;
     for (const step of steps) {
       if (step.chance !== undefined) {
@@ -2129,8 +2218,11 @@ export function BattleScene(container, params, api) {
               : opposingPoolFor(unit);
         for (const t of pool) {
           usedTargets.push(t);
-          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets);
-          else lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, lastResult));
+          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets, leafIds);
+          else {
+            leafIds.push(action.id);
+            lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, lastResult));
+          }
         }
         continue;
       }
@@ -2143,8 +2235,11 @@ export function BattleScene(container, params, api) {
         continue;
       }
       usedTargets.push(stepTarget);
-      if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets);
-      else lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step, lastResult));
+      if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets, leafIds);
+      else {
+        leafIds.push(action.id);
+        lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step, lastResult));
+      }
     }
   }
 
@@ -2166,13 +2261,32 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【バウンス】専用の解決関数：自身のINの符号によって強化魔法(破壊力)
+  // /強化魔法(防御力)のどちらを自分にかけるかが変わる（既存のsteps
+  // エンジンは「対象候補選択の結果」でしか分岐できず、「actorのIN値」
+  // というactor自身の生の状態では分岐できないため、tasteTestと同じ
+  // custom resolverの形を取る）。IN=0は不発（選べるが何も起きない --
+  // ユーザー指示によりバウンス/ブレンドはこの方式に統一）。
+  async function resolveBounce(unit) {
+    if (unit.in >= 1) {
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDestruction, { n: unit.in });
+    } else if (unit.in <= -1) {
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDefense, { n: -unit.in });
+    } else {
+      pushLog(`${unit.displayName}はIN（行動値）が0のため、「バウンス」は不発に終わった。`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+    }
+  }
+
   // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
   // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
   // エンジン（固定回数・固定候補）では表現しづらいスキル（例：
   // 【シェアカット】の可変回数・毎回ランダム対象ヒット）を、
-  // module.custom: "<key>"で対応するresolverへ振り分ける。現時点では
-  // まだ該当スキルが無いため空のまま（後続のStageで追加していく）。
-  const MAIN_CUSTOM_RESOLVERS = {};
+  // module.custom: "<key>"で対応するresolverへ振り分ける。
+  const MAIN_CUSTOM_RESOLVERS = {
+    bounce: resolveBounce,
+  };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
   // 同じ入口を通る：宣言ログ→変調加算→（複合スキルのみ）PTコスト確認
@@ -2209,6 +2323,14 @@ export function BattleScene(container, params, api) {
       unit.lastActionCost = module.cost;
     }
 
+    // コストの支払いまで進んだ（＝実際にこの技を使った）時点で、まず
+    // 葉アクション一覧を空にリセットする（属性攻撃/カスタム解決/蘇生/
+    // 対象戦闘不能で不発の各分岐は下のrunStepsを通らないので、これらの
+    // 直後はrequiresPriorActionIds持ちのスキルが選べなくなる、という
+    // 素直な結果になる）。実際のsteps実行がある場合のみ、下のrunSteps
+    // 呼び出しがこの配列に葉アクションのidを積んでいく。
+    unit.lastLeafActionIds = [];
+
     // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
     // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
     if (module.effect === "revive") {
@@ -2232,7 +2354,7 @@ export function BattleScene(container, params, api) {
       return;
     }
 
-    await runSteps(MAIN_MODULES, applyLeafModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
+    await runSteps(MAIN_MODULES, applyLeafModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }], [targetUnit], unit.lastLeafActionIds);
   }
 
   // 継続回復/継続ダメージ/継続割合ダメージを持つ全ユニットについて、
