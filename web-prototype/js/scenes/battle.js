@@ -16,6 +16,7 @@ import {
   NATURAL_QUALITY_LABELS,
   RIGID_QUALITY_LABELS,
   COATING_ATTRIBUTE_LABELS,
+  WEAPON_TYPES,
 } from "../data/resourceCatalog.js";
 import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import { rollD6, rollSum, rollJudgement, successCountToR } from "../dice.js";
@@ -419,6 +420,16 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 function isModuleAvailableFor(unit, module) {
   if (module.monsterOnly && unit.faction !== "enemy") return false;
   if (module.allyOnly && unit.faction !== "ally") return false;
+  // 武器固有スキル：module.weaponOnly=trueのモジュールは、CHARACTER_
+  // SKILL_LOADOUTSの所持スキル制限とは別枠で、装備中の武器のWEAPON_
+  // TYPES[...].skillIdと一致する時だけ選択可能になる（武器を外したり
+  // 持ち替えたりすれば選べなくなる）。まだどの武器固有スキルも定義され
+  // ていない現時点では、skillIdを持つWEAPON_TYPESエントリが無いため
+  // 常にfalseになる。
+  if (module.weaponOnly) {
+    const weaponTypeId = unit.character.weapon?.baseTypeId;
+    if (!weaponTypeId || WEAPON_TYPES[weaponTypeId]?.skillId !== module.id) return false;
+  }
   // 所持スキル制限：CHARACTER_SKILL_LOADOUTSに定義があるキャラクター
   // は、そのリストに載っているモジュールしか選べない。未定義のキャラ
   // クター（今回未実装分）は、従来通り全モジュールを自由選択できる
@@ -480,16 +491,19 @@ function continuousEffectLabel(type) {
 // として呼び出す想定。n（補正の強さ）は引数化してあるが、現状はまだ
 // スキル側が無くプレイヤーが直接選ぶ単体モジュールとして並んでいる
 // ため、既定値の1で固定して使う。judgeStatKey：継続ターン数(X)を出す
-// ダイスに使う、行動主体側の能力値（強化魔法は使い手の協調性、弱体化
-// 魔法は使い手の賢さ -- どちらも対象ステータスに関係なく固定）。
+// ダイスに使う、行動主体側の能力値の既定（強化魔法は使い手の協調性、
+// 弱体化魔法は使い手の賢さ）。params.aStatでスキル側が上書きできる
+// （例：ロリポップ・スパイラルの【完璧なサポート】は弱体化魔法の判定を
+// 協調性で行う）。
 function createCorrectionModule(id, label, statKey, sign, judgeStatKey) {
   return {
     id,
     label,
     targetFaction: sign > 0 ? "own" : "opposing",
     effect: "correction",
-    apply: (actor, target, n = 1) => {
-      const { successCount } = rollJudgement(rawStat(actor, judgeStatKey));
+    apply: (actor, target, params = {}) => {
+      const { n = 1, aStat } = params;
+      const { successCount } = rollJudgement(rawStat(actor, aStat ?? judgeStatKey));
       const turns = successCountToR(successCount);
       return applyCorrection(target, statKey, n, sign, turns);
     },
@@ -602,8 +616,9 @@ const MAIN_MODULES = {
     label: "貫通攻撃",
     targetFaction: "opposing",
     effect: "hp",
-    apply: (actor, target) => {
-      const a = rollSum(correctedStat(actor, "attack"));
+    // params.aStat：能動能力値の上書き（既定attack）。attackと同じ考え方。
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
       const c = Math.pow(2, -0.5 * target.stamina);
       const damage = Math.ceil(a * c);
       applyHpDamage(target.character, damage);
@@ -633,10 +648,15 @@ const MAIN_MODULES = {
     label: "プロテクト",
     targetFaction: "own",
     effect: "stamina",
-    apply: (actor, target) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "defense"));
+    // params.aStat：能動能力値の上書き（既定defense）。戻り値の
+    // magnitudeは体幹の増加量（成功度合いそのもの）-- 【エコロジー】の
+    // ような「直前のステップの結果を次のステップのparamsが参照する」
+    // 構成のために持たせる（このapply自体は自分の戻り値を使わない）。
+    apply: (actor, target, params = {}) => {
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "defense"));
       const x = successCountToR(successCount);
       target.stamina += x;
+      return { magnitude: x, label: "体幹上昇" };
     },
   },
   smash: {
@@ -644,10 +664,13 @@ const MAIN_MODULES = {
     label: "スマッシュ",
     targetFaction: "opposing",
     effect: "stamina",
-    apply: (actor, target) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "destruction"));
+    // params.aStat：能動能力値の上書き（既定destruction）。戻り値の
+    // magnitudeは体幹の減少量（プロテクトと同じ理由で持たせる）。
+    apply: (actor, target, params = {}) => {
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "destruction"));
       const x = successCountToR(successCount);
       target.stamina -= x;
+      return { magnitude: x, label: "体幹低下" };
     },
   },
   ...CORRECTION_MODULES,
@@ -656,8 +679,11 @@ const MAIN_MODULES = {
     label: "継続回復",
     targetFaction: "own",
     effect: "continuous",
-    apply: (actor, target, n = 1) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "coordination"));
+    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
+    // coordination）。
+    apply: (actor, target, params = {}) => {
+      const { n = 1, aStat } = params;
+      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "coordination"));
       const turns = successCountToR(successCount);
       return applyContinuousStatus(target, n, "heal", turns);
     },
@@ -679,8 +705,11 @@ const MAIN_MODULES = {
     label: "継続ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
-    apply: (actor, target, n = 1) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
+    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
+    // wisdom）。
+    apply: (actor, target, params = {}) => {
+      const { n = 1, aStat } = params;
+      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "wisdom"));
       const turns = successCountToR(successCount);
       return applyContinuousStatus(target, n, "damage", turns);
     },
@@ -696,8 +725,11 @@ const MAIN_MODULES = {
     label: "継続割合ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
-    apply: (actor, target, n = 1) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
+    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
+    // wisdom）。dot/regenと同じ形に揃える。
+    apply: (actor, target, params = {}) => {
+      const { n = 1, aStat } = params;
+      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "wisdom"));
       const turns = successCountToR(successCount);
       return applyContinuousStatus(target, n, "ratioDamage", turns);
     },
@@ -1872,9 +1904,15 @@ export function BattleScene(container, params, api) {
   // へ適用し、効果種別ごとの結果ログを1行積む。戦闘不能/蘇生の判定は
   // 呼び出し側（resolveMainAction）で行動全体につき1回だけ済ませてある
   // 前提 -- 複合スキルの途中のステップでも改めてはチェックしない。
+  // 戻り値：このleafのapply()結果をそのまま返す（【エコロジー】のような
+  // 「直前のステップの結果を次のステップのparamsが参照する」構成の
+  // ためのフック -- runSteps側でlastResultとして次のstep.paramsに渡す。
+  // 従来この関数はvoidだったが、呼び出し側は戻り値の有無を気にしない
+  // ので影響は無い）。
   async function applyLeafModule(unit, targetUnit, module, params = {}) {
+    let result;
     if (module.effect === "revive") {
-      const result = module.apply(unit, targetUnit);
+      result = module.apply(unit, targetUnit);
       pushLog(
         result.applied
           ? `${targetUnit.displayName}が復活した！（HP：0 → ${result.healedHp}）`
@@ -1883,11 +1921,11 @@ export function BattleScene(container, params, api) {
       );
     } else if (module.effect === "stamina") {
       const before = targetUnit.stamina;
-      module.apply(unit, targetUnit);
+      result = module.apply(unit, targetUnit, params);
       const after = targetUnit.stamina;
       pushLog(`${targetUnit.displayName}の体幹：${before} → ${after}`, unit.faction);
     } else if (module.effect === "correction") {
-      const result = module.apply(unit, targetUnit, params.n ?? 1);
+      result = module.apply(unit, targetUnit, params);
       const statLabel = CHARACTER_STAT_FULL_LABELS[result.statKey];
       pushLog(
         result.applied
@@ -1896,7 +1934,7 @@ export function BattleScene(container, params, api) {
         unit.faction
       );
     } else if (module.effect === "continuous") {
-      const result = module.apply(unit, targetUnit, params.n ?? 1);
+      result = module.apply(unit, targetUnit, params);
       const effectLabel = continuousEffectLabel(result.type);
       pushLog(
         result.applied
@@ -1906,9 +1944,9 @@ export function BattleScene(container, params, api) {
       );
     } else {
       const beforeHp = targetUnit.character.currentHp;
-      const { magnitude, label } = module.apply(unit, targetUnit, params);
+      result = module.apply(unit, targetUnit, params);
       const afterHp = targetUnit.character.currentHp;
-      pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${label} ${magnitude}）`, unit.faction);
+      pushLog(`${targetUnit.displayName}のHP：${beforeHp} → ${afterHp}（${result.label} ${result.magnitude}）`, unit.faction);
       // 変調：自分以外の隊員が戦闘不能になった時+1（この分岐に来た時点で
       // targetUnitは行動前は戦闘不能ではなかったので、ここで戦闘不能に
       // なっていれば「今まさに」なったということ）。
@@ -1916,6 +1954,7 @@ export function BattleScene(container, params, api) {
     }
     render();
     await sleep(ACTION_DELAY_MS);
+    return result;
   }
 
   // step.target省略時の既定（スキル自身が解決したtargetUnitをそのまま
@@ -1957,14 +1996,19 @@ export function BattleScene(container, params, api) {
   // usedTargetsは、このスキル呼び出し全体を通じて「これまでに対象に
   // なったユニット」を積み上げていく配列 -- opposingExcludingUsedの
   // 除外判定に使う（既定は最初のtargetUnit自身を1件目として開始）。
-  // step.params：固定オブジェクト、または(unit, targetUnit, pools) =>
-  // オブジェクトの関数（【団結】のような動的な強さに使う。poolsは
-  // {ownPoolFor, opposingPoolFor} -- トップレベルのモジュール定義から
-  // 見えないBattleScene内クロージャを、この形でだけ渡す）。省略時は
-  // {}（各モジュールのapply側の既定値がそのまま使われる）。
-  function resolveStepParams(unit, targetUnit, step) {
+  // step.params：固定オブジェクト、または(unit, targetUnit, pools,
+  // lastResult) => オブジェクトの関数（【団結】のような動的な強さに使う。
+  // poolsは{ownPoolFor, opposingPoolFor} -- トップレベルのモジュール
+  // 定義から見えないBattleScene内クロージャを、この形でだけ渡す）。
+  // lastResult：直前のleafステップのapply()戻り値（【エコロジー】の
+  // ような「プロテクトで増えた体幹の量をそのまま次のステップのnに使う」
+  // 構成のためのフック -- スキルの最初のステップではundefined）。
+  // 省略時は{}（各モジュールのapply側の既定値がそのまま使われる）。
+  function resolveStepParams(unit, targetUnit, step, lastResult) {
     if (!step.params) return {};
-    return typeof step.params === "function" ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor }) : step.params;
+    return typeof step.params === "function"
+      ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor }, lastResult)
+      : step.params;
   }
 
   // 属性を持つモンスターが使うスキルの中に「攻撃」モジュール（id:
@@ -1972,16 +2016,20 @@ export function BattleScene(container, params, api) {
   // 自動的に属性攻撃（attack本体＋レベル依存の状態異常）へ置き換える。
   // 貫通攻撃は対象外（貫通攻撃そのものが大抵の属性攻撃より強いため、
   // という設計判断）。Mainフェイズのモジュールにしか存在しない概念な
-  // ので、Prep側のregistry（PREP_MODULES）では常に素通しする。
+  // ので、Prep側のregistry（PREP_MODULES）では常に素通しする。属性
+  // 攻撃への置き換え時は戻り値を持たない（lastResultとしては何も渡らず、
+  // 次のステップは無指定として扱われる -- 現状これを参照するスキルは
+  // 無い）。
   async function applyLeafWithAttributeSwap(registry, applyLeaf, unit, target, action, params) {
     if (registry === MAIN_MODULES && action.id === "attack" && unit.character.attribute) {
       await applyAttributeAttack(unit, target, unit.character.attribute, params);
-      return;
+      return undefined;
     }
-    await applyLeaf(unit, target, action, params);
+    return await applyLeaf(unit, target, action, params);
   }
 
   async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit]) {
+    let lastResult;
     for (const step of steps) {
       if (step.chance !== undefined) {
         const chance = typeof step.chance === "function" ? step.chance(unit, targetUnit) : step.chance;
@@ -1999,7 +2047,7 @@ export function BattleScene(container, params, api) {
         for (const t of pool) {
           usedTargets.push(t);
           if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets);
-          else await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step));
+          else lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, lastResult));
         }
         continue;
       }
@@ -2013,7 +2061,7 @@ export function BattleScene(container, params, api) {
       }
       usedTargets.push(stepTarget);
       if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets);
-      else await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step));
+      else lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step, lastResult));
     }
   }
 
@@ -2035,10 +2083,19 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
+  // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
+  // エンジン（固定回数・固定候補）では表現しづらいスキル（例：
+  // 【シェアカット】の可変回数・毎回ランダム対象ヒット）を、
+  // module.custom: "<key>"で対応するresolverへ振り分ける。現時点では
+  // まだ該当スキルが無いため空のまま（後続のStageで追加していく）。
+  const MAIN_CUSTOM_RESOLVERS = {};
+
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
   // 同じ入口を通る：宣言ログ→変調加算→（複合スキルのみ）PTコスト確認
-  // ・支払い→蘇生/戦闘不能の判定（行動全体につき1回）→steps実行。葉
-  // モジュールは実質「自分自身1個だけのsteps」として扱う。
+  // ・支払い→蘇生/戦闘不能の判定（行動全体につき1回）→steps実行（また
+  // はカスタム解決）。葉モジュールは実質「自分自身1個だけのsteps」と
+  // して扱う。
   async function resolveMainAction(unit) {
     const { moduleId, targetUnit } = unit.action;
     const module = MAIN_MODULES[moduleId];
@@ -2084,6 +2141,11 @@ export function BattleScene(container, params, api) {
 
     if (module.attribute) {
       await applyAttributeAttack(unit, targetUnit, module.attribute);
+      return;
+    }
+
+    if (module.custom) {
+      await MAIN_CUSTOM_RESOLVERS[module.custom](unit, targetUnit);
       return;
     }
 
