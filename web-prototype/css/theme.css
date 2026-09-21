@@ -1257,6 +1257,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* min-width:0が無いと、グリッドトラックが子要素（プルダウン等）の
+     コンテンツ幅に押し広げられ、選択内容によって列幅がfr比から
+     ずれてしまう。 */
+  min-width: 0;
 }
 
 .battle-center {
