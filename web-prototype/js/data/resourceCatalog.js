@@ -90,14 +90,36 @@ export function computeHiringLevel(currentNodeCount) {
   return Math.max(1, currentNodeCount - 1);
 }
 
-// 追加成長ポイントをステータス5種へ完全ランダムに1点ずつ配分する（上限
-// なし -- growCharacterStatにも上限がない）。将来「成長優先度」を導入
-// する際は、この関数を優先度付き抽選に差し替える想定。
-export function rollBonusGrowth(totalPoints) {
+// 成長優先度の「鋭さ」。重みは(baseGrowth値+1)^kを正規化した確率で、
+// k=1が線形（フレーク・シュガー「攻0/防2/破1/賢1/協1」なら
+// 10%/30%/20%/20%/20%）、k=0で完全ランダムに戻り、k>1で偏りを強調、
+// k<1（>0）で均等寄りに緩和する。遊びながら調整する前提の単一ノブ。
+const GROWTH_PRIORITY_SHARPNESS = 1;
+
+// baseGrowthの成長優先度（各ステータスの伸びやすさ）に応じた重みで、
+// totalPoints点をランダムに配分する（上限なし -- growCharacterStatにも
+// 上限がない）。重みは常にbaseGrowth固定で計算し、配分の途中経過では
+// 再計算しない -- そうしないと配分が進むほど同じステータスへの重みが
+// 強化され続け、意図せず極端な結果に暴走してしまうため。雇用の追加
+// 成長値配分（createHiringCandidate）とモンスターのレベルアップ
+// （levelUpMonsterGrowth）の両方で共有する。
+export function rollWeightedGrowth(baseGrowth, totalPoints) {
+  const weights = Object.fromEntries(
+    GROWTH_STAT_KEYS.map((key) => [key, Math.pow(baseGrowth[key] + 1, GROWTH_PRIORITY_SHARPNESS)])
+  );
+  const totalWeight = GROWTH_STAT_KEYS.reduce((sum, key) => sum + weights[key], 0);
   const bonus = Object.fromEntries(GROWTH_STAT_KEYS.map((key) => [key, 0]));
   for (let i = 0; i < totalPoints; i++) {
-    const key = GROWTH_STAT_KEYS[Math.floor(Math.random() * GROWTH_STAT_KEYS.length)];
-    bonus[key] += 1;
+    let r = Math.random() * totalWeight;
+    let chosen = GROWTH_STAT_KEYS[GROWTH_STAT_KEYS.length - 1];
+    for (const key of GROWTH_STAT_KEYS) {
+      if (r < weights[key]) {
+        chosen = key;
+        break;
+      }
+      r -= weights[key];
+    }
+    bonus[chosen] += 1;
   }
   return bonus;
 }
@@ -286,19 +308,14 @@ export const BOSS_MONSTER_DATA = {
   takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
 };
 
-const MONSTER_GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
-
-// レベルアップ1回につき、5つの成長値のうちランダムな1つを+1する（HPは
-// growthの合計×12で決まるので、これだけで「最大HPを12成長させ、HP以外の
-// いずれかの能力値を1成長させる」の両方を満たす -- computeMaxHp/
-// computeMonsterLevel参照）。能力値の割り振りは現状完全ランダム。
+// レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
+// 応じた重みで配分する（rollWeightedGrowth参照、隊員の追加成長値配分と
+// 共有）。HPはgrowthの合計×12で決まるので、これだけで「最大HPを12成長
+// させ、HP以外のいずれかの能力値を1成長させる」の両方を満たす
+// （computeMaxHp/computeMonsterLevel参照）。
 function levelUpMonsterGrowth(growth, levelsToGain) {
-  const result = { ...growth };
-  for (let i = 0; i < levelsToGain; i++) {
-    const key = MONSTER_GROWTH_STAT_KEYS[Math.floor(Math.random() * MONSTER_GROWTH_STAT_KEYS.length)];
-    result[key] += 1;
-  }
-  return result;
+  const bonus = rollWeightedGrowth(growth, levelsToGain);
+  return mergeGrowth(growth, bonus);
 }
 
 function instantiateMonster(dataId, name, growth, attribute) {
@@ -709,7 +726,7 @@ export function createHiringCandidate(employmentId, { flatCost, costMultiplier =
 
   const targetLevel = computeHiringLevel(progress.currentNodeCount);
   const bonusPoints = Math.max(0, targetLevel + 4 - growthSum(data.growth));
-  const bonusGrowth = rollBonusGrowth(bonusPoints);
+  const bonusGrowth = rollWeightedGrowth(data.growth, bonusPoints);
   const growth = mergeGrowth(data.growth, bonusGrowth);
   const level = computeLevel(growth);
   const statSum = computeWeaponTradeStatSum(progress.currentNodeCount, progress.longestReachableNodeCount);
