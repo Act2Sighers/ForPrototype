@@ -6,7 +6,6 @@
 import { generateDungeon } from "./data/dungeonGenerator.js";
 import { DUNGEONS } from "./data/testDungeon.js";
 import {
-  createColorfulPlasma,
   createEmptyResources,
   createEmptyObtainedResources,
   computeTradeValue,
@@ -48,7 +47,7 @@ export const RETIRED_LIMIT = 20; // not enforced yet — overflow handling is fu
 // always saved/loaded as one unit — see slotSnapshot()/loadSlot().
 function freshProfile() {
   return {
-    warehouseItems: [createColorfulPlasma()],
+    warehouseItems: [],
     formationSlots: [],
     standbySlots: [],
     retiredSlots: [],
