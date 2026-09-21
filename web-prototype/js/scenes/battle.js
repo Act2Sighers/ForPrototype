@@ -1575,6 +1575,19 @@ function battleHpGauge(unit) {
 // クリック可能表示を示す追加クラス、無い時はnull。onClickはワイド
 // モードでのステータス枠クリックによる行動対象指定用。data-unit-id は
 // 矢印オーバーレイがDOM実測で枠を探すためのキー。
+// 横幅対策：ステータス枠・行動選択枠の表示名だけファーストネームに
+// 短縮する（ログ本文のunit.displayNameはフルネームのまま変えない）。
+// 同種モンスターが複数いる時の判別用サフィックス「 (2)」（末尾の半角
+// スペース+丸括弧数字、createBattleUnit参照）は残す。日本語名の区切り
+// 「・」が無い名前（フルーツリーなど）はそのまま返す。
+function firstName(displayName) {
+  const suffixMatch = displayName.match(/ \(\d+\)$/);
+  const suffix = suffixMatch ? suffixMatch[0] : "";
+  const base = suffix ? displayName.slice(0, -suffix.length) : displayName;
+  const sepIndex = base.indexOf("・");
+  return (sepIndex === -1 ? base : base.slice(0, sepIndex)) + suffix;
+}
+
 function battleUnitCard(unit, extraClass, onClick) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const headRight = isIncapacitated(unit)
@@ -1583,7 +1596,7 @@ function battleUnitCard(unit, extraClass, onClick) {
       ? conditionBadge(unit)
       : null;
   return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
-    h("div", { class: "battle-unit__head" }, [h("span", { class: "battle-unit__name", text: unit.displayName }), headRight]),
+    h("div", { class: "battle-unit__head" }, [h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }), headRight]),
     battleHpGauge(unit),
     battleStatsRow(unit),
     h("div", { class: "battle-unit__footer" }, [
@@ -2833,8 +2846,8 @@ export function BattleScene(container, params, api) {
 
   function actionSelectFields(unit) {
     return h("div", { class: "battle-action-select__fields" }, [
-      h("div", { class: "battle-action-select__row" }, [h("span", { class: "battle-action-select__label", text: "行動内容" }), moduleSelectFor(unit)]),
-      h("div", { class: "battle-action-select__row" }, [h("span", { class: "battle-action-select__label", text: "行動対象" }), targetSelectFor(unit)]),
+      h("div", { class: "battle-action-select__row" }, [moduleSelectFor(unit)]),
+      h("div", { class: "battle-action-select__row" }, [targetSelectFor(unit)]),
     ]);
   }
 
@@ -2847,13 +2860,13 @@ export function BattleScene(container, params, api) {
   function actionSelectBox(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-action-select battle-action-select--down" }, [
-        h("p", { class: "battle-action-select__name", text: unit.displayName }),
+        h("p", { class: "battle-action-select__name", text: firstName(unit.displayName) }),
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
     const inactive = executing || !isActingNow(unit) || viableModuleIdsFor(unit).length === 0;
     const modifier = inactive ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
-    return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: unit.displayName }), actionSelectFields(unit)]);
+    return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: firstName(unit.displayName) }), actionSelectFields(unit)]);
   }
 
   function battleLog() {
@@ -3025,14 +3038,14 @@ export function BattleScene(container, params, api) {
   function mobileUnitRow(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-mobile-unit battle-mobile-unit--down" }, [
-        h("p", { class: "battle-mobile-unit__name", text: unit.displayName }),
+        h("p", { class: "battle-mobile-unit__name", text: firstName(unit.displayName) }),
         battleHpGauge(unit),
         h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
       ]);
     }
     const waiting = (phase === "main" && !isActingNow(unit)) || viableModuleIdsFor(unit).length === 0;
     return h("div", { class: `battle-mobile-unit${waiting ? " battle-mobile-unit--waiting" : ""}` }, [
-      h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: unit.displayName }), conditionBadge(unit)]),
+      h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: firstName(unit.displayName) }), conditionBadge(unit)]),
       battleHpGauge(unit),
       actionSelectFields(unit),
     ]);
