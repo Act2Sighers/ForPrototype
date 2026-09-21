@@ -35,11 +35,11 @@ export const OPENING_SCRIPT = {
     },
     end: {
       type: "end",
-      // 初期投資：グループ雇用（2人×1グループ、合計コスト2）を必ず賄えた
-      // 上で、雇用後に自由に使える分は20に絞る（22 = 2 + 20）。加えて
+      // 初期投資：グループ雇用（2人×1グループ、合計コスト10）を必ず賄えた
+      // 上で、雇用後に自由に使える分は20に絞る（30 = 10 + 20）。加えて
       // ベースクリームを少量、時間食（クロッケット）を1つ持たせる。
       effects: [
-        { kind: "grantRigidResource", id: "coarseSugarMineral", amount: 22 },
+        { kind: "grantRigidResource", id: "coarseSugarMineral", amount: 30 },
         { kind: "grantNaturalResource", id: "baseCream", amount: 20 },
         { kind: "grantTimeEats", mode: "candyHandout", defId: "clockette", qty: 1 },
       ],

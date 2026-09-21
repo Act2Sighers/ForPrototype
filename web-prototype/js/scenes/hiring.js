@@ -5,6 +5,7 @@ import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import {
   CHARACTER_DATA,
   RIGID_RESOURCES,
+  INITIAL_HIRING_COST_PER_MEMBER,
   computeWeaponRating,
   createCharacterFromData,
   createHiringCandidate,
@@ -50,7 +51,8 @@ function generateCandidates(mode) {
 //    3組の2人グループ（INITIAL_HIRING_GROUPS、resourceCatalog.js）を
 //    提示し、そのうち1組だけを選んで雇用する（同時に複数組は雇用不可
 //    ——1組雇用した時点で残り全グループの雇用ボタンを無効化する）。
-//    費用はグループ内人数分（2人グループなら2）。Closing ("出発") is
+//    費用は1人あたりINITIAL_HIRING_COST_PER_MEMBER（2人グループなら
+//    その2倍）。Closing ("出発") is
 //    gated on having hired the one group into a non-empty formation. No
 //    除隊 button here — pairing it with hiring would let the player hire
 //    and immediately discharge someone as a resource-laundering glitch.
@@ -114,7 +116,7 @@ export function HiringScene(container, params, api) {
     for (const member of group.members) {
       const character = createCharacterFromData(member.characterDataId);
       character.weapon = member.weapon;
-      hireCharacter(character, 1);
+      hireCharacter(character, INITIAL_HIRING_COST_PER_MEMBER);
     }
     group.hired = true;
     pending = null;

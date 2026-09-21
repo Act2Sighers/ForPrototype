@@ -41,6 +41,24 @@ export const FORMATION_LIMIT = 6;
 export const STANDBY_LIMIT = 6;
 export const RETIRED_LIMIT = 20; // not enforced yet — overflow handling is future work
 
+// 体幹関連係数（オプション画面「体幹関連係数」参照）：スマッシュ/
+// プロテクトが強すぎるという実プレイでの手応えを受けての、バトルの
+// 体幹まわりの数式を開発中に素早く調整するためのデバッグオプション。
+// セーブデータの一部ではなく、freshProfile()の対象外のアプリ全体の
+// 設定としてstate直下に持つ（createNewSaveData/loadSlotでリセット
+// されない）。battle.jsのcorrectedStat周辺の体幹補正倍率計算・
+// protect/smashのstamina増減クランプ・毎ターン終了時の自然逓減で
+// 参照される。
+export const STAMINA_RANGE_CAP_DEFAULT = 5;
+export const STAMINA_RANGE_CAP_MIN = 0;
+export const STAMINA_RANGE_CAP_MAX = 20;
+export const STAMINA_CORRECTION_MULTIPLIER_DEFAULT = 2.0;
+export const STAMINA_CORRECTION_MULTIPLIER_MIN = 1.1;
+export const STAMINA_CORRECTION_MULTIPLIER_MAX = 2.0;
+export const STAMINA_NATURAL_DECAY_DEFAULT = 1;
+export const STAMINA_NATURAL_DECAY_MIN = 1;
+export const STAMINA_NATURAL_DECAY_MAX = 5;
+
 // Everything a save file owns besides the save slot's own bookkeeping
 // (label/timestamp) and whatever run is in progress: the warehouse's
 // 糖衣 and the three 隊員 slot groups. Bundled together because they're
@@ -85,6 +103,14 @@ const state = {
   // (see autoSave()) that the player never writes to directly.
   saveSlots: [null, null, null],
   autoSaveSlot: null,
+
+  // 体幹関連係数のデバッグオプション現在値 -- setBattleTuning()以外から
+  // 直接書き換えない。セーブ/ロード対象外（上のコメント参照）。
+  battleTuning: {
+    staminaRangeCap: STAMINA_RANGE_CAP_DEFAULT,
+    staminaCorrectionMultiplier: STAMINA_CORRECTION_MULTIPLIER_DEFAULT,
+    staminaNaturalDecay: STAMINA_NATURAL_DECAY_DEFAULT,
+  },
 
   // 糖衣 (coatings): carried between runs, so they live here rather than
   // on the run. Live working copy of whichever save is active — see
@@ -195,6 +221,14 @@ export function consumeStartEventTrigger() {
 
 export function canAffordCost(cost) {
   return (state.run?.resources.rigid.coarseSugarMineral ?? 0) >= cost;
+}
+
+// オプション画面「体幹関連係数」からの唯一の書き換え口。keyは
+// state.battleTuningのプロパティ名（staminaRangeCap/
+// staminaCorrectionMultiplier/staminaNaturalDecay）。範囲チェックは
+// 呼び出し側（options.js）のUI入力側で行う。
+export function setBattleTuning(key, value) {
+  state.battleTuning[key] = value;
 }
 
 export function hasSquadRoom() {

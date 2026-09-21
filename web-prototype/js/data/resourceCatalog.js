@@ -688,6 +688,11 @@ export const INITIAL_HIRING_GROUPS = [
   },
 ];
 
+// 初期雇用グループの1人あたり費用（ザラメ鉱石）。オープニングの初期
+// 投資（js/data/scripts.jsのOPENING_SCRIPT）はこの費用を必ず賄える額を
+// 保証した上で、雇用後に自由に使える分を別途少量残す設計。
+export const INITIAL_HIRING_COST_PER_MEMBER = 5;
+
 // INITIAL_HIRING_GROUPSから実際に画面表示できる形（隊員名/レベル/武器
 // インスタンス）を組み立てる。武器はforgeWeaponで都度ロールするが、
 // materialIdが全てcoarseSugarMineral（性能値固定{1,1,1,1,1}）なので
@@ -704,7 +709,7 @@ export function createInitialHiringGroupCandidates() {
         weapon: forgeWeapon(member.weaponTypeId, member.materialId),
       };
     });
-    return { groupId: group.id, title: group.title, members, cost: members.length };
+    return { groupId: group.id, title: group.title, members, cost: members.length * INITIAL_HIRING_COST_PER_MEMBER };
   });
 }
 

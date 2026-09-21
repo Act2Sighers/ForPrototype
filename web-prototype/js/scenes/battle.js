@@ -36,6 +36,16 @@ function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
+// 体幹の絶対値を、オプション画面「体幹関連係数」の「体幹変動幅上限」
+// （state.battleTuning.staminaRangeCap）以内に丸める。プロテクト/
+// スマッシュのように体幹を0から遠ざける操作の直後にのみ通す
+// （ピール/ブレンドや毎ターン終了時の自然逓減は0へ向かう一方なので
+// 上限を超えることがなく、この丸めは不要）。
+function clampStamina(value) {
+  const cap = state.battleTuning.staminaRangeCap;
+  return Math.min(cap, Math.max(-cap, value));
+}
+
 // Fisher-Yatesでlistをその場でシャッフルする（Mainフェイズの同IN内
 // ランダム順を決めるのに使う）。
 function shuffleInPlace(list) {
@@ -680,7 +690,7 @@ const MAIN_MODULES = {
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
       const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
-      const c = Math.pow(2, -0.5 * target.stamina);
+      const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
@@ -695,7 +705,7 @@ const MAIN_MODULES = {
     // params.aStat：能動能力値の上書き（既定attack）。attackと同じ考え方。
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
-      const c = Math.pow(2, -0.5 * target.stamina);
+      const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
       const damage = Math.ceil(a * c);
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
@@ -733,7 +743,7 @@ const MAIN_MODULES = {
     apply: (actor, target, params = {}) => {
       const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "defense"));
       const x = successCountToR(successCount);
-      target.stamina += x;
+      target.stamina = clampStamina(target.stamina + x);
       return { magnitude: x, label: "体幹上昇" };
     },
   },
@@ -748,7 +758,7 @@ const MAIN_MODULES = {
     apply: (actor, target, params = {}) => {
       const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "destruction"));
       const x = successCountToR(successCount);
-      target.stamina -= x;
+      target.stamina = clampStamina(target.stamina - x);
       return { magnitude: x, label: "体幹低下" };
     },
   },
@@ -999,7 +1009,7 @@ Object.assign(MAIN_MODULES, {
     apply: (actor, target, params = {}) => {
       const a = rollSum(2);
       const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
-      const c = Math.pow(2, -0.5 * target.stamina);
+      const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
@@ -1529,7 +1539,8 @@ function battleStatsRow(unit) {
 
 // 体幹: 0 基準の正負整数。正なら「装甲」で青く、負なら「脆弱性」で
 // 黄色く表示し、0（補正なし）はどちらのラベルも付けず素のまま表示する。
-// 毎ターン終了時に0へ向けて1ずつ自然逓減する（applyEndOfTurnStaminaDecay）。
+// 毎ターン終了時に0へ向けて自然逓減する（量は体幹関連係数「体幹自然
+// 逓減量」で可変、既定1 -- applyEndOfTurnStaminaDecay参照）。
 function staminaSpan(stamina) {
   if (stamina > 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--armor", text: `装甲${stamina}` });
   if (stamina < 0) return h("span", { class: "battle-unit__stamina battle-unit__stamina--fragile", text: `脆弱性${-stamina}` });
@@ -2205,9 +2216,10 @@ export function BattleScene(container, params, api) {
 
   // 全ユニットの体幹を、毎ターン終了時に0へ向けて1だけ自然逓減させる。
   function applyEndOfTurnStaminaDecay() {
+    const decay = state.battleTuning.staminaNaturalDecay;
     for (const unit of [...allyUnits, ...enemyUnits]) {
-      if (unit.stamina > 0) unit.stamina -= 1;
-      else if (unit.stamina < 0) unit.stamina += 1;
+      if (unit.stamina > 0) unit.stamina = Math.max(0, unit.stamina - decay);
+      else if (unit.stamina < 0) unit.stamina = Math.min(0, unit.stamina + decay);
     }
   }
 
