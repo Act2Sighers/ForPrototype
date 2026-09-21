@@ -396,6 +396,37 @@ Object.assign(PREP_MODULES, {
   },
 });
 
+// 武器固有スキル・Prepフェイズ。CHARACTER_SKILL_LOADOUTSによる所持
+// スキル制限とは別枠で、weaponOnly:trueがisModuleAvailableFor側の
+// 「装備中の武器のWEAPON_TYPES[...].skillIdと一致するか」判定を通す
+// （skillId自体はWEAPON_TYPES側に持たせる）。
+Object.assign(PREP_MODULES, {
+  // 【チアーズ】（シェイカー）：対象選択の必要なし（targetFaction:
+  // "none"）、味方陣営全員に最適化(2)。既存の【静電気】と同型。
+  cheers: {
+    id: "cheers",
+    label: "チアーズ",
+    targetFaction: "none",
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "optimize", each: "own", params: { n: 2 } }],
+  },
+  // 【ピクルス】（ビンヅメ）：自身以外の自陣営1体に鼓舞(3)、（前ステップ
+  // の対象とは無関係に）自身に威圧(2)。構造は【チェック】と同型
+  // （targetFactionが違う対を成す形）。
+  pickles: {
+    id: "pickles",
+    label: "ピクルス",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [
+      { actionId: "inspire", params: { n: 3 } },
+      { actionId: "intimidate", target: "self", params: { n: 2 } },
+    ],
+  },
+});
+
 // 戦闘不能：HPが0以下になったユニット。行動できず、行動対象にも選べず、
 // Main/Prepどちらの行動順からも除外される。
 function isIncapacitated(unit) {
@@ -421,21 +452,22 @@ function isModuleAvailableFor(unit, module) {
   if (module.monsterOnly && unit.faction !== "enemy") return false;
   if (module.allyOnly && unit.faction !== "ally") return false;
   // 武器固有スキル：module.weaponOnly=trueのモジュールは、CHARACTER_
-  // SKILL_LOADOUTSの所持スキル制限とは別枠で、装備中の武器のWEAPON_
-  // TYPES[...].skillIdと一致する時だけ選択可能になる（武器を外したり
-  // 持ち替えたりすれば選べなくなる）。まだどの武器固有スキルも定義され
-  // ていない現時点では、skillIdを持つWEAPON_TYPESエントリが無いため
-  // 常にfalseになる。
+  // SKILL_LOADOUTSの所持スキル制限を経由せず（下の所持スキル制限は
+  // weaponOnlyには適用しない -- 武器技はどのキャラクターの固定
+  // ローダウト配列にも載らないので、経由させると誰も選べなくなって
+  // しまう）、装備中の武器のWEAPON_TYPES[...].skillIdと一致する時
+  // だけ選択可能になる（武器を外したり持ち替えたりすれば選べなくなる）。
   if (module.weaponOnly) {
     const weaponTypeId = unit.character.weapon?.baseTypeId;
     if (!weaponTypeId || WEAPON_TYPES[weaponTypeId]?.skillId !== module.id) return false;
   }
   // 所持スキル制限：CHARACTER_SKILL_LOADOUTSに定義があるキャラクター
-  // は、そのリストに載っているモジュールしか選べない。未定義のキャラ
-  // クター（今回未実装分）は、従来通り全モジュールを自由選択できる
-  // （pickMonsterActionがMONSTER_SKILL_LOADOUTS未定義のモンスターを
-  // randomEnemyActionにフォールバックするのと同じ考え方）。
-  if (unit.faction === "ally") {
+  // は、そのリストに載っているモジュールしか選べない（weaponOnlyの
+  // モジュールは上の武器チェックだけで判定済みなのでここは経由しない）。
+  // 未定義のキャラクター（今回未実装分）は、従来通り全モジュールを
+  // 自由選択できる（pickMonsterActionがMONSTER_SKILL_LOADOUTS未定義の
+  // モンスターをrandomEnemyActionにフォールバックするのと同じ考え方）。
+  if (unit.faction === "ally" && !module.weaponOnly) {
     const loadout = CHARACTER_SKILL_LOADOUTS[unit.character.dataId];
     if (loadout && !loadout.includes(module.id)) return false;
   }
@@ -994,6 +1026,57 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     steps: [{ actionId: "heal", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
+  },
+});
+
+// 武器固有スキル・Mainフェイズ。weaponOnly:trueの意味はPREP_MODULES側
+// の同名コメント参照。
+Object.assign(MAIN_MODULES, {
+  // 【ホーンブレイク】（ナイフ）/【アイスブレイク】（アイスピック）/
+  // 【シェルブレイク】（フォーク）：いずれも「残りコスト全消費、攻撃
+  // した後、消費したPT分だけ相手の特定能力値を弱体化」という同型の
+  // 構成（処方箋と同じcost:"all"パターン -- unit.lastActionCostへ支払
+  // 額が記録済みのものを弱体化のnとしてそのまま使う）。ダメージより
+  // 威勢を削ぐことを狙ったコンセプトで、弱体化の判定ステータスは
+  // weakenAttack/weakenDestruction/weakenDefenseそれぞれの既定（賢さ）
+  // のまま上書きしない。
+  hornBreak: {
+    id: "hornBreak",
+    label: "ホーンブレイク",
+    targetFaction: "opposing",
+    cost: "all",
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "weakenAttack", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  iceBreak: {
+    id: "iceBreak",
+    label: "アイスブレイク",
+    targetFaction: "opposing",
+    cost: "all",
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "weakenDestruction", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  shellBreak: {
+    id: "shellBreak",
+    label: "シェルブレイク",
+    targetFaction: "opposing",
+    cost: "all",
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "attack" }, { actionId: "weakenDefense", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  // 【サプライズ】（ストロー）：攻撃の能動能力値を協調性に上書きする
+  // （Stage0のattack.params.aStat拡張をそのまま使う）。
+  surprise: {
+    id: "surprise",
+    label: "サプライズ",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    steps: [{ actionId: "attack", params: { aStat: "coordination" } }],
   },
 });
 

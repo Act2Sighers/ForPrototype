@@ -427,20 +427,24 @@ export function applyHpHeal(character, amount) {
 // pickLowestQualityFrame). The frame's own quality/stats are never
 // looked at; only the module (freely chosen at forge time) determines
 // the crafted weapon's stats -- see craftWeapon.
+// skillId：装備している間だけ使える武器固有スキル（battle.jsの
+// MAIN_MODULES/PREP_MODULESのid、weaponOnly:trueが立っているもの）。
+// まだ実装していない武器種はundefinedのまま（isModuleAvailableFor側は
+// 「一致するskillIdが無ければ常に選択不可」として扱うので安全）。
 export const WEAPON_TYPES = {
-  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 } },
-  knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 } },
+  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 }, skillId: "shellBreak" },
+  knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 }, skillId: "hornBreak" },
   dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"], frame: { speciesId: "honeyCrystalOre", quantity: 1 } },
   recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 } },
-  straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 } },
+  straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 }, skillId: "surprise" },
   paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"], frame: { speciesId: "driedFructoseRock", quantity: 2 } },
   timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"], frame: { speciesId: "sugarCaneFiber", quantity: 2 } },
   fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"], frame: { speciesId: "cacaoLayeredRock", quantity: 2 } },
   mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 } },
-  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 } },
+  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 }, skillId: "pickles" },
   pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 } },
-  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 } },
-  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 } },
+  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "cheers" },
+  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "iceBreak" },
   slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 } },
 };
 
