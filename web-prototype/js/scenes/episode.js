@@ -1,6 +1,12 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { rollJudgement } from "../dice.js";
-import state, { grantResource, grantTieredResource, grantAmberSugarMineral, recordEpisodeSeen } from "../state.js";
+import state, {
+  grantResource,
+  grantTieredResource,
+  grantAmberSugarMineral,
+  grantTimeEatsItem,
+  recordEpisodeSeen,
+} from "../state.js";
 import {
   RIGID_RESOURCES,
   NATURAL_RESOURCES,
@@ -16,6 +22,7 @@ import {
   pickHighestStatCharacter,
   applyHpDamage,
   refreshWeaponPrefix,
+  findTimeEatsDef,
 } from "../data/resourceCatalog.js";
 import { DUNGEON_SCRIPTS, EPISODE_ARCHIVE_ENTRIES } from "../data/scripts.js";
 
@@ -95,6 +102,20 @@ function applyEffect(effect, context) {
       grantResource("rigid", effect.id, effect.amount);
       const after = state.run.resources.rigid[effect.id];
       return { text: `${species.name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    case "grantNaturalResource": {
+      // grantRigidResourceの自然系資源版（ベースクリーム等のフラット付与）。
+      const species = NATURAL_RESOURCES[effect.id];
+      const before = state.run.resources.natural[effect.id];
+      grantResource("natural", effect.id, effect.amount);
+      const after = state.run.resources.natural[effect.id];
+      return { text: `${species.name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    case "grantTimeEats": {
+      // 購入フローを経由せず時間食を直接付与する（オープニングの初期投資等）。
+      const def = findTimeEatsDef(effect.mode, effect.defId);
+      grantTimeEatsItem(effect.mode, effect.defId, effect.qty);
+      return { text: `${def.name}×${effect.qty} を獲得！`, colorClass: "effect-positive" };
     }
     case "grantTieredRigidResource": {
       const { before, after } = grantTieredResource("rigid", effect.id, effect.tier, effect.amount);

@@ -524,6 +524,27 @@ export function purchaseTimeEats(mode, lineup, purchases) {
   return total;
 }
 
+// purchaseTimeEatsとは違い、代金を払わず特定の時間食を直接荷物置き場
+// （state.run.timeEatsInventory）へ積む（オープニングの初期投資など、
+// 購入フローを経由しない付与のための汎用ミューテータ）。lineup/
+// remainingQtyには一切触れない。
+export function grantTimeEatsItem(mode, defId, qty) {
+  const def = findTimeEatsDef(mode, defId);
+  const existing = state.run.timeEatsInventory.find((item) => item.defId === defId);
+  if (existing) {
+    existing.qty += qty;
+    return;
+  }
+  state.run.timeEatsInventory.push({
+    defId: def.id,
+    name: def.name,
+    target: def.target,
+    hpRecoveryPercent: def.hpRecoveryPercent,
+    conversionEfficiency: def.conversionEfficiency,
+    qty,
+  });
+}
+
 // 部隊編成画面（配給／全員配給モード）の「選択」「全員に配給する」が
 // 呼ぶ：荷物置き場のスタックからqty個消費し、0になったらそのスタック
 // 自体をtimeEatsInventoryから取り除く（他の資源一覧が0個の種を表示し

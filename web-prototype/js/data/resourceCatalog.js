@@ -606,13 +606,30 @@ export function pickCompatibleWeaponTypeId(characterDataId) {
 // ---------------------------------------------------------------------
 // 初期雇用データ (initial-employment data)
 // ---------------------------------------------------------------------
-// Used only by the (not yet built) 初期雇用 event: each entry pairs a
-// キャラクターデータ with the 武器種 + 剛体資源 it starts equipped
-// with. Every entry here uses ザラメ鉱石, the weakest material, since
-// this is meant for early-game / low-difficulty initial-employment
-// pools; stronger variants (better material, or bonus growth) would be
-// separate entries once higher-tier recruitment exists.
-export const INITIAL_EMPLOYMENT_DATA = {
+// 固有の戦闘スキル実装が済んでいる7人（battle.jsのCHARACTER_SKILL_
+// LOADOUTS参照）。テストダンジョンでの試験プレイを妨げないよう、
+// 初期雇用・通常雇用（どちらもINITIAL_EMPLOYMENT_DATAのキーを候補元に
+// する -- pickRandomEmploymentIds/hiring.js参照）はこの7人に絞る。
+// 残り7人はCHARACTER_DATA/ALL_EMPLOYMENT_DATAにはそのままデータとして
+// 残し、スキル実装が済み次第ここに追加すればよい。
+export const IMPLEMENTED_CHARACTER_IDS = [
+  "flakeSugar",
+  "cubeSugar",
+  "honeyScrew",
+  "chocolatBitterTaste",
+  "lollipopSpiral",
+  "flawlessNoColor",
+  "sunlightSaccharum",
+];
+
+// 各キャラクターデータに、初期雇用/通常雇用で持たせる武器種+剛体資源を
+// 対応付けた完全版（14人分、削除しない）。ALL_EMPLOYMENT_DATAとして
+// 保持し、実際の雇用候補生成（INITIAL_EMPLOYMENT_DATA、下記）は
+// IMPLEMENTED_CHARACTER_IDSで絞り込んだものだけを使う。全entryが
+// ザラメ鉱石（最弱の素材）を使うのは、早期・低難易度向けの初期雇用
+// プールという位置付けのため（より強い素材/成長ボーナス付きのentryは
+// 上位雇用ができるようになってから別途用意する）。
+const ALL_EMPLOYMENT_DATA = {
   flakeSugar: { characterDataId: "flakeSugar", weaponTypeId: "fork", materialId: "coarseSugarMineral" },
   cubeSugar: { characterDataId: "cubeSugar", weaponTypeId: "knife", materialId: "coarseSugarMineral" },
   honeyScrew: { characterDataId: "honeyScrew", weaponTypeId: "dipper", materialId: "coarseSugarMineral" },
@@ -628,6 +645,68 @@ export const INITIAL_EMPLOYMENT_DATA = {
   sherbetFrost: { characterDataId: "sherbetFrost", weaponTypeId: "icePick", materialId: "coarseSugarMineral" },
   shelfStable: { characterDataId: "shelfStable", weaponTypeId: "slicer", materialId: "coarseSugarMineral" },
 };
+
+// 通常雇用（pickRandomEmploymentIds経由）・初期雇用グループ生成
+// （createInitialHiringGroupCandidates経由）の両方が実際に参照する
+// のはこちら -- IMPLEMENTED_CHARACTER_IDSの7人分だけ。
+export const INITIAL_EMPLOYMENT_DATA = Object.fromEntries(
+  Object.entries(ALL_EMPLOYMENT_DATA).filter(([id]) => IMPLEMENTED_CHARACTER_IDS.includes(id))
+);
+
+// ---------------------------------------------------------------------
+// 初期雇用イベント：グループ選択式 (テストダンジョン専用、3組固定)
+// ---------------------------------------------------------------------
+// 「フレーク、キューブ」のように2人1組で並び、1組だけ選んで両者を
+// まとめて雇用する（詳細はhiring.jsのグループ雇用フロー参照）。武器は
+// 全て全性能値「低」で揃うザラメ鉱石（materialId）で作られるため、
+// 組み合わせの優劣は各隊員本来のスキル構成＋武器固有スキルだけで決まる
+// （シナジーは装備可否のゲートのみでボーナスは無い -- canEquip参照）。
+export const INITIAL_HIRING_GROUPS = [
+  {
+    id: "group-flake-lollipop",
+    title: "フレーク、ロリポップ",
+    members: [
+      { characterDataId: "flakeSugar", weaponTypeId: "shaker", materialId: "coarseSugarMineral" },
+      { characterDataId: "lollipopSpiral", weaponTypeId: "straw", materialId: "coarseSugarMineral" },
+    ],
+  },
+  {
+    id: "group-honey-cube",
+    title: "ハニー、キューブ",
+    members: [
+      { characterDataId: "honeyScrew", weaponTypeId: "fryingPan", materialId: "coarseSugarMineral" },
+      { characterDataId: "cubeSugar", weaponTypeId: "slicer", materialId: "coarseSugarMineral" },
+    ],
+  },
+  {
+    id: "group-sunlight-flawless",
+    title: "サンライト、フローレス",
+    members: [
+      { characterDataId: "sunlightSaccharum", weaponTypeId: "jarredBottle", materialId: "coarseSugarMineral" },
+      { characterDataId: "flawlessNoColor", weaponTypeId: "knife", materialId: "coarseSugarMineral" },
+    ],
+  },
+];
+
+// INITIAL_HIRING_GROUPSから実際に画面表示できる形（隊員名/レベル/武器
+// インスタンス）を組み立てる。武器はforgeWeaponで都度ロールするが、
+// materialIdが全てcoarseSugarMineral（性能値固定{1,1,1,1,1}）なので
+// 実質ランダム性は無い。呼び出し側（hiring.js）でhired:falseを足す。
+export function createInitialHiringGroupCandidates() {
+  return INITIAL_HIRING_GROUPS.map((group) => {
+    const members = group.members.map((member) => {
+      const data = CHARACTER_DATA[member.characterDataId];
+      return {
+        characterDataId: member.characterDataId,
+        name: data.name,
+        level: computeLevel(data.growth),
+        growth: data.growth,
+        weapon: forgeWeapon(member.weaponTypeId, member.materialId),
+      };
+    });
+    return { groupId: group.id, title: group.title, members, cost: members.length };
+  });
+}
 
 // ---------------------------------------------------------------------
 // 雇用 / 除隊 (hiring & discharge) — shared by 雇用画面 and 部隊編成画面
