@@ -1005,14 +1005,21 @@ Object.assign(MAIN_MODULES, {
     steps: [{ actionId: "dot", params: { n: 5 } }, { actionId: "dot", target: "self", params: { n: 2 } }],
   },
   // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(3)、
-  // 弱体化魔法(防御力)(3)を順に行う。
+  // 弱体化魔法(防御力)(3)を順に行う。判定に使う能動能力値は（弱体化
+  // 魔法の既定である賢さではなく）協調性に上書きする -- ロリポップ・
+  // スパイラルの課題（協調性の成長が彼女の技のどれからも参照されて
+  // いなかった）への回答として、Stage0のcreateCorrectionModule.
+  // params.aStat拡張をそのまま使う。
   perfectSupport: {
     id: "perfectSupport",
     label: "完璧なサポート",
     targetFaction: "opposing",
     cost: 3,
     allyOnly: true,
-    steps: [{ actionId: "weakenAttack", params: { n: 3 } }, { actionId: "weakenDefense", params: { n: 3 } }],
+    steps: [
+      { actionId: "weakenAttack", params: { n: 3, aStat: "coordination" } },
+      { actionId: "weakenDefense", params: { n: 3, aStat: "coordination" } },
+    ],
   },
   // 【フラッシュ】：相手陣営全員に攻撃した後、自身にも攻撃を行う（反動
   // ダメージ）。targetFaction:"none"のため対象候補の選択自体が不要 --
