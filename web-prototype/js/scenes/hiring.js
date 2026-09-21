@@ -152,6 +152,7 @@ export function HiringScene(container, params, api) {
         children.push(
           characterInfoCard({
             name: candidate.name,
+            dataId: candidate.characterDataId,
             level: candidate.level,
             growth: candidate.growth,
             weapon: candidate.weapon,

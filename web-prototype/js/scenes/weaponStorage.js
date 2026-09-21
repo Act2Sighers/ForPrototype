@@ -9,6 +9,7 @@ import {
   RIGID_RESOURCES,
   computeWeaponMarketPrice,
 } from "../data/resourceCatalog.js";
+import { describeWeaponSkill } from "./battle.js";
 
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 
@@ -95,6 +96,7 @@ export function WeaponStorageScene(container, params, api) {
     if (isExpanded) {
       children.push(h("p", { class: "lead", text: describeWeapon(weapon) }));
       children.push(h("p", { class: "lead", text: `シナジー：${weaponSynergyNames(weapon)}` }));
+      children.push(h("p", { class: "lead", text: `スキル：${describeWeaponSkill(weapon)}` }));
     }
     return h("div", { class: "panel" }, children);
   }
@@ -205,6 +207,7 @@ export function WeaponStorageScene(container, params, api) {
     if (isExpanded) {
       children.push(h("p", { class: "lead", text: describeWeapon(weapon) }));
       children.push(h("p", { class: "lead", text: `シナジー：${weaponSynergyNames(weapon)}` }));
+      children.push(h("p", { class: "lead", text: `スキル：${describeWeaponSkill(weapon)}` }));
     }
     return h("div", { class: `panel${isSelected ? " panel--selected" : ""}` }, children);
   }

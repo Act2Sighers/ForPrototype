@@ -6,6 +6,7 @@ import {
   characterCoatingLine,
   characterSynergyLine,
   characterConditionBadge,
+  characterSkillLine,
 } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon, consumeTimeEatsItem } from "../state.js";
 import { computeWeaponRating, canEquip, getWeaponDisplayName, applyTimeEatsToCharacter } from "../data/resourceCatalog.js";
@@ -384,6 +385,7 @@ export function SquadFormationScene(container, params, api) {
         characterSynergyLine(character),
         characterStatLine(character),
         characterWeaponLine(character),
+        characterSkillLine(character),
         characterCoatingLine(character)
       );
     }

@@ -11,6 +11,7 @@ import {
   createWeaponTradeCandidate,
   pickRandomWeaponTypeIds,
 } from "../data/resourceCatalog.js";
+import { describeWeaponSkill } from "./battle.js";
 
 const COST_ABBR = RIGID_RESOURCES.coarseSugarMineral.abbr;
 const CANDIDATE_COUNT = 5;
@@ -126,6 +127,7 @@ export function WeaponTradeScene(container, params, api) {
       if (isExpanded) {
         children.push(h("p", { class: "lead", text: describeWeapon(candidate.weapon) }));
         children.push(h("p", { class: "lead", text: `シナジー：${weaponSynergyNames(candidate.weapon)}` }));
+        children.push(h("p", { class: "lead", text: `スキル：${describeWeaponSkill(candidate.weapon)}` }));
       }
     }
 

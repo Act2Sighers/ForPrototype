@@ -1,6 +1,7 @@
 import { renderScreen, button, h } from "../dom.js";
 import state, { craftAndStoreWeapon } from "../state.js";
 import { WEAPON_TYPES, RIGID_RESOURCES, SYNERGIES, describeWeapon, getWeaponDisplayName, pickLowestQualityFrame } from "../data/resourceCatalog.js";
+import { describeWeaponSkill } from "./battle.js";
 
 const BASE_CREAM_COST = 5;
 // Real 2s by default -- purely for player feel (see the user's own
@@ -114,6 +115,7 @@ export function WeaponForgeScene(container, params, api) {
       if (resultExpanded) {
         resultChildren.push(h("p", { class: "lead", text: describeWeapon(resultWeapon) }));
         resultChildren.push(h("p", { class: "lead", text: `シナジー：${weaponSynergyNames(resultWeapon.baseTypeId)}` }));
+        resultChildren.push(h("p", { class: "lead", text: `スキル：${describeWeaponSkill(resultWeapon)}` }));
       }
     } else {
       resultChildren.push(h("p", { class: "lead", text: "（未製造）" }));

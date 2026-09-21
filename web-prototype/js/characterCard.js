@@ -20,6 +20,7 @@ import {
   weaponStatRankLabel,
   getWeaponDisplayName,
 } from "./data/resourceCatalog.js";
+import { describeCharacterSkills, describeWeaponSkill } from "./scenes/battle.js";
 
 // Split across two lines (rather than one 5-stat row) per the user's
 // preference for readability: attack+defense, then the other three.
@@ -100,11 +101,21 @@ export function characterWeaponLine(character) {
     );
   });
   const weaponSynergyNames = WEAPON_TYPES[weapon.baseTypeId].synergies.map((id) => SYNERGIES[id].name).join("/");
+  const weaponSkill = describeWeaponSkill(weapon);
   return h("p", { class: "character-card__weapon" }, [
     `武器：${getWeaponDisplayName(weapon)}［`,
     ...rankParts,
-    `］（シナジー：${weaponSynergyNames}）`,
+    `］（シナジー：${weaponSynergyNames}）${weaponSkill ? ` ${weaponSkill}` : ""}`,
   ]);
+}
+
+// キャラクター固有スキル（CHARACTER_SKILL_LOADOUTSに定義のあるキャラ
+// のみ）。未実装分（定義の無いキャラ）は何も表示しない -- 固定の持ち
+// スキルという概念自体が無いため。
+export function characterSkillLine(character) {
+  const text = describeCharacterSkills(character.dataId);
+  if (!text) return null;
+  return h("p", { class: "character-card__skills", text: `スキル：${text}` });
 }
 
 // 装備中の糖衣を、頭/肩/腕/胴/脚の順に「名前(熟練度)」で並べる簡易表示
@@ -128,5 +139,6 @@ export function characterInfoCard(character) {
     characterSynergyLine(character),
     characterStatLineWithMaxHp(character),
     characterWeaponLine(character),
+    characterSkillLine(character),
   ]);
 }

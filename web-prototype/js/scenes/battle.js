@@ -130,13 +130,14 @@ function edgePoint(rect, arenaRect, faction) {
 const PREP_MODULES = {
   // n（強さ）は既定1 -- スキル側がstep.paramsで上書きするまでは、プレイ
   // ヤーが直接選ぶ単体モジュールとして今まで通り常に1で動く。
-  optimize: { id: "optimize", label: "最適化", targetFaction: "own", stat: "in", apply: (t, n = 1) => { t.in += n; } },
-  restrain: { id: "restrain", label: "牽制", targetFaction: "opposing", stat: "in", apply: (t, n = 1) => { t.in -= n; } },
+  optimize: { id: "optimize", label: "最適化", targetFaction: "own", stat: "in", shortNotation: "P/最適化", apply: (t, n = 1) => { t.in += n; } },
+  restrain: { id: "restrain", label: "牽制", targetFaction: "opposing", stat: "in", shortNotation: "P/牽制", apply: (t, n = 1) => { t.in -= n; } },
   inspire: {
     id: "inspire",
     label: "鼓舞",
     targetFaction: "own",
     stat: "pt",
+    shortNotation: "P/鼓舞",
     apply: (t, n = 1) => { t.pt.current += n; t.pt.max += n; },
   },
   provoke: {
@@ -144,6 +145,7 @@ const PREP_MODULES = {
     label: "挑発",
     targetFaction: "opposing",
     statusLabel: "釘付け",
+    shortNotation: "P/挑発",
     apply: (actor, target, allyUnits, enemyUnits) => {
       if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
       target.pinnedBy = actor;
@@ -155,6 +157,7 @@ const PREP_MODULES = {
     label: "隠密",
     targetFaction: "self",
     statusLabel: "隠密",
+    shortNotation: "P/隠密s",
     apply: (actor, target, allyUnits, enemyUnits) => {
       if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
       target.stealthed = true;
@@ -166,6 +169,7 @@ const PREP_MODULES = {
     label: "威圧",
     targetFaction: "opposing",
     stat: "pt",
+    shortNotation: "P/威圧",
     apply: (t, n = 1) => {
       t.pt.current = Math.max(1, t.pt.current - n);
       t.pt.max = Math.max(1, t.pt.max - n);
@@ -182,6 +186,7 @@ const PREP_MODULES = {
     targetFaction: "ownExcludingSelf",
     statusLabel: "警護対象",
     allyOnly: true,
+    shortNotation: "P/警護",
     apply: (actor, target, allyUnits, enemyUnits) => {
       if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
       target.guardedBy = actor;
@@ -202,6 +207,7 @@ Object.assign(PREP_MODULES, {
     id: "blessing",
     label: "祝福",
     targetFaction: "own",
+    shortNotation: "P/最適化+",
     steps: [{ actionId: "optimize" }, { actionId: "inspire" }],
   },
   // 【陰陽】：牽制した後、（前ステップの対象とは無関係に）自身を対象に
@@ -211,6 +217,7 @@ Object.assign(PREP_MODULES, {
     id: "yinYang",
     label: "陰陽",
     targetFaction: "opposing",
+    shortNotation: "P/牽制+",
     steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
   },
   // 【衛星】：鼓舞。ただし対象候補から自身を除外する（targetFaction:
@@ -220,6 +227,7 @@ Object.assign(PREP_MODULES, {
     id: "satellite",
     label: "衛星",
     targetFaction: "ownExcludingSelf",
+    shortNotation: "P/鼓舞+",
     steps: [{ actionId: "inspire" }, { actionId: "inspire", target: "self" }],
   },
   // 【漁火】：威圧した後、（1回目とは別の）もう1体の相手陣営ユニットに
@@ -231,6 +239,7 @@ Object.assign(PREP_MODULES, {
     id: "fishFire",
     label: "漁火",
     targetFaction: "opposing",
+    shortNotation: "P/威圧+",
     steps: [{ actionId: "intimidate" }, { actionId: "intimidate", target: "opposingExcludingUsed" }],
   },
   // 【泥沼】：行動対象の指定を受けず（targetFaction: "none"）、相手陣営
@@ -240,6 +249,7 @@ Object.assign(PREP_MODULES, {
     id: "quagmire",
     label: "泥沼",
     targetFaction: "none",
+    shortNotation: "P/牽制*",
     steps: [{ actionId: "restrain", each: "opposing" }],
   },
 });
@@ -253,6 +263,7 @@ Object.assign(PREP_MODULES, {
     label: "興奮",
     targetFaction: "self",
     monsterOnly: true,
+    shortNotation: "P/最適化s",
     steps: [{ actionId: "optimize" }],
   },
   interference: {
@@ -260,6 +271,7 @@ Object.assign(PREP_MODULES, {
     label: "邪魔",
     targetFaction: "opposing",
     monsterOnly: true,
+    shortNotation: "P/牽制",
     steps: [{ actionId: "restrain" }],
   },
   staticCling: {
@@ -267,6 +279,7 @@ Object.assign(PREP_MODULES, {
     label: "静電気",
     targetFaction: "none",
     monsterOnly: true,
+    shortNotation: "P/最適化*",
     steps: [{ actionId: "optimize", each: "own" }],
   },
   elegance: {
@@ -274,6 +287,7 @@ Object.assign(PREP_MODULES, {
     label: "優雅",
     targetFaction: "self",
     monsterOnly: true,
+    shortNotation: "P/鼓舞s",
     steps: [{ actionId: "inspire" }],
   },
   // 【食べ比べ】：相手陣営1体を選び、1D6の出目で鼓舞(1)/威圧(1)/威圧(2)の
@@ -288,6 +302,7 @@ Object.assign(PREP_MODULES, {
     label: "食べ比べ",
     targetFaction: "opposing",
     monsterOnly: true,
+    shortNotation: "P/特殊D",
     custom: "tasteTest",
   },
   // 【噛み合わせ】：牽制した後、（前ステップの対象とは無関係に）自身を
@@ -297,6 +312,7 @@ Object.assign(PREP_MODULES, {
     label: "噛み合わせ",
     targetFaction: "opposing",
     monsterOnly: true,
+    shortNotation: "P/牽制+",
     steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
   },
   // 【団結】：自身を最適化する強さ(n)が固定値ではなく「自陣営の行動可能
@@ -309,6 +325,7 @@ Object.assign(PREP_MODULES, {
     label: "団結",
     targetFaction: "self",
     monsterOnly: true,
+    shortNotation: "P/最適化?s",
     steps: [{ actionId: "optimize", params: (unit, targetUnit, pools) => ({ n: pools.ownPoolFor(unit).length }) }],
   },
   clockUp: {
@@ -316,6 +333,7 @@ Object.assign(PREP_MODULES, {
     label: "クロックアップ",
     targetFaction: "self",
     monsterOnly: true,
+    shortNotation: "P/最適化5s",
     steps: [{ actionId: "optimize", params: { n: 5 } }],
   },
   fortress: {
@@ -323,6 +341,7 @@ Object.assign(PREP_MODULES, {
     label: "要塞",
     targetFaction: "self",
     monsterOnly: true,
+    shortNotation: "P/鼓舞3s",
     steps: [{ actionId: "inspire", params: { n: 3 } }],
   },
 });
@@ -338,6 +357,7 @@ Object.assign(PREP_MODULES, {
     label: "下がって！",
     targetFaction: "opposing",
     allyOnly: true,
+    shortNotation: "P/挑発",
     steps: [{ actionId: "provoke" }],
   },
   // 【お祭りのヨカン】：自身に鼓舞(1)、最適化(2)を順に行う。
@@ -346,6 +366,7 @@ Object.assign(PREP_MODULES, {
     label: "お祭りのヨカン",
     targetFaction: "self",
     allyOnly: true,
+    shortNotation: "P/鼓舞s+",
     steps: [{ actionId: "inspire", params: { n: 1 } }, { actionId: "optimize", params: { n: 2 } }],
   },
   // 【日陰者のセイギ】：隠密をそのままラップしただけ。
@@ -354,6 +375,7 @@ Object.assign(PREP_MODULES, {
     label: "日陰者のセイギ",
     targetFaction: "self",
     allyOnly: true,
+    shortNotation: "P/隠密s",
     steps: [{ actionId: "stealth" }],
   },
   // 【お姉ちゃん頑張れ〜】：自身以外の自陣営全員に鼓舞(1)。対象候補の
@@ -364,6 +386,7 @@ Object.assign(PREP_MODULES, {
     label: "お姉ちゃん頑張れ〜",
     targetFaction: "none",
     allyOnly: true,
+    shortNotation: "P/鼓舞*",
     steps: [{ actionId: "inspire", each: "ownExcludingSelf", params: { n: 1 } }],
   },
   // 【チェック】：相手陣営1体を威圧(1)し、同じ相手ではなく自身を対象に
@@ -373,6 +396,7 @@ Object.assign(PREP_MODULES, {
     label: "チェック",
     targetFaction: "opposing",
     allyOnly: true,
+    shortNotation: "P/威圧+",
     steps: [{ actionId: "intimidate", params: { n: 1 } }, { actionId: "inspire", target: "self", params: { n: 1 } }],
   },
   // 【ハイ・プロット】/【ロー・プロット】：どちらも自身にのみ作用する
@@ -385,6 +409,7 @@ Object.assign(PREP_MODULES, {
     label: "ハイ・プロット",
     targetFaction: "self",
     allyOnly: true,
+    shortNotation: "P/最適化5s+",
     steps: [{ actionId: "optimize", params: { n: 5 } }, { actionId: "intimidate", params: { n: 2 } }],
   },
   lowPlot: {
@@ -392,6 +417,7 @@ Object.assign(PREP_MODULES, {
     label: "ロー・プロット",
     targetFaction: "self",
     allyOnly: true,
+    shortNotation: "P/牽制5s+",
     steps: [{ actionId: "restrain", params: { n: 5 } }, { actionId: "inspire", params: { n: 2 } }],
   },
 });
@@ -409,6 +435,7 @@ Object.assign(PREP_MODULES, {
     targetFaction: "none",
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "P/最適化2*",
     steps: [{ actionId: "optimize", each: "own", params: { n: 2 } }],
   },
   // 【ピクルス】（ビンヅメ）：自身以外の自陣営1体に鼓舞(3)、（前ステップ
@@ -420,6 +447,7 @@ Object.assign(PREP_MODULES, {
     targetFaction: "ownExcludingSelf",
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "P/鼓舞3+",
     steps: [
       { actionId: "inspire", params: { n: 3 } },
       { actionId: "intimidate", target: "self", params: { n: 2 } },
@@ -540,12 +568,13 @@ function continuousEffectLabel(type) {
 // 弱体化魔法は使い手の賢さ）。params.aStatでスキル側が上書きできる
 // （例：ロリポップ・スパイラルの【完璧なサポート】は弱体化魔法の判定を
 // 協調性で行う）。
-function createCorrectionModule(id, label, statKey, sign, judgeStatKey) {
+function createCorrectionModule(id, label, statKey, sign, judgeStatKey, shortNotation) {
   return {
     id,
     label,
     targetFaction: sign > 0 ? "own" : "opposing",
     effect: "correction",
+    shortNotation,
     apply: (actor, target, params = {}) => {
       const { n = 1, aStat } = params;
       const { successCount } = rollJudgement(rawStat(actor, aStat ?? judgeStatKey));
@@ -556,17 +585,17 @@ function createCorrectionModule(id, label, statKey, sign, judgeStatKey) {
 }
 
 const CORRECTION_MODULE_DEFS = [
-  { statKey: "attack", statLabel: "攻撃力", enhanceId: "enhanceAttack", weakenId: "weakenAttack" },
-  { statKey: "defense", statLabel: "防御力", enhanceId: "enhanceDefense", weakenId: "weakenDefense" },
-  { statKey: "destruction", statLabel: "破壊力", enhanceId: "enhanceDestruction", weakenId: "weakenDestruction" },
-  { statKey: "wisdom", statLabel: "賢さ", enhanceId: "enhanceWisdom", weakenId: "weakenWisdom" },
-  { statKey: "coordination", statLabel: "協調性", enhanceId: "enhanceCoordination", weakenId: "weakenCoordination" },
+  { statKey: "attack", statLabel: "攻撃力", shortStat: "攻", enhanceId: "enhanceAttack", weakenId: "weakenAttack" },
+  { statKey: "defense", statLabel: "防御力", shortStat: "防", enhanceId: "enhanceDefense", weakenId: "weakenDefense" },
+  { statKey: "destruction", statLabel: "破壊力", shortStat: "破", enhanceId: "enhanceDestruction", weakenId: "weakenDestruction" },
+  { statKey: "wisdom", statLabel: "賢さ", shortStat: "賢", enhanceId: "enhanceWisdom", weakenId: "weakenWisdom" },
+  { statKey: "coordination", statLabel: "協調性", shortStat: "協", enhanceId: "enhanceCoordination", weakenId: "weakenCoordination" },
 ];
 
 const CORRECTION_MODULES = {};
-for (const { statKey, statLabel, enhanceId, weakenId } of CORRECTION_MODULE_DEFS) {
-  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "coordination");
-  CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom");
+for (const { statKey, statLabel, shortStat, enhanceId, weakenId } of CORRECTION_MODULE_DEFS) {
+  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "coordination", `M/強化(${shortStat})`);
+  CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom", `M/弱体化(${shortStat})`);
 }
 
 // 属性攻撃が付与する状態異常（強さ・発動確率）：モンスターのレベルに
@@ -644,6 +673,7 @@ const MAIN_MODULES = {
     label: "攻撃",
     targetFaction: "opposing",
     effect: "hp",
+    shortNotation: "M/攻撃",
     // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defense）。
     // スキル側がstep.paramsで指定する（例：ティックの能動:賢さ、
     // 受動:賢さ）。
@@ -661,6 +691,7 @@ const MAIN_MODULES = {
     label: "貫通攻撃",
     targetFaction: "opposing",
     effect: "hp",
+    shortNotation: "M/貫通攻撃",
     // params.aStat：能動能力値の上書き（既定attack）。attackと同じ考え方。
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
@@ -675,6 +706,7 @@ const MAIN_MODULES = {
     label: "回復",
     targetFaction: "own",
     effect: "hp",
+    shortNotation: "M/回復",
     // params.aStat：判定に使う能動能力値の上書き（既定coordination）。
     // params.b：回復力への加算（既定0、負値も可）。【処方箋】のような
     // 「回復力そのものを動的に増減させる」スキルのための拡張 -- 合計は
@@ -693,6 +725,7 @@ const MAIN_MODULES = {
     label: "プロテクト",
     targetFaction: "own",
     effect: "stamina",
+    shortNotation: "M/プロテクト",
     // params.aStat：能動能力値の上書き（既定defense）。戻り値の
     // magnitudeは体幹の増加量（成功度合いそのもの）-- 【エコロジー】の
     // ような「直前のステップの結果を次のステップのparamsが参照する」
@@ -709,6 +742,7 @@ const MAIN_MODULES = {
     label: "スマッシュ",
     targetFaction: "opposing",
     effect: "stamina",
+    shortNotation: "M/スマッシュ",
     // params.aStat：能動能力値の上書き（既定destruction）。戻り値の
     // magnitudeは体幹の減少量（プロテクトと同じ理由で持たせる）。
     apply: (actor, target, params = {}) => {
@@ -724,6 +758,7 @@ const MAIN_MODULES = {
     label: "継続回復",
     targetFaction: "own",
     effect: "continuous",
+    shortNotation: "M/継続回復",
     // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
     // coordination）。
     apply: (actor, target, params = {}) => {
@@ -738,6 +773,7 @@ const MAIN_MODULES = {
     label: "蘇生",
     targetFaction: "ownIncapacitated",
     effect: "revive",
+    shortNotation: "M/蘇生",
     apply: (actor, target) => {
       if (actor.faction === "enemy") return { applied: false };
       const healedHp = Math.min(computeEffectiveMaxHp(target.character), correctedStat(actor, "coordination") * 2);
@@ -750,6 +786,7 @@ const MAIN_MODULES = {
     label: "継続ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
+    shortNotation: "M/継続ダメ",
     // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
     // wisdom）。
     apply: (actor, target, params = {}) => {
@@ -770,6 +807,7 @@ const MAIN_MODULES = {
     label: "継続割合ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
+    shortNotation: "M/継続割合ダメ",
     // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
     // wisdom）。dot/regenと同じ形に揃える。
     apply: (actor, target, params = {}) => {
@@ -800,6 +838,7 @@ Object.assign(MAIN_MODULES, {
     label: "鉄槌(PT3)",
     targetFaction: "opposing",
     cost: 3,
+    shortNotation: "M/3/スマッシュ+",
     steps: [{ actionId: "smash" }, { actionId: "attack" }],
   },
   // モンスタースキル・Mainフェイズ。monsterOnly:trueでプレイヤーの行動
@@ -812,6 +851,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
+    shortNotation: "M/2/攻撃",
     steps: [{ actionId: "attack" }],
   },
   cry: {
@@ -820,6 +860,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
+    shortNotation: "M/1/弱体化(攻)",
     steps: [{ actionId: "weakenAttack" }],
   },
   harden: {
@@ -828,6 +869,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "self",
     cost: 1,
     monsterOnly: true,
+    shortNotation: "M/1/強化(防)s",
     steps: [{ actionId: "enhanceDefense" }],
   },
   scratch: {
@@ -836,6 +878,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
+    shortNotation: "M/2/貫通攻撃",
     steps: [{ actionId: "pierceAttack" }],
   },
   electrocute: {
@@ -844,6 +887,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
+    shortNotation: "M/3/攻撃+",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDestruction", params: { n: 2 } }],
   },
   discharge: {
@@ -852,6 +896,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
+    shortNotation: "M/1/弱体化(破)",
     steps: [{ actionId: "weakenDestruction" }],
   },
   // 【甘い果実】：healTarget:trueが、CPU側の対象選択で「候補からランダム
@@ -865,6 +910,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     monsterOnly: true,
     healTarget: true,
+    shortNotation: "M/2/継続回復2",
     steps: [{ actionId: "regen", params: { n: 2 } }],
   },
   sourFruit: {
@@ -873,6 +919,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
+    shortNotation: "M/2/継続ダメ2",
     steps: [{ actionId: "dot", params: { n: 2 } }],
   },
   tick: {
@@ -881,6 +928,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
+    shortNotation: "M/1/攻撃/賢",
     steps: [{ actionId: "attack", params: { aStat: "wisdom", dStat: "wisdom" } }],
   },
   charge: {
@@ -889,6 +937,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
+    shortNotation: "M/2/スマッシュ+",
     steps: [{ actionId: "smash" }, { actionId: "attack" }],
   },
   guard: {
@@ -897,6 +946,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "self",
     cost: 1,
     monsterOnly: true,
+    shortNotation: "M/1/プロテクトs",
     steps: [{ actionId: "protect" }],
   },
   thaw: {
@@ -905,6 +955,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 3,
     monsterOnly: true,
+    shortNotation: "M/3/特殊*",
     steps: [{ actionId: "smash", each: "opposing" }],
   },
   slam: {
@@ -913,6 +964,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
+    shortNotation: "M/3/攻撃+",
     steps: [{ actionId: "attack" }, { actionId: "smash" }],
   },
   // 【ラッシュ】：選択した1体に攻撃した後、（1回目とは別の）もう1体の
@@ -923,6 +975,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
+    shortNotation: "M/3/攻撃2",
     steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
   },
 });
@@ -942,6 +995,7 @@ Object.assign(MAIN_MODULES, {
     effect: "hp",
     cost: 1,
     allyOnly: true,
+    shortNotation: "M/1/即席攻撃",
     apply: (actor, target, params = {}) => {
       const a = rollSum(2);
       const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
@@ -958,6 +1012,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "own",
     cost: 1,
     allyOnly: true,
+    shortNotation: "M/1/継続回復",
     steps: [{ actionId: "regen", params: { n: 1 } }],
   },
   // 【守りの手】：自身にプロテクト、強化魔法(防御力)(2)を順に行う。
@@ -967,6 +1022,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "self",
     cost: 2,
     allyOnly: true,
+    shortNotation: "M/2/プロテクトs+",
     steps: [{ actionId: "protect" }, { actionId: "enhanceDefense", params: { n: 2 } }],
   },
   // 【攻めの手】：攻撃した後、対象が「釘付け」状態（target.pinnedByが
@@ -979,6 +1035,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     allyOnly: true,
+    shortNotation: "M/2/攻撃+",
     steps: [
       { actionId: "attack" },
       { actionId: "pierceAttack", chance: (unit, targetUnit) => (targetUnit.pinnedBy ? 1 : 0) },
@@ -992,6 +1049,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     allyOnly: true,
+    shortNotation: "M/3/スマッシュ2+",
     steps: [{ actionId: "smash" }, { actionId: "smash" }, { actionId: "attack" }],
   },
   // 【ビターフィール】：相手陣営1体に継続ダメージ(5)を付与した後、
@@ -1002,6 +1060,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     allyOnly: true,
+    shortNotation: "M/2/継続ダメ5+",
     steps: [{ actionId: "dot", params: { n: 5 } }, { actionId: "dot", target: "self", params: { n: 2 } }],
   },
   // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(3)、
@@ -1016,6 +1075,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     allyOnly: true,
+    shortNotation: "M/3/弱体化(攻防)3/協",
     steps: [
       { actionId: "weakenAttack", params: { n: 3, aStat: "coordination" } },
       { actionId: "weakenDefense", params: { n: 3, aStat: "coordination" } },
@@ -1032,6 +1092,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 4,
     allyOnly: true,
+    shortNotation: "M/4/攻撃*",
     steps: [{ actionId: "attack", each: "opposing" }, { actionId: "attack" }],
   },
   // 【処方箋】：残りPTを全額消費する代わりに、回復力へ「消費したPT-3」
@@ -1045,6 +1106,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "own",
     cost: "all",
     allyOnly: true,
+    shortNotation: "M/r/回復r",
     steps: [{ actionId: "heal", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
   },
 });
@@ -1067,6 +1129,7 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/r/弱体化(攻)r",
     steps: [{ actionId: "attack" }, { actionId: "weakenAttack", params: (unit) => ({ n: unit.lastActionCost }) }],
   },
   iceBreak: {
@@ -1076,6 +1139,7 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/r/弱体化(破)r",
     steps: [{ actionId: "attack" }, { actionId: "weakenDestruction", params: (unit) => ({ n: unit.lastActionCost }) }],
   },
   shellBreak: {
@@ -1085,6 +1149,7 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/r/弱体化(防)r",
     steps: [{ actionId: "attack" }, { actionId: "weakenDefense", params: (unit) => ({ n: unit.lastActionCost }) }],
   },
   // 【サプライズ】（ストロー）：攻撃の能動能力値を協調性に上書きする
@@ -1096,6 +1161,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/2/攻撃/協",
     steps: [{ actionId: "attack", params: { aStat: "coordination" } }],
   },
   // 【バウンス】（ディッパー）：自身のIN値で分岐する特殊スキル。実際の
@@ -1108,6 +1174,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/1/特殊INs",
     custom: "bounce",
   },
   // 【サニーサイドアップ】（フライパン）：直前に使った技がスマッシュ/
@@ -1123,6 +1190,7 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     weaponOnly: true,
     requiresPriorActionIds: ["smash", "protect"],
+    shortNotation: "M/1/回復2",
     steps: [{ actionId: "heal", params: { b: 2 } }],
   },
   // 【アラート】（タイマー）：継続ダメージのnを「現在のターン数÷2
@@ -1135,6 +1203,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/1/継続ダメ?",
     steps: [{ actionId: "dot", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
   },
   // 【エコロジー】（カミザラ）：自身にプロテクトをかけ、そのプロテクト
@@ -1149,6 +1218,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/2/プロテクトs+",
     steps: [
       { actionId: "protect" },
       { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defense" }) },
@@ -1165,6 +1235,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/2/特殊?",
     custom: "shareCut",
   },
   // 【アレンジ】（レシピブック）：自陣営・相手陣営どちらの1体でも選べる
@@ -1180,6 +1251,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/1/特殊?",
     custom: "arrange",
   },
   // 【ピール】（スライサー）：相手陣営全員に、体幹が1以上ある時だけ
@@ -1193,6 +1265,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/2/特殊*",
     steps: [{ actionId: "peelHit", each: "opposing" }],
   },
   peelHit: {
@@ -1221,6 +1294,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
+    shortNotation: "M/2/特殊",
     apply: (actor, target) => {
       if (target.stamina >= 0) return { magnitude: 0, label: "ダメージ" };
       const damage = 4 * -target.stamina;
@@ -1344,6 +1418,36 @@ const CHARACTER_SKILL_LOADOUTS = {
   flawlessNoColor: ["check", "firstAid", "flash"],
   sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "prescription"],
 };
+
+// 「【スキル名】最短表記」の組み立てと、隊員/武器情報表示専用の逆引き。
+// PREP_MODULES/MAIN_MODULESどちらのidも一意なので1つの辞書にまとめて
+// 引ける（両レジストリのObject.assignが全て終わった後で作る必要がある
+// ため、この位置に置く）。
+const SKILL_MODULES = { ...PREP_MODULES, ...MAIN_MODULES };
+
+export function describeSkill(moduleId) {
+  const module = SKILL_MODULES[moduleId];
+  return `【${module.label}】${module.shortNotation}`;
+}
+
+export function describeSkills(moduleIds) {
+  return moduleIds.map(describeSkill).join("／");
+}
+
+// 武器固有スキル1つ分の表示用文字列（武器がその武器種のskillIdを持たな
+// ければnull -- 現状は全武器種が必ず持つが、念のため）。武器置き場/
+// 武器取引画面や、隊員が装備している武器の表示から呼ぶ想定。
+export function describeWeaponSkill(weapon) {
+  const skillId = WEAPON_TYPES[weapon.baseTypeId]?.skillId;
+  return skillId ? describeSkill(skillId) : null;
+}
+
+// キャラクター固有スキルの表示用文字列（CHARACTER_SKILL_LOADOUTSに
+// エントリの無いキャラクターはnull -- 未実装分は固有スキルを持たない）。
+export function describeCharacterSkills(characterDataId) {
+  const loadout = CHARACTER_SKILL_LOADOUTS[characterDataId];
+  return loadout ? describeSkills(loadout) : null;
+}
 
 const PREP_START_PT = 3;
 
@@ -1501,10 +1605,16 @@ function targetDisplayName(actor, target) {
 // ではなく発動そのものを告げる文にする -- 実際のtargetUnitはUI/CPUの
 // 選択を通すための行動主体自身のダミー値でしかなく、表示に使うと
 // 「自分自身に使用」という誤解を招くため。
+// steps/customを持つ（＝単体の基礎行動ではなく複合/特殊スキル）場合だけ
+// 最短表記を添える -- 攻撃/牽制のような基礎行動はラベルだけで自明な
+// ため、逆に冗長になってしまう。隊員側もモンスター側もこの1関数を
+// 経由する（declarationLineの2つの呼び出し元参照）ので、キャラクター
+// スキル/武器固有スキル/モンスタースキルどれもここで一律に表示される。
 function declarationLine(unit, module, targetUnit) {
+  const notation = module.steps || module.custom ? `(${module.shortNotation})` : "";
   return module.targetFaction === "none"
-    ? `${unit.displayName}が「${module.label}」を発動！`
-    : `${unit.displayName}が「${module.label}」を${targetDisplayName(unit, targetUnit)}に使用！`;
+    ? `${unit.displayName}が「${module.label}」${notation}を発動！`
+    : `${unit.displayName}が「${module.label}」${notation}を${targetDisplayName(unit, targetUnit)}に使用！`;
 }
 
 function statSnapshotText(unit, stat) {
