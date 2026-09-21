@@ -62,6 +62,15 @@ function freshProfile() {
     // 一着ごとにリセットされない）。craftAndStoreCoating参照 -- 5回ごと
     // に新しい一着、それ以外は既存の熟練度5でない一着への加算になる。
     coatingCraftCounts: {},
+    // 休憩イベント：隊員個別エピソード（独白/裏話/真相/思い出の6段階）の
+    // 消化進捗を隊員idごとに0〜6で保持する（0=未消化、6=全消化済み）。
+    // 必ず順番通りに進む -- 次に引ける候補は常にこの数値が指す1段階
+    // だけ（js/data/restEpisodes.js参照）。ラン単位ではなくプロフィール
+    // 単位で永続する。
+    restEpisodeProgress: {},
+    // 休憩イベント：一度でも抽選済みの休憩台本のid一覧（restEpisodes.js
+    // の各台本のid）。未抽選優先の抽選（pickRestEpisode参照）で使う。
+    seenRestEpisodeIds: [],
   };
 }
 
@@ -249,6 +258,21 @@ export function grantAmberSugarMineralInstances(instances) {
   for (const instance of instances) {
     const quality = amberQualityFromStats(instance.stats);
     state.run.obtainedResources.rigid.amberSugarMineral[quality] += 1;
+  }
+}
+
+// 休憩イベント（js/data/restEpisodes.js）で1本引いた後に呼ぶ記録処理。
+// characterIdが渡された場合（隊員個別エピソード）はその隊員の進捗を
+// 1段階進める -- 呼び出し側（episode.js）が既にpickRestEpisodeで
+// 「次に引くべき1段階」を選んでいるので、ここでは単純にインクリメント
+// するだけでよい。どちらの場合もidをseenRestEpisodeIdsへ記録する
+// （重複追加はしない）。
+export function recordRestEpisodeDraw(episodeId, characterId) {
+  if (characterId) {
+    state.restEpisodeProgress[characterId] = (state.restEpisodeProgress[characterId] ?? 0) + 1;
+  }
+  if (!state.seenRestEpisodeIds.includes(episodeId)) {
+    state.seenRestEpisodeIds.push(episodeId);
   }
 }
 
@@ -622,6 +646,8 @@ function slotSnapshot() {
       retiredSlots: state.retiredSlots,
       storedWeapons: state.storedWeapons,
       coatingCraftCounts: state.coatingCraftCounts,
+      restEpisodeProgress: state.restEpisodeProgress,
+      seenRestEpisodeIds: state.seenRestEpisodeIds,
     }),
     run: state.run ? structuredClone(state.run) : null,
   };

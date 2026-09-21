@@ -20,6 +20,7 @@
 //    Called "effects" rather than "reward" since some are negative
 //    (e.g. HP loss) -- see the 遭遇 script's 上を見る branch.
 import { CHARACTER_STAT_LABELS } from "./resourceCatalog.js";
+import { REST_EPISODE_POOL } from "./restEpisodes.js";
 
 export const OPENING_SCRIPT = {
   startId: "b1",
@@ -161,19 +162,56 @@ export const ENCOUNTER_SCRIPT = {
   },
 };
 
-// 休憩イベント用の台本。仮実装として、遭遇イベント用の台本の内容を
-// そのまま複製したもの（休憩専用の内容は今後用意する）。
-export const REST_SCRIPT = structuredClone(ENCOUNTER_SCRIPT);
+// 遭遇イベント（判定難易度式）：隊員を1人選ばせ、ランダムに選んだ
+// 能力値でD6判定（成功数≧判定難易度）。成功/失敗それぞれ、下記の
+// 候補群からeffects側（episode.jsのapplyEffectの"randomOneOf"）が
+// 1つだけランダムに選んで適用する。個数・品質帯・減少量は全て判定
+// 難易度（currentDifficulty、到達マス数ベース）から算出されるため、
+// ここでは「どの種類か」だけを列挙すればよい。
+const ENCOUNTER_JUDGEMENT_SUCCESS_POOL = [
+  { kind: "grantScaledResource", category: "rigid", id: "coarseSugarMineral", multiplier: 5 },
+  { kind: "grantScaledResource", category: "natural", id: "baseCream", multiplier: 5 },
+  { kind: "grantAmberByDifficulty", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "dropSpiralOre", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "cacaoLayeredRock", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "sorbetEternalIce", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "driedFructoseRock", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "honeyCrystalOre", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "rigid", id: "sugarCaneFiber", amount: 2 },
+  { kind: "grantTieredResourceByDifficulty", category: "natural", id: "squeezedFructoseLiquid", amount: 3 },
+  { kind: "grantTieredResourceByDifficulty", category: "natural", id: "gummyElasticMaterial", amount: 3 },
+  { kind: "grantTieredResourceByDifficulty", category: "natural", id: "waferMembraneObject", amount: 3 },
+  { kind: "grantTieredResourceByDifficulty", category: "natural", id: "sableSoftGravel", amount: 3 },
+  { kind: "grantTieredResourceByDifficulty", category: "natural", id: "electroMagneticGelatin", amount: 3 },
+];
+const ENCOUNTER_JUDGEMENT_FAILURE_POOL = [
+  { kind: "damageSelectedCharacterByDifficulty", multiplier: 10 },
+  { kind: "damageSelectedCharacterRandomWeaponStatByDifficulty" },
+];
+
+export const ENCOUNTER_JUDGEMENT_SCRIPT = {
+  startId: "select",
+  beats: {
+    select: { type: "characterSelect", text: "隊員を選んでください。", next: "judge" },
+    judge: { type: "difficultyJudgement", success: "success-end", failure: "failure-end" },
+    "success-end": { type: "end", effects: [{ kind: "randomOneOf", pool: ENCOUNTER_JUDGEMENT_SUCCESS_POOL }] },
+    "failure-end": { type: "end", effects: [{ kind: "randomOneOf", pool: ENCOUNTER_JUDGEMENT_FAILURE_POOL }] },
+  },
+};
 
 // ダンジョンごとに用意する台本一式。オープニング/エンディングは固定の
-// 1本を読み、遭遇/休憩はそれぞれの抽選プールからランダムに1つだけ選ぶ
-// （episode.jsのmode方式が使う -- 現状はどちらのプールも1本しか無いので
-// 実質固定だが、複数本を想定した抽選ロジックのまま扱っておく）。
+// 1本を読み、遭遇はencounterPoolからランダムに1つだけ選ぶ
+// （episode.jsのmode方式が使う）。ENCOUNTER_SCRIPT（甘蔗繊維質）は
+// データとしては残すが、テストダンジョンの実際の抽選プールには含め
+// ない（＝遭遇イベントは判定式の新台本のみを使う）。
+// 休憩（restPool）はREST_EPISODE_POOL（js/data/restEpisodes.js、71本の
+// descriptor配列）をそのまま渡す -- 単純な一様抽選ではなく、episode.js
+// のpickRestEpisodeが在籍判定/順序厳守/未抽選優先のロジックで1本選ぶ。
 export const DUNGEON_SCRIPTS = {
   "test-dungeon": {
     opening: OPENING_SCRIPT,
     ending: ENDING_SCRIPT,
-    encounterPool: [ENCOUNTER_SCRIPT],
-    restPool: [REST_SCRIPT],
+    encounterPool: [ENCOUNTER_JUDGEMENT_SCRIPT],
+    restPool: REST_EPISODE_POOL,
   },
 };

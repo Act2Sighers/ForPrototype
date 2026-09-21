@@ -1,19 +1,77 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { rollJudgement } from "../dice.js";
-import state, { grantResource, grantTieredResource } from "../state.js";
+import state, { grantResource, grantTieredResource, grantAmberSugarMineral, recordRestEpisodeDraw } from "../state.js";
 import {
   RIGID_RESOURCES,
+  NATURAL_RESOURCES,
   CHARACTER_STAT_LABELS,
   CHARACTER_STAT_FULL_LABELS,
   WEAPON_STAT_LABELS,
   CHARACTER_STAT_BY_WEAPON_STAT,
+  RIGID_QUALITY_LABELS,
   rigidResourceTierName,
+  naturalResourceTierName,
   computeStats,
+  computeEffectiveMaxHp,
   pickHighestStatCharacter,
   applyHpDamage,
   refreshWeaponPrefix,
 } from "../data/resourceCatalog.js";
 import { DUNGEON_SCRIPTS } from "../data/scripts.js";
+
+// 遭遇イベント（judge済みの隊員個別能力値でのD6判定）で使う5つの能力値
+// キー・武器性能値キー。CHARACTER_STAT_LABELS/WEAPON_STAT_LABELSの
+// キー一覧をそのまま使ってもよいが、hpを含む/含まないの取り違えを
+// 避けるため、ここで明示的に列挙しておく。
+const JUDGEABLE_CHARACTER_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+const WEAPON_STAT_KEYS = ["sweetness", "hardness", "poisonResist", "stability", "flexibility"];
+
+function pickRandomFrom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+// 「判定難易度」= 現在の到達マス数を使った雇用/武器取引と同じ考え方の
+// 数式（ラン進捗率グレード上昇のcomputeHiringLevel等参照）。切り上げ。
+function currentDifficulty() {
+  return Math.ceil((state.run.visitedNodeIds.length + 1) / 2);
+}
+
+// 難易度に応じて分岐する報酬/ペナルティ共通の帯テーブル引き。bandsは
+// 昇順の{max, value}の配列で、最後の要素はmaxを省略した「それ以上」
+// の受け皿とする。
+function bandByDifficulty(difficulty, bands) {
+  for (const band of bands) {
+    if (band.max === undefined || difficulty <= band.max) return band.value;
+  }
+  return bands[bands.length - 1].value;
+}
+
+// 剛体系タイヤ資源（琥珀糖鉱石含む）の難易度帯：2以下→低、3〜5→中、
+// 6以上→高。
+const RIGID_TIER_BANDS = [
+  { max: 2, value: "low" },
+  { max: 5, value: "mid" },
+  { value: "high" },
+];
+// 自然系タイヤ資源の難易度帯：2以下→中、3〜5→上、6以上→特上。
+const NATURAL_TIER_BANDS = [
+  { max: 2, value: "mid" },
+  { max: 5, value: "high" },
+  { value: "premium" },
+];
+// 武器性能値ペナルティの減少量帯：2以下→1、3〜5→2、6以上→3。
+const WEAPON_STAT_DAMAGE_BANDS = [
+  { max: 2, value: 1 },
+  { max: 5, value: 2 },
+  { value: 3 },
+];
+
+function speciesFor(category, id) {
+  return category === "natural" ? NATURAL_RESOURCES[id] : RIGID_RESOURCES[id];
+}
+function tierNameFor(category, id, tier) {
+  return category === "natural" ? naturalResourceTierName(id, tier) : rigidResourceTierName(id, tier);
+}
 
 function interpolate(text, context) {
   return text.replace(/\{\{name\}\}/g, context.selectedCharacter?.name ?? "");
@@ -68,6 +126,80 @@ function applyEffect(effect, context) {
         colorClass: `stat-${charKey}`,
       };
     }
+    // 遭遇イベント（判定難易度式）の成功影響：判定難易度×倍率の個数を
+    // 品質無しでそのまま付与（ザラメ鉱石/ベースクリーム）。
+    case "grantScaledResource": {
+      const species = speciesFor(effect.category, effect.id);
+      const amount = context.difficulty * effect.multiplier;
+      const before = state.run.resources[effect.category][effect.id];
+      grantResource(effect.category, effect.id, amount);
+      const after = state.run.resources[effect.category][effect.id];
+      return { text: `${species.name}×${amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    // 品質帯付きのタイヤ資源を固定個数付与（剛体系6種/自然系5種）。
+    // 品質は判定難易度をRIGID_TIER_BANDS/NATURAL_TIER_BANDSで引く。
+    case "grantTieredResourceByDifficulty": {
+      const bands = effect.category === "natural" ? NATURAL_TIER_BANDS : RIGID_TIER_BANDS;
+      const tier = bandByDifficulty(context.difficulty, bands);
+      const { before, after } = grantTieredResource(effect.category, effect.id, tier, effect.amount);
+      const name = tierNameFor(effect.category, effect.id, tier);
+      return { text: `${name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    // 琥珀糖鉱石は{tier:count}バケットではなく個別インスタンス方式
+    // （grantAmberSugarMineral）なので専用ケースとして分ける。品質帯は
+    // 剛体系タイヤ資源と同じ（低/中/高）。
+    case "grantAmberByDifficulty": {
+      const tier = bandByDifficulty(context.difficulty, RIGID_TIER_BANDS);
+      const before = state.run.resources.rigid.amberSugarMineral.length;
+      for (let i = 0; i < effect.amount; i++) grantAmberSugarMineral(tier);
+      const after = state.run.resources.rigid.amberSugarMineral.length;
+      const name = `${RIGID_RESOURCES.amberSugarMineral.name}（${RIGID_QUALITY_LABELS[tier]}品質）`;
+      return { text: `${name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+    }
+    // 遭遇イベントの失敗影響①：判定難易度×倍率のHPを減少（最低0）。
+    // 0になった場合は戦闘終了時の生存救助と同じ式（最大HPの1/4）で
+    // その場で復活させ、パーティ全滅判定に引っかからないようにする。
+    case "damageSelectedCharacterByDifficulty": {
+      const character = context.selectedCharacter;
+      if (!character) return null;
+      const before = character.currentHp ?? computeStats(character).hp;
+      const amount = context.difficulty * effect.multiplier;
+      applyHpDamage(character, amount);
+      let after = character.currentHp;
+      let revivedText = "";
+      if (after <= 0) {
+        character.currentHp = Math.ceil(computeEffectiveMaxHp(character) / 4);
+        after = character.currentHp;
+        revivedText = `　${character.name}は倒れかけたが、なんとか持ち直した…（${after}まで回復）`;
+      }
+      const hpLabel = `${CHARACTER_STAT_LABELS.hp}(${CHARACTER_STAT_FULL_LABELS.hp})`;
+      return {
+        text: `${character.name}の${hpLabel}が ${before - Math.max(0, before - amount)} 減少…（${before} → ${Math.max(0, before - amount)}）${revivedText}`,
+        colorClass: "stat-hp",
+      };
+    }
+    // 遭遇イベントの失敗影響②：武器の性能値をランダムに1つ選んで、
+    // 判定難易度帯に応じた量だけ減少（最低0）。
+    case "damageSelectedCharacterRandomWeaponStatByDifficulty": {
+      const character = context.selectedCharacter;
+      if (!character?.weapon) return null;
+      const statKey = pickRandomFrom(WEAPON_STAT_KEYS);
+      const amount = bandByDifficulty(context.difficulty, WEAPON_STAT_DAMAGE_BANDS);
+      const before = character.weapon.stats[statKey];
+      character.weapon.stats[statKey] = Math.max(0, before - amount);
+      refreshWeaponPrefix(character.weapon);
+      const after = character.weapon.stats[statKey];
+      const charKey = CHARACTER_STAT_BY_WEAPON_STAT[statKey];
+      return {
+        text: `${character.name}の武器の${WEAPON_STAT_LABELS[statKey]}が ${before - after} 減少…（${before} → ${after}）`,
+        colorClass: `stat-${charKey}`,
+      };
+    }
+    // 複数の候補effectから1つだけランダムに選んで適用する（成功/失敗
+    // それぞれの影響候補リストから1つ選ぶ、遭遇イベント用の仕組み）。
+    case "randomOneOf": {
+      return applyEffect(pickRandomFrom(effect.pool), context);
+    }
     default:
       throw new Error(`Unknown episode effect kind: "${effect.kind}"`);
   }
@@ -99,11 +231,40 @@ function resolveScript(mode) {
       return dungeonScripts.ending;
     case "encounter":
       return pickRandomScript(dungeonScripts.encounterPool);
-    case "rest":
-      return pickRandomScript(dungeonScripts.restPool);
     default:
       throw new Error(`episode scene requires a valid params.mode, got: ${mode}`);
   }
+}
+
+// 休憩イベントの抽選（js/data/restEpisodes.jsのREST_EPISODE_POOL、
+// descriptorの配列から1つ選ぶ）：
+//  1. 在籍判定 -- requiredCharacterIdsの全員が現在の編成にいるものだけ
+//     を候補にする。
+//  2. 隊員個別エピソード（characterId持ち）は、その隊員の進捗
+//     （state.restEpisodeProgress）が指す「次の1段階」だけが候補になる
+//     （独白1→独白2→…の順序厳守。既に全段階消化済みの隊員は候補なし）。
+//  3. 未抽選（state.seenRestEpisodeIds未収録）のものがあれば、その中から
+//     一様ランダムに選ぶ。無ければ、候補全体（＝既に全て抽選済み）から
+//     一様ランダムに選ぶ。
+// ダミー（[71]、requiredCharacterIds: []）は常に候補に入るため、
+// eligibleが空になることはない。
+function candidateEligible(descriptor) {
+  // c.idは隊員インスタンス固有のid（createCharacterFromData参照）で、
+  // カタログ上のキャラクター種別を表すのはc.dataIdの方。
+  const inFormation = new Set(state.formationSlots.map((c) => c.dataId));
+  if (!descriptor.requiredCharacterIds.every((id) => inFormation.has(id))) return false;
+  if (descriptor.characterId) {
+    const progress = state.restEpisodeProgress[descriptor.characterId] ?? 0;
+    return descriptor.stepIndex === progress;
+  }
+  return true;
+}
+
+function pickRestEpisode() {
+  const pool = DUNGEON_SCRIPTS[state.run.dungeonId].restPool;
+  const eligible = pool.filter(candidateEligible);
+  const unseen = eligible.filter((d) => !state.seenRestEpisodeIds.includes(d.id));
+  return pickRandomScript(unseen.length > 0 ? unseen : eligible);
 }
 
 // 台本 (script) interpreter shared by every オープニング/遭遇/休憩/
@@ -113,7 +274,12 @@ function resolveScript(mode) {
 // だけ -- 台本の形はdata/scripts.js参照。
 export function EpisodeScene(container, params, api) {
   const mode = params.mode;
-  const script = resolveScript(mode);
+  // 休憩イベントだけ選定ロジックが特殊（在籍判定/順序厳守/未抽選優先）
+  // なので、resolveScript()とは別にpickRestEpisode()で選んだ
+  // descriptorを保持しておく -- 台本終了時にrecordRestEpisodeDrawへ
+  // 渡す（下のgoto参照）。
+  const restDescriptor = mode === "rest" ? pickRestEpisode() : null;
+  const script = mode === "rest" ? restDescriptor.script : resolveScript(mode);
   const context = { selectedCharacter: null };
   let current = null;
   // Set once a branch's terminal "end" beat has run its effects -- the
@@ -133,7 +299,31 @@ export function EpisodeScene(container, params, api) {
   // entered (so the dice only roll once, not on every re-render), with
   // an auto-generated line describing the roll. 成功/失敗 gets its own
   // colored span rather than being plain text.
+  // 「difficultyJudgement」ビート：能力値をランダムに1つ選び、その値
+  // ぶんD6を振った成功数(4以上の出目の数)が判定難易度（現在の到達マス数
+  // ベース、currentDifficulty参照）以上なら成功。判定に使った難易度は
+  // その後のeffect側（randomOneOf経由のgrantScaledResource等）が
+  // 参照できるよう、context.difficultyに保存しておく（judgementビート
+  // 同様、一度きり・毎回の再描画では振り直さない）。
+  function resolveDifficultyJudgement(beat) {
+    const character = context.selectedCharacter;
+    const statKey = pickRandomFrom(JUDGEABLE_CHARACTER_STAT_KEYS);
+    const statValue = computeStats(character)[statKey];
+    const difficulty = currentDifficulty();
+    context.difficulty = difficulty;
+    const { rolls, successCount } = rollJudgement(statValue);
+    const success = successCount >= difficulty;
+    const prefix = `${character.name}の${CHARACTER_STAT_LABELS[statKey]}（${CHARACTER_STAT_FULL_LABELS[statKey]}${statValue}）で判定：D6を${statValue}回振り、出目は［${rolls.join(
+      "、"
+    )}］。4以上の出目は${successCount}個。判定難易度${difficulty}に対し、成功数は${
+      success ? "以上だったため" : "届かなかったため"
+    }、判定は【`;
+    const resultSpan = h("span", { class: success ? "effect-positive" : "effect-negative", text: success ? "成功" : "失敗" });
+    return { textNodes: [prefix, resultSpan, "】。"], next: success ? beat.success : beat.failure };
+  }
+
   function resolveBeat(beat) {
+    if (beat.type === "difficultyJudgement") return resolveDifficultyJudgement(beat);
     if (beat.type !== "judgement") return beat;
     const character = context.selectedCharacter;
     const statValue = computeStats(character)[beat.statKey];
@@ -149,6 +339,9 @@ export function EpisodeScene(container, params, api) {
   function goto(beatId) {
     const beat = resolveBeat(script.beats[beatId]);
     if (beat.type === "end") {
+      // 休憩イベントが1本読み切られた（＝台本の唯一のendに到達した）
+      // タイミングで、その1本を既読/進捗として記録する。
+      if (restDescriptor) recordRestEpisodeDraw(restDescriptor.id, restDescriptor.characterId);
       const descriptions = (beat.effects ?? []).map((effect) => applyEffect(effect, context)).filter(Boolean);
       // 戦闘イベント外であれどこであれ、編成スロットの隊員全員のHPが0に
       // なった時点でゲームオーバーとする（変調の過剰蓄積による実効最大
