@@ -3,7 +3,7 @@
 // Pure data + pure functions only -- no state mutation (that happens in
 // scenes/exploration.js via state.js's grant helpers, the same split
 // episode.js already follows for its own effects).
-import { computeStats, RIGID_RESOURCES } from "./resourceCatalog.js";
+import { computeStats } from "./resourceCatalog.js";
 
 export function computeGatherAbility(character) {
   const s = computeStats(character);
@@ -44,38 +44,49 @@ export function mineGrowthStatKey(character) {
   return adjustedAttack > s.destruction ? "attack" : "destruction";
 }
 
-// Quality-band tables: ordered worst-to-best, one entry per band, each
-// covering a [min,max] range of 成功数. `quality: null` is "獲得無し".
+// 成功数から獲得品質の並びを決める、採集/採掘共通の周回式。tiersは
+// 品質3段階を低い順に並べたもの（採集: 中/上/特上、採掘: 低/中/高）。
+// 成功数2つごとに1段階進み、3段階（＝成功数6）で1周する：
+//  - 1周目（cycle=0）は各段階でtiers[0]→tiers[1]→tiers[2]（1個ずつ）。
+//  - 2周目以降（cycle>0）は、それまでの周回数ぶんのtiers[2]（最上位
+//    品質）に加えて、その周回内の段階に応じたアイテムをもう1つ追加する
+//    （段階0→tiers[0]×1、段階1→tiers[1]×1、段階2→tiers[2]をさらに
+//    1個増やす＝tiers[2]×(cycle+1)のみ）。
+// 成功数0は獲得無し（空配列）。
+const CYCLE_SUCCESS_COUNT = 6;
+const STEPS_PER_CYCLE = 3;
+const SUCCESS_PER_STEP = CYCLE_SUCCESS_COUNT / STEPS_PER_CYCLE;
+
+function resolveTieredItems(successCount, tiers) {
+  if (successCount <= 0) return [];
+  const [tierA, tierB, tierC] = tiers;
+  const n = successCount - 1;
+  const cycle = Math.floor(n / CYCLE_SUCCESS_COUNT);
+  const step = Math.floor((n % CYCLE_SUCCESS_COUNT) / SUCCESS_PER_STEP);
+  if (step === STEPS_PER_CYCLE - 1) {
+    return [{ quality: tierC, count: cycle + 1 }];
+  }
+  const items = [];
+  if (cycle > 0) items.push({ quality: tierC, count: cycle });
+  items.push({ quality: step === 0 ? tierA : tierB, count: 1 });
+  return items;
+}
+
 // Environments other than "標準" (harder dungeons, special nodes) would
-// supply their own bands/pools here later -- nothing else in this file
-// assumes "standard" is the only one that will ever exist.
-const STANDARD_SOIL_BANDS = [
-  { quality: null, min: 0, max: 0 },
-  { quality: "mid", min: 1, max: 2 },
-  { quality: "high", min: 3, max: 4 },
-  { quality: "premium", min: 5, max: Infinity },
-];
-
-const STANDARD_GEOLOGY_BANDS = [
-  { quality: null, min: 0, max: 0 },
-  { quality: "low", min: 1, max: 2 },
-  { quality: "mid", min: 3, max: 4 },
-  { quality: "high", min: 5, max: 6 },
-  { quality: "highest", min: 7, max: Infinity },
-];
-
-// How many of the bottom bands (index 0 = "獲得無し") trigger a
-// supervisor call when that's all a member could muster: 採集 only
-// calls on true 獲得無し, 採掘 also calls on its lowest quality band.
-const GATHER_CALL_BAND_INDEX_MAX = 0;
-const MINE_CALL_BAND_INDEX_MAX = 1;
-
+// supply their own tiers/pools/thresholds here later -- nothing else in
+// this file assumes "standard" is the only one that will ever exist.
 export const STANDARD_ENVIRONMENT = {
   soilLabel: "標準",
   geologyLabel: "標準",
   attributeLabel: "全て",
-  soilBands: STANDARD_SOIL_BANDS,
-  geologyBands: STANDARD_GEOLOGY_BANDS,
+  gatherTiers: ["mid", "high", "premium"],
+  mineTiers: ["low", "mid", "high"],
+  // 「獲得無し」（採集）／「獲得無し・最低品質」（採掘）だけを作業監督
+  // 呼び出しの対象にする -- 何段階も周回した後の大量獲得（低品質1個を
+  // 含む場合がある）まで呼び出し対象に含めると、強い結果なのに呼び出し
+  // てしまうため、成功数そのものへの閾値として持つ。
+  gatherSupervisorMaxSuccess: 0,
+  mineSupervisorMaxSuccess: 2,
   // 属性：全て -- every quality-tiered natural species (ベースクリーム
   // has no quality to award, so it's exempt) / every quality-tiered
   // rigid species except ザラメ鉱石 (exempt, same reason) and 高純度糖鉱
@@ -99,54 +110,39 @@ export const STANDARD_ENVIRONMENT = {
   ],
 };
 
-function resolveBand(successCount, bands) {
-  const index = bands.findIndex((band) => successCount >= band.min && successCount <= band.max);
-  return { quality: bands[index].quality, index };
-}
-
-export function resolveGatherBand(successCount, environment = STANDARD_ENVIRONMENT) {
-  return resolveBand(successCount, environment.soilBands);
-}
-
-export function resolveMineBand(successCount, environment = STANDARD_ENVIRONMENT) {
-  return resolveBand(successCount, environment.geologyBands);
-}
-
 export function needsGatherSupervisor(successCount, environment = STANDARD_ENVIRONMENT) {
-  return resolveGatherBand(successCount, environment).index <= GATHER_CALL_BAND_INDEX_MAX;
+  return successCount <= environment.gatherSupervisorMaxSuccess;
 }
 
 export function needsMineSupervisor(successCount, environment = STANDARD_ENVIRONMENT) {
-  return resolveMineBand(successCount, environment).index <= MINE_CALL_BAND_INDEX_MAX;
+  return successCount <= environment.mineSupervisorMaxSuccess;
 }
 
 function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-// Resolves one 採集 round's outcome: null (獲得無し) or
-// { category: "natural", speciesId, quality }.
+// Resolves one 採集 round's outcome: null (獲得無し) or a list of
+// { category: "natural", speciesId, quality, count } (同一の種を、
+// resolveTieredItemsが決めた品質×個数ぶんまとめて獲得する)。
 export function pickGatherReward(successCount, environment = STANDARD_ENVIRONMENT) {
-  const { quality } = resolveGatherBand(successCount, environment);
-  if (quality === null) return null;
+  const items = resolveTieredItems(successCount, environment.gatherTiers);
+  if (items.length === 0) return null;
   const speciesId = pickRandom(environment.naturalSpeciesPool);
-  return { category: "natural", speciesId, quality };
+  return items.map((item) => ({ category: "natural", speciesId, quality: item.quality, count: item.count }));
 }
 
-// Resolves one 採掘 round's outcome: null, { category: "amber", quality
-// }, or { category: "rigid", speciesId, quality }. A species with no
-// "highest" tier of its own (every rigid resource but 甘蔗繊維質, amber
-// included) clamps a "highest" roll down to "high" instead.
+// Resolves one 採掘 round's outcome: null、または
+// { category: "amber" | "rigid", speciesId?, quality, count } の配列
+// （琥珀糖鉱石が選ばれた場合はspeciesId無しのamberカテゴリになる）。
 export function pickMineReward(successCount, environment = STANDARD_ENVIRONMENT) {
-  const { quality } = resolveMineBand(successCount, environment);
-  if (quality === null) return null;
+  const items = resolveTieredItems(successCount, environment.mineTiers);
+  if (items.length === 0) return null;
   const speciesId = pickRandom(environment.rigidSpeciesPool);
   if (speciesId === "amberSugarMineral") {
-    return { category: "amber", quality: quality === "highest" ? "high" : quality };
+    return items.map((item) => ({ category: "amber", quality: item.quality, count: item.count }));
   }
-  const species = RIGID_RESOURCES[speciesId];
-  const clampedQuality = species.qualityTiers.includes(quality) ? quality : "high";
-  return { category: "rigid", speciesId, quality: clampedQuality };
+  return items.map((item) => ({ category: "rigid", speciesId, quality: item.quality, count: item.count }));
 }
 
 // ---------------------------------------------------------------------

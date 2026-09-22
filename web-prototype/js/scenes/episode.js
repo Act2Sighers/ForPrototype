@@ -53,25 +53,29 @@ function bandByDifficulty(difficulty, bands) {
   return bands[bands.length - 1].value;
 }
 
-// 剛体系タイヤ資源（琥珀糖鉱石含む）の難易度帯：2以下→低、3〜5→中、
-// 6以上→高。
-const RIGID_TIER_BANDS = [
-  { max: 2, value: "low" },
-  { max: 5, value: "mid" },
-  { value: "high" },
-];
-// 自然系タイヤ資源の難易度帯：2以下→中、3〜5→上、6以上→特上。
-const NATURAL_TIER_BANDS = [
-  { max: 2, value: "mid" },
-  { max: 5, value: "high" },
-  { value: "premium" },
-];
-// 武器性能値ペナルティの減少量帯：2以下→1、3〜5→2、6以上→3。
-const WEAPON_STAT_DAMAGE_BANDS = [
-  { max: 2, value: 1 },
-  { max: 5, value: 2 },
-  { value: 3 },
-];
+// 遭遇イベントの品質帯/減少量帯の閾値（L・M）：ダンジョンの最深部の
+// 深度（state.run.dungeonParams.longestReachableNodeCount）だけから
+// 算出する -- 難易度Dには依存しない（個数側の倍率がDの役目、品質/
+// 減少量側の閾値はLの役目、という別軸の調整）。判定難易度がL以下なら
+// 帯1、[L+1,M]なら帯2、[M+1,∞)なら帯3。深度12（旧仕様の唯一の値）では
+// L=2・M=5になり、既存の固定閾値と一致する。
+function judgementTierThresholds() {
+  const longest = state.run.dungeonParams.longestReachableNodeCount;
+  return {
+    low: Math.round((longest / 2) * (2 / 6)),
+    high: Math.round((longest / 2) * (5 / 6)),
+  };
+}
+
+// judgementTierThresholds()のlow/highと、帯ごとの値3つ（品質やペナルティ
+// 量）を組み合わせて、bandByDifficulty用の帯テーブルを組み立てる。
+function tierBandsFrom(thresholds, values) {
+  return [
+    { max: thresholds.low, value: values[0] },
+    { max: thresholds.high, value: values[1] },
+    { value: values[2] },
+  ];
+}
 
 function speciesFor(category, id) {
   return category === "natural" ? NATURAL_RESOURCES[id] : RIGID_RESOURCES[id];
@@ -147,35 +151,41 @@ function applyEffect(effect, context) {
         colorClass: `stat-${charKey}`,
       };
     }
-    // 遭遇イベント（判定難易度式）の成功影響：判定難易度×倍率の個数を
-    // 品質無しでそのまま付与（ザラメ鉱石/ベースクリーム）。
+    // 遭遇イベント（判定難易度式）の成功影響：判定難易度×倍率×難易度D
+    // の個数を品質無しでそのまま付与（ザラメ鉱石/ベースクリーム）。
     case "grantScaledResource": {
       const species = speciesFor(effect.category, effect.id);
-      const amount = context.difficulty * effect.multiplier;
+      const amount = context.difficulty * effect.multiplier * state.run.dungeonParams.difficultyValue;
       const before = state.run.resources[effect.category][effect.id];
       grantResource(effect.category, effect.id, amount);
       const after = state.run.resources[effect.category][effect.id];
       return { text: `${species.name}×${amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
     }
-    // 品質帯付きのタイヤ資源を固定個数付与（剛体系6種/自然系5種）。
-    // 品質は判定難易度をRIGID_TIER_BANDS/NATURAL_TIER_BANDSで引く。
+    // 品質帯付きのタイヤ資源を[台本側の基準個数]×難易度D個付与（剛体系
+    // 6種/自然系5種）。品質は判定難易度をjudgementTierThresholds()由来の
+    // 帯（剛体は低/中/高、自然は中/上/特上）で引く。
     case "grantTieredResourceByDifficulty": {
-      const bands = effect.category === "natural" ? NATURAL_TIER_BANDS : RIGID_TIER_BANDS;
+      const values = effect.category === "natural" ? ["mid", "high", "premium"] : ["low", "mid", "high"];
+      const bands = tierBandsFrom(judgementTierThresholds(), values);
       const tier = bandByDifficulty(context.difficulty, bands);
-      const { before, after } = grantTieredResource(effect.category, effect.id, tier, effect.amount);
+      const amount = effect.amount * state.run.dungeonParams.difficultyValue;
+      const { before, after } = grantTieredResource(effect.category, effect.id, tier, amount);
       const name = tierNameFor(effect.category, effect.id, tier);
-      return { text: `${name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+      return { text: `${name}×${amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
     }
     // 琥珀糖鉱石は{tier:count}バケットではなく個別インスタンス方式
     // （grantAmberSugarMineral）なので専用ケースとして分ける。品質帯は
-    // 剛体系タイヤ資源と同じ（低/中/高）。
+    // 剛体系タイヤ資源と同じ（低/中/高）、個数は[台本側の基準個数]×
+    // 難易度D。
     case "grantAmberByDifficulty": {
-      const tier = bandByDifficulty(context.difficulty, RIGID_TIER_BANDS);
+      const bands = tierBandsFrom(judgementTierThresholds(), ["low", "mid", "high"]);
+      const tier = bandByDifficulty(context.difficulty, bands);
+      const amount = effect.amount * state.run.dungeonParams.difficultyValue;
       const before = state.run.resources.rigid.amberSugarMineral.length;
-      for (let i = 0; i < effect.amount; i++) grantAmberSugarMineral(tier);
+      for (let i = 0; i < amount; i++) grantAmberSugarMineral(tier);
       const after = state.run.resources.rigid.amberSugarMineral.length;
       const name = `${RIGID_RESOURCES.amberSugarMineral.name}（${RIGID_QUALITY_LABELS[tier]}品質）`;
-      return { text: `${name}×${effect.amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
+      return { text: `${name}×${amount} を獲得！（${before} → ${after}）`, colorClass: "effect-positive" };
     }
     // 遭遇イベントの失敗影響①：判定難易度×倍率のHPを減少（最低0）。
     // 0になった場合は戦闘終了時の生存救助と同じ式（最大HPの1/4）で
@@ -200,12 +210,14 @@ function applyEffect(effect, context) {
       };
     }
     // 遭遇イベントの失敗影響②：武器の性能値をランダムに1つ選んで、
-    // 判定難易度帯に応じた量だけ減少（最低0）。
+    // 判定難易度帯（judgementTierThresholds()由来、減少量1/2/3）に
+    // 応じた量だけ減少（最低0）。難易度Dはここには影響しない。
     case "damageSelectedCharacterRandomWeaponStatByDifficulty": {
       const character = context.selectedCharacter;
       if (!character?.weapon) return null;
       const statKey = pickRandomFrom(WEAPON_STAT_KEYS);
-      const amount = bandByDifficulty(context.difficulty, WEAPON_STAT_DAMAGE_BANDS);
+      const bands = tierBandsFrom(judgementTierThresholds(), [1, 2, 3]);
+      const amount = bandByDifficulty(context.difficulty, bands);
       const before = character.weapon.stats[statKey];
       character.weapon.stats[statKey] = Math.max(0, before - amount);
       refreshWeaponPrefix(character.weapon);

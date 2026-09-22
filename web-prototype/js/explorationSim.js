@@ -66,20 +66,32 @@ function pickSupervisor(members) {
   return ties[Math.floor(Math.random() * ties.length)];
 }
 
-// Adds one resolved reward into the haul (shaped like
-// createEmptyResources()'s output) and returns its display name for the
-// worker's own status line ("獲得：〇〇"), or null for no acquisition.
-function addToHaul(haul, reward) {
-  if (!reward) return null;
-  if (reward.category === "amber") {
-    const instance = createAmberSugarMineralInstance(reward.quality);
-    haul.rigid.amberSugarMineral.push(instance);
-    return instance.name;
+// Adds one resolved reward (a list of {category, speciesId?, quality,
+// count} items -- see pickGatherReward/pickMineReward, one round can now
+// yield several quality tiers of the same species at once) into the haul
+// (shaped like createEmptyResources()'s output) and returns a combined
+// display name for the worker's own status line ("獲得：〇〇"), or null
+// for no acquisition.
+function addToHaul(haul, rewardItems) {
+  if (!rewardItems || rewardItems.length === 0) return null;
+  const names = [];
+  for (const item of rewardItems) {
+    if (item.category === "amber") {
+      for (let i = 0; i < item.count; i++) {
+        const instance = createAmberSugarMineralInstance(item.quality);
+        haul.rigid.amberSugarMineral.push(instance);
+        names.push(instance.name);
+      }
+      continue;
+    }
+    haul[item.category][item.speciesId][item.quality] += item.count;
+    const name =
+      item.category === "natural"
+        ? naturalResourceTierName(item.speciesId, item.quality)
+        : rigidResourceTierName(item.speciesId, item.quality);
+    names.push(`${name}×${item.count}`);
   }
-  haul[reward.category][reward.speciesId][reward.quality] += 1;
-  return reward.category === "natural"
-    ? naturalResourceTierName(reward.speciesId, reward.quality)
-    : rigidResourceTierName(reward.speciesId, reward.quality);
+  return names.join("、");
 }
 
 function requestSupervisorHelp(group, worker, successCount) {
