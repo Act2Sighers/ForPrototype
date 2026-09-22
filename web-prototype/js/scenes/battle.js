@@ -490,6 +490,40 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/最適化3*",
     steps: [{ actionId: "optimize", each: "own", params: { n: 3 } }],
   },
+  // フルーツリー系統の上位個体用スキル。全個体がサイコロ判定持ちという
+  // 一貫したコンセプト（食べ比べと同じcustom分岐の仕組みを使う。steps
+  // では出目ごとの分岐を表現できないため）。
+  // 【摘み食い】【摘み採り】共通：出目が大きいほど鼓舞/威圧の強さは
+  // 弱まるが、その代わり自傷（自身の最大HP比割合ダメージ）も軽くなる
+  // -- resolveDiceRiskyBuff参照。
+  nibble: {
+    id: "nibble",
+    label: "摘み食い",
+    targetFaction: "ownExcludingSelf",
+    monsterOnly: true,
+    shortNotation: "P/特殊D",
+    custom: "nibble",
+  },
+  pluck: {
+    id: "pluck",
+    label: "摘み採り",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/特殊D",
+    custom: "pluck",
+  },
+  // 【あべこべ】：相手陣営全員へ、対象ごとに独立した1D6判定で牽制(1~3)/
+  // 威圧(1~3)のいずれかを個別に適用する。泥沼のstep.each:"opposing"は
+  // 陣営全員へ同じ効果を適用するだけで対象ごとの分岐はできないため、
+  // 食べ比べのcustom分岐の仕組みを陣営全体向けに拡張する -- resolveTopsyTurvy参照。
+  topsyTurvy: {
+    id: "topsyTurvy",
+    label: "あべこべ",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/特殊D*",
+    custom: "topsyTurvy",
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -1436,6 +1470,77 @@ Object.assign(MAIN_MODULES, {
       return applyCorrection(target, statKey, n, 1, turns);
     },
   },
+  // フルーツリー系統の上位個体用スキル。
+  // 【甘い結実】【酸っぱい結実】：甘い果実/酸っぱい果実（継続効果）の
+  // 単発版。healTargetは対象を残りHPが最も少ない1体に固定するフラグ
+  // （酸っぱい結実は相手陣営に対して使うが、フラグ自体はcandidateUnits
+  // の絞り込み結果から最小HPを選ぶだけで陣営を問わないため、そのまま
+  // 流用できる）。
+  sweetFruition: {
+    id: "sweetFruition",
+    label: "甘い結実",
+    targetFaction: "own",
+    cost: 1,
+    monsterOnly: true,
+    healTarget: true,
+    shortNotation: "M/1/回復",
+    steps: [{ actionId: "heal" }],
+  },
+  sourFruition: {
+    id: "sourFruition",
+    label: "酸っぱい結実",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    healTarget: true,
+    shortNotation: "M/1/攻撃",
+    steps: [{ actionId: "attack" }],
+  },
+  // 【熟れすぎた結末】：相手陣営1体に5能力値すべての弱体化魔法(3)を
+  // 順にかける。
+  overripeEnd: {
+    id: "overripeEnd",
+    label: "熟れすぎた結末",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/弱体化5種3",
+    steps: [
+      { actionId: "weakenAttack", params: { n: 3 } },
+      { actionId: "weakenDefense", params: { n: 3 } },
+      { actionId: "weakenDestruction", params: { n: 3 } },
+      { actionId: "weakenWisdom", params: { n: 3 } },
+      { actionId: "weakenCoordination", params: { n: 3 } },
+    ],
+  },
+  // 【虫の湧いた結末】：相手陣営1体に継続ダメージ(6)を付与した後、
+  // （別の）相手陣営2体にも順に継続ダメージ(6)を付与する。
+  infestedEnd: {
+    id: "infestedEnd",
+    label: "虫の湧いた結末",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/継続ダメ6+2",
+    steps: [
+      { actionId: "dot", params: { n: 6 } },
+      { actionId: "dot", params: { n: 6 }, target: "opposingExcludingUsed" },
+      { actionId: "dot", params: { n: 6 }, target: "opposingExcludingUsed" },
+    ],
+  },
+  // 【腐りかけの結末】：相手陣営1体に攻撃を4回連続で行う（ロッテンツリー
+  // は属性：腐敗を持つため、既存のattributeAttack_decay差し替えにより
+  // 実際には腐敗属性の攻撃4回になる -- 電気ゼリー等と同じ既存の属性攻撃
+  // 差し替え機構をそのまま使う。runSteps内のapplyLeafWithAttributeSwap参照）。
+  rottingEnd: {
+    id: "rottingEnd",
+    label: "腐りかけの結末",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃*4",
+    steps: [{ actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }],
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1987,6 +2092,25 @@ const MONSTER_SKILL_LOADOUTS = {
       { moduleId: "guard", chance: 0.2 },
     ],
   },
+  // フルーツリーの上位個体（中盤2体＋終盤1体）。ELITE_MONSTER_DATA参照
+  // （成長値は個体ごとに異なる。フルーツリーとは属性も異なる個体がいる
+  // -- ロッテンツリーは属性：腐敗）。
+  sweetOne: {
+    prep: [{ moduleId: "nibble", chance: 1 }],
+    main: [{ moduleId: "sweetFruition", chance: 1 }],
+  },
+  sourOne: {
+    prep: [{ moduleId: "pluck", chance: 1 }],
+    main: [{ moduleId: "sourFruition", chance: 1 }],
+  },
+  rottenTree: {
+    prep: [{ moduleId: "topsyTurvy", chance: 1 }],
+    main: [
+      { moduleId: "overripeEnd", chance: 0.3 },
+      { moduleId: "infestedEnd", chance: 0.3 },
+      { moduleId: "rottingEnd", chance: 0.4 },
+    ],
+  },
 };
 
 // 隊員の所持スキル：CHARACTER_DATAのdataIdごとに、そのキャラクターが
@@ -2388,8 +2512,11 @@ export function BattleScene(container, params, api) {
   // を持つもの。sisterCheer/flash/quagmire/staticClingなど）は、宣言の
   // 時点で実際に効果が及ぶ全ユニットが確定しているので、それを返す。
   // 単体対象のスキルはnull（呼び出し側は従来通り単一のtarget表示に
-  // フォールバックする）。
+  // フォールバックする）。あべこべ（custom:"topsyTurvy"）はsteps自体を
+  // 持たないcustom分岐スキルだが、実際に効果が及ぶのはquagmireと同じ
+  // 相手陣営全員なので、ここで直接拾う。
   function declaredTargetsFor(unit, module) {
+    if (module.custom === "topsyTurvy") return opposingPoolFor(unit);
     const each = module.steps?.[0]?.each;
     if (!each) return null;
     if (each === "own") return ownPoolFor(unit);
@@ -2846,6 +2973,39 @@ export function BattleScene(container, params, api) {
     else await applyLeafPrepModule(unit, targetUnit, PREP_MODULES.intimidate, { n: 2 });
   }
 
+  // 【摘み食い】【摘み採り】共通の土台：1D6を振り、出目1が最も強い
+  // 鼓舞/威圧（n=3）の代わりに最も重い自傷（最大HPの25%）、出目6が
+  // 最も弱い鼓舞/威圧（n=1）の代わりに最も軽い自傷（最大HPの5%）、
+  // その中間（出目2～5）はn=2/自傷15%で固定 -- 強さと自傷が常に連動
+  // する。leafModuleは鼓舞（摘み食い、自陣営向け）/威圧（摘み採り、
+  // 相手陣営向け）のどちらか一方を渡す。自傷はPrepフェイズの通常の
+  // 葉モジュール適用（applyLeafPrepModule、statusLabel/stat限定）では
+  // 表現できないHP増減のため、attack/heal等のMainフェイズと同じHP
+  // ログ書式をここで直接組み立てる。
+  async function resolveDiceRiskyBuff(unit, targetUnit, leafModule) {
+    const roll = rollD6();
+    const { n, pct } = roll === 1 ? { n: 3, pct: 0.25 } : roll <= 5 ? { n: 2, pct: 0.15 } : { n: 1, pct: 0.05 };
+    await applyLeafPrepModule(unit, targetUnit, leafModule, { n });
+    const maxHp = computeEffectiveMaxHp(unit.character);
+    const magnitude = Math.ceil(maxHp * pct);
+    const before = unit.character.currentHp ?? maxHp;
+    applyHpDamage(unit.character, magnitude);
+    const after = unit.character.currentHp;
+    pushLog(`${unit.displayName}のHP：${before} → ${after}（ダメージ ${magnitude}）`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
+  // 【あべこべ】専用の処理：相手陣営の生存者全員に対して、対象ごとに
+  // 独立した1D6判定で牽制(1~3)/威圧(1~3)のいずれかを個別に適用する。
+  async function resolveTopsyTurvy(unit) {
+    for (const target of opposingPoolFor(unit)) {
+      const roll = rollD6();
+      if (roll <= 3) await applyLeafPrepModule(unit, target, PREP_MODULES.restrain, { n: roll });
+      else await applyLeafPrepModule(unit, target, PREP_MODULES.intimidate, { n: roll - 3 });
+    }
+  }
+
   // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
   // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
   // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
@@ -2868,6 +3028,18 @@ export function BattleScene(container, params, api) {
 
     if (module.custom === "tasteTest") {
       await resolveTasteTest(unit, targetUnit);
+      return;
+    }
+    if (module.custom === "nibble") {
+      await resolveDiceRiskyBuff(unit, targetUnit, PREP_MODULES.inspire);
+      return;
+    }
+    if (module.custom === "pluck") {
+      await resolveDiceRiskyBuff(unit, targetUnit, PREP_MODULES.intimidate);
+      return;
+    }
+    if (module.custom === "topsyTurvy") {
+      await resolveTopsyTurvy(unit);
       return;
     }
     await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);

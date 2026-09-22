@@ -343,6 +343,12 @@ export const ELITE_MONSTER_DATA = {
   candyShieldArmy: { id: "candyShieldArmy", name: "飴シールドアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
   candyMedicalArmy: { id: "candyMedicalArmy", name: "飴メディカルアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
   candyCommander: { id: "candyCommander", name: "飴コマンダー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  // フルーツリーの上位個体3体。成長値は個体ごとに異なる（他の系統と
+  // 違い、フルーツリー本体とは異なる成長配分になる）。ロッテンツリーは
+  // 属性もフルーツリー本体の多湿(humidity)ではなく腐敗(decay)に変わる。
+  sweetOne: { id: "sweetOne", name: "スイートワン", growth: { attack: 0, defense: 0, destruction: 0, wisdom: 0, coordination: 3 } },
+  sourOne: { id: "sourOne", name: "サワーワン", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 0, coordination: 0 } },
+  rottenTree: { id: "rottenTree", name: "ロッテンツリー", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "decay" },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
