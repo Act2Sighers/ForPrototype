@@ -479,6 +479,17 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/最適化99s",
     steps: [{ actionId: "optimize", params: { n: 99 } }],
   },
+  // 飴アーミー系統の上位個体用スキル（飴コマンダー専用）。【団結】が
+  // 自陣営の生存数に応じた最適化なのに対し、【軍歌】は自陣営全員を
+  // 固定値(3)で最適化する。
+  anthem: {
+    id: "anthem",
+    label: "軍歌",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/最適化3*",
+    steps: [{ actionId: "optimize", each: "own", params: { n: 3 } }],
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -1327,6 +1338,104 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/1/継続回復?*",
     steps: [{ actionId: "regen", each: "own", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 3) }) }],
   },
+  // 飴アーミー系統の上位個体用スキル。それぞれの兵科が担う仕事を1つだけ
+  // 持つ、という一貫したコンセプト。
+  // 【闘技】：突撃(スマッシュ+攻撃)を1体に行った後、（別の）もう1体にも
+  // 突撃を行う -- 突撃自身をnested reference（体当たりが攻撃を参照する
+  // のと同じ構造）として2回使うことで実現している。突撃自身のcostは
+  // ここでは参照されない（コスト消費は最上位のresolveMainAction側が
+  // このモジュール自身のcostだけを見て行うため）。
+  combatArts: {
+    id: "combatArts",
+    label: "闘技",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃+2",
+    steps: [{ actionId: "charge" }, { actionId: "charge", target: "opposingExcludingUsed" }],
+  },
+  // 【呪詛】：相手陣営1体に弱体化魔法(賢さ)(3)、弱体化魔法(協調性)(3)を
+  // 順にかける（同一対象）。
+  curse: {
+    id: "curse",
+    label: "呪詛",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/弱体化(賢)3+",
+    steps: [
+      { actionId: "weakenWisdom", params: { n: 3 } },
+      { actionId: "weakenCoordination", params: { n: 3 } },
+    ],
+  },
+  // 【当身】：素のスマッシュをコスト1で使う。
+  counterStrike: {
+    id: "counterStrike",
+    label: "当身",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/スマッシュ",
+    steps: [{ actionId: "smash" }],
+  },
+  // 【護身】：自身以外の自陣営1体にプロテクトをかけた後、自身にも
+  // プロテクトをかける。
+  selfDefense: {
+    id: "selfDefense",
+    label: "護身",
+    targetFaction: "ownExcludingSelf",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/プロテクト+",
+    steps: [{ actionId: "protect" }, { actionId: "protect", target: "self" }],
+  },
+  // 【修復】：残りHPが最も少ない自陣営1体（healTarget、甘い果実と同じ
+  // 選び方）に回復を2回行う。
+  repair: {
+    id: "repair",
+    label: "修復",
+    targetFaction: "own",
+    cost: 2,
+    monsterOnly: true,
+    healTarget: true,
+    shortNotation: "M/2/回復2",
+    steps: [{ actionId: "heal" }, { actionId: "heal" }],
+  },
+  // 【補給】：自陣営全員に継続回復(3)を付与する。
+  supply: {
+    id: "supply",
+    label: "補給",
+    targetFaction: "none",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/継続回復3*",
+    steps: [{ actionId: "regen", each: "own", params: { n: 3 } }],
+  },
+  // 【司令】：自身以外の自陣営1体を選び、その対象自身の素の能力値の
+  // うち最も高いもの(同値なら重複なくランダムに1つ)へ強化魔法(5)を
+  // かける。対象依存で動的に能力値を選ぶ必要があるため、enhance系
+  // モジュール（能力値をモジュール生成時に固定している）は流用できず、
+  // 専用の葉アクションとして持つ。
+  command: {
+    id: "command",
+    label: "司令",
+    targetFaction: "ownExcludingSelf",
+    effect: "correction",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/特殊",
+    apply: (actor, target, params = {}) => {
+      const { n = 5 } = params;
+      const statKeys = ["attack", "defense", "destruction", "wisdom", "coordination"];
+      const values = statKeys.map((key) => rawStat(target, key));
+      const max = Math.max(...values);
+      const tied = statKeys.filter((key, i) => values[i] === max);
+      const statKey = pickRandom(tied);
+      const { successCount } = rollJudgement(rawStat(actor, "coordination"));
+      const turns = successCountToR(successCount);
+      return applyCorrection(target, statKey, n, 1, turns);
+    },
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1733,8 +1842,8 @@ const MONSTER_SKILL_LOADOUTS = {
   candyArmy: {
     prep: [{ moduleId: "unity", chance: 1 }],
     main: [
-      { moduleId: "charge", chance: 1 },
-      { moduleId: "guard", chance: 0 },
+      { moduleId: "charge", chance: 0.8 },
+      { moduleId: "guard", chance: 0.2 },
     ],
   },
   yukiClock: {
@@ -1835,6 +1944,47 @@ const MONSTER_SKILL_LOADOUTS = {
       { moduleId: "avalanche", chance: 0.8 },
       { moduleId: "countdown", chance: 0.1 },
       { moduleId: "countUp", chance: 0.1 },
+    ],
+  },
+  // 飴アーミーの上位個体（中盤3体＋終盤3体、うち3体は中盤・終盤の両方に
+  // 跨って登場する -- 誤記ではなく意図的な仕様）。ELITE_MONSTER_DATA
+  // 参照（成長値は飴アーミーと同一）。
+  // 【メモ】飴アーミー系統は戦闘への出現のさせ方自体を他のモンスターと
+  // 変える予定（詳細未定）。実際に組み込む際はbuildNormalEnemyUnits等の
+  // 通常の抽選ロジックをそのまま使わない可能性がある点に注意。
+  candyBattleArmy: {
+    prep: [{ moduleId: "unity", chance: 1 }],
+    main: [
+      { moduleId: "combatArts", chance: 0.8 },
+      { moduleId: "guard", chance: 0.2 },
+    ],
+  },
+  candyMagicArmy: {
+    prep: [{ moduleId: "unity", chance: 1 }],
+    main: [
+      { moduleId: "curse", chance: 0.8 },
+      { moduleId: "guard", chance: 0.2 },
+    ],
+  },
+  candyShieldArmy: {
+    prep: [{ moduleId: "unity", chance: 1 }],
+    main: [
+      { moduleId: "counterStrike", chance: 0.2 },
+      { moduleId: "selfDefense", chance: 0.8 },
+    ],
+  },
+  candyMedicalArmy: {
+    prep: [{ moduleId: "unity", chance: 1 }],
+    main: [
+      { moduleId: "repair", chance: 0.8 },
+      { moduleId: "supply", chance: 0.2 },
+    ],
+  },
+  candyCommander: {
+    prep: [{ moduleId: "anthem", chance: 1 }],
+    main: [
+      { moduleId: "command", chance: 0.8 },
+      { moduleId: "guard", chance: 0.2 },
     ],
   },
 };

@@ -332,6 +332,17 @@ export const ELITE_MONSTER_DATA = {
   chocoBariRock: { id: "chocoBariRock", name: "チョコバリロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
   ooYukiClock: { id: "ooYukiClock", name: "オオユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
   yukiBotoke: { id: "yukiBotoke", name: "ユキボトケ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
+  // 飴アーミーの上位個体5体。成長値は飴アーミー（MONSTER_DATA.candyArmy）
+  // と同一。飴バトル/マジック/シールドアーミーは中盤・終盤の両方に跨って
+  // 登場する想定（誤記ではない）。
+  // 【メモ】飴アーミー系統は戦闘への出現条件・敵構成自体を他のモンスター
+  // と変える予定（詳細未定）。組み込み時はbuildNormalEnemyUnits等の通常
+  // 抽選ロジックをそのまま使わない可能性がある。
+  candyBattleArmy: { id: "candyBattleArmy", name: "飴バトルアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  candyMagicArmy: { id: "candyMagicArmy", name: "飴マジックアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  candyShieldArmy: { id: "candyShieldArmy", name: "飴シールドアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  candyMedicalArmy: { id: "candyMedicalArmy", name: "飴メディカルアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  candyCommander: { id: "candyCommander", name: "飴コマンダー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
