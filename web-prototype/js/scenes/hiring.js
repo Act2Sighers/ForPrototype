@@ -1,7 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { characterInfoCard } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, canAffordCost, hasSquadRoom, hireCharacter } from "../state.js";
-import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import {
   CHARACTER_DATA,
   RIGID_RESOURCES,
@@ -18,12 +17,13 @@ const NORMAL_CANDIDATE_COUNT = 5;
 const PEDDLER_CANDIDATE_COUNT = 2;
 const PEDDLER_COST_MULTIPLIER = 0.5;
 
-// 通常雇用/行商モードの候補生成に渡すラン進捗率(m/X)。初期雇用は対象外
-// (グループ単位の固定編成のため進捗率を使わない)。
+// 通常雇用/行商モードの候補生成に渡すラン進捗率(m/X)＋難易度D。初期雇用
+// は対象外(グループ単位の固定編成のため進捗率を使わない)。
 function currentProgress() {
   return {
     currentNodeCount: state.run.visitedNodeIds.length,
-    longestReachableNodeCount: DUNGEON_PARAMS[state.run.dungeon.id].longestReachableNodeCount,
+    longestReachableNodeCount: state.run.dungeonParams.longestReachableNodeCount,
+    difficultyValue: state.run.dungeonParams.difficultyValue,
   };
 }
 

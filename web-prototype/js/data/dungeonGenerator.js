@@ -9,15 +9,14 @@
 // generateDungeon()がこの2段階をまとめて呼び、state.js の startNewRun
 // が呼び出す想定（生成結果は state.run.dungeon にそのまま保持され、
 // map.js が testDungeon.js の静的マップだった頃と同じ形
-// {id, name, nodes, edges} で消費する）。最長到達マス数（X）はダンジョン
-// パラメータ（testDungeon.jsのDUNGEON_PARAMS）から読む、ランダム生成に
-// 左右されないダンジョン固有の設定。休憩/行商イベント自体はこの
-// モジュールが直接配置するものではない（map.jsが現在地と
-// DUNGEON_PARAMSを見て実行時に判定する）が、行商イベントが発生し得る
-// 経路を判定するpeddlerEligibleTargetはこのモジュールが提供する
+// {id, name, nodes, edges} で消費する）。最長到達マス数（X）は呼び出し
+// 側（state.js）が、挑戦開始前に選ばれた難易度/最深部の深度から算出した
+// ダンジョンパラメータ（testDungeon.jsのcomputeDungeonParams）ごと渡す
+// ランダム生成に左右されないダンジョン固有の設定。休憩/行商イベント
+// 自体はこのモジュールが直接配置するものではない（map.jsが現在地と
+// ダンジョンパラメータを見て実行時に判定する）が、行商イベントが発生し
+// 得る経路を判定するpeddlerEligibleTargetはこのモジュールが提供する
 // （経路構造そのものに対する判定のため）。
-
-import { DUNGEON_PARAMS } from "./testDungeon.js";
 
 const ROW_COUNT_MIN = 2;
 const ROW_COUNT_MAX = 4;
@@ -259,29 +258,50 @@ function countBag(bag) {
   return counts;
 }
 
+// ノード1個ぶんのバックトラック探索が費やせる合計呼び出し回数の上限。
+// 局所的な制約自体は「直前1〜2マスだけ」を見るものなので通常は数手
+// 戻るだけで解決するが、bagの組み合わせによっては稀に長く迷走し得る
+// ため、際限なく時間をかけないよう打ち切ってnullを返す（呼び出し元
+// findNodeTypeAssignmentが別のbag/経路で仕切り直す）。
+const BACKTRACK_STEP_BUDGET = 300;
+
 // nodeIds（列順に並んだ中間マスid列）にbag（種別の多重集合）を割り振る、
-// 貪欲＋丸ごとやり直し方式。制約がどれも「直前1〜2マスだけ」を見る局所
-//的なものなので、各マスで残数があり制約に反しない種別からランダムに
-// 1つ選ぶだけの1回の線形走査で、ほとんどの場合そのまま最後まで到達
-// できる。途中で（残数はあるが全滴制約に反して）詰んだ場合は、そこだけ
-// 戻ってやり直すのではなくnullを返し、呼び出し元にbag全体を仕切り直し
-// てもらう -- 中間マスが最大56個にもなるため、厳密なバックトラック探索
-// は最悪ケースで組み合わせ爆発を起こす一方、局所的な制約であればこの
-// 「引き直し」の方が実用上ずっと速く、かつ十分な回数試せば高確率で
-// 見つかる。
+// 実際のバックトラック探索。各マスで残数があり制約に反しない種別を
+// シャッフルした順に試し、行き詰まったら（そのマスの候補を使い切った
+// ら）1つ前のマスまで戻って次の候補を試す。以前は「詰んだらnodeIds
+// 全体を最初からやり直す」という素朴な貪欲＋総やり直し方式だったが、
+// 最深部の深度が最大36（中間マス最大約90個）まで選べるようになった
+// 結果、実測でその方式は深度が大きいほど成功率が大きく落ち込み
+// （36では現実的な試行回数内でほぼ成功しなかった）、行き詰まった
+// 場所の近くだけ引き直す本来のバックトラックが必要になった。
 function tryAssign(nodeIds, bag, edges, reverseEdges) {
   const remaining = countBag(bag);
   const assigned = {};
-  for (const nodeId of nodeIds) {
-    const candidates = Object.keys(remaining).filter(
-      (type) => remaining[type] > 0 && !violatesConstraints(nodeId, type, assigned, edges, reverseEdges)
-    );
-    if (candidates.length === 0) return null;
-    const type = candidates[Math.floor(Math.random() * candidates.length)];
-    assigned[nodeId] = type;
-    remaining[type] -= 1;
+  let steps = 0;
+
+  function backtrack(index) {
+    if (index === nodeIds.length) return true;
+    if (steps++ > BACKTRACK_STEP_BUDGET) return false;
+    const nodeId = nodeIds[index];
+    // 残数が多い種別ほど先に試す（least-constraining-value：希少な種別を
+    // 早々に使い切ってしまい後半で詰む、という典型的な失敗パターンを
+    // 避けるための順序付け。同数同士はシャッフルでランダム）。
+    const candidates = shuffledCopy(
+      Object.keys(remaining).filter(
+        (type) => remaining[type] > 0 && !violatesConstraints(nodeId, type, assigned, edges, reverseEdges)
+      )
+    ).sort((a, b) => remaining[b] - remaining[a]);
+    for (const type of candidates) {
+      assigned[nodeId] = type;
+      remaining[type] -= 1;
+      if (backtrack(index + 1)) return true;
+      remaining[type] += 1;
+      delete assigned[nodeId];
+    }
+    return false;
   }
-  return assigned;
+
+  return backtrack(0) ? assigned : null;
 }
 
 const ASSIGN_ATTEMPTS_PER_BAG = 40;
@@ -313,8 +333,7 @@ function findNodeTypeAssignment(columns, edges) {
 
 const MAX_ROUTE_ATTEMPTS = 50;
 
-export function generateDungeon({ id, name }) {
-  const { longestReachableNodeCount } = DUNGEON_PARAMS[id];
+export function generateDungeon({ id, name, longestReachableNodeCount }) {
   for (let attempt = 0; attempt < MAX_ROUTE_ATTEMPTS; attempt++) {
     const { nodes, edges, columns } = buildRouteLayout(longestReachableNodeCount);
     const assignment = findNodeTypeAssignment(columns, edges);

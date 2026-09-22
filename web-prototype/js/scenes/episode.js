@@ -38,7 +38,7 @@ function pickRandomFrom(list) {
 }
 
 // 「判定難易度」= 現在の到達マス数を使った雇用/武器取引と同じ考え方の
-// 数式（ラン進捗率グレード上昇のcomputeHiringLevel等参照）。切り上げ。
+// 数式（ラン進捗率グレード上昇のcomputeProgressLevel等参照）。切り上げ。
 function currentDifficulty() {
   return Math.ceil((state.run.visitedNodeIds.length + 1) / 2);
 }

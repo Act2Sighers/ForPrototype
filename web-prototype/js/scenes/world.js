@@ -1,14 +1,15 @@
 import { renderScreen, button, h } from "../dom.js";
-import { WORLD_LOCATIONS, DIFFICULTIES } from "../data/testDungeon.js";
+import { WORLD_LOCATIONS, DIFFICULTIES, DEPTHS } from "../data/testDungeon.js";
 import { startNewRun } from "../state.js";
 
 // The main-menu-like hub: pick a destination (a dungeon, or 王城), then
 // whatever that destination needs next appears alongside it — a
-// difficulty pick + 挑戦開始 for a dungeon, or a straight 入場 for the
-// castle.
+// difficulty + 最深部の深度 pick + 挑戦開始 for a dungeon, or a straight
+// 入場 for the castle.
 export function WorldScene(container, params, api) {
   let selectedLocationId = null;
   let selectedDifficultyId = null;
+  let selectedDepthId = null;
 
   function chip(label, isSelected, onClick) {
     return h("button", { class: `chip${isSelected ? " is-selected" : ""}`, onClick, text: label });
@@ -27,6 +28,7 @@ export function WorldScene(container, params, api) {
             chip(l.name, selectedLocationId === l.id, () => {
               selectedLocationId = l.id;
               selectedDifficultyId = null;
+              selectedDepthId = null;
               render();
             })
           )
@@ -48,6 +50,19 @@ export function WorldScene(container, params, api) {
               })
             )
           ),
+        ]),
+        h("div", { class: "field-group" }, [
+          h("p", { class: "field-label", text: "最深部の深度" }),
+          h(
+            "div",
+            { class: "chip-row" },
+            DEPTHS.map((d) =>
+              chip(d.name, selectedDepthId === d.id, () => {
+                selectedDepthId = d.id;
+                render();
+              })
+            )
+          ),
         ])
       );
     }
@@ -58,12 +73,12 @@ export function WorldScene(container, params, api) {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("gallery") }));
     } else if (location?.kind === "dormitory") {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("archive") }));
-    } else if (location?.kind === "dungeon" && selectedDifficultyId) {
+    } else if (location?.kind === "dungeon" && selectedDifficultyId && selectedDepthId) {
       actions.push(
         button("挑戦開始", {
           variant: "primary",
           onClick: () => {
-            startNewRun(location.id, selectedDifficultyId);
+            startNewRun(location.id, selectedDifficultyId, selectedDepthId);
             api.navigateTo("map");
           },
         })

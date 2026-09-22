@@ -79,15 +79,20 @@ function mergeGrowth(base, bonus) {
 
 // ラン進捗率に応じた通常雇用/武器取引のグレード上昇の計算式一式。m
 // (現在の到達マス数)・X(最長到達マス数)は呼び出し側(hiring.js/
-// weaponTrade.js)がstate.run.visitedNodeIds.length/DUNGEON_PARAMSから
-// 渡す -- このファイルはstateに依存しない方針を保つため、生の数値だけ
-// を受け取る。
+// weaponTrade.js)がstate.run.visitedNodeIds.length/state.run.dungeonParams
+// から渡す -- このファイルはstateに依存しない方針を保つため、生の数値
+// だけを受け取る。
 const GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
 
-// モンスターレベルの `Math.max(1, m - 1)`（battle.js参照）と同じ考え方:
-// スタートマス直後（m=1）では下限の1にクランプする。
-export function computeHiringLevel(currentNodeCount) {
-  return Math.max(1, currentNodeCount - 1);
+// 雇用候補者/道中モンスターのレベル算出式。難易度D・最深部の深度
+// （＝最長到達マス数）Lが高難易度/短深度なほど、道中の同じ到達マス数m
+// でもレベルが速く上がる（ボス戦の敵構成の強さ、D×M+3のcomputeBossLevel
+// に道中終盤が釣り合うようにするための調整）。D=1・L=12（旧仕様の唯一の
+// 組み合わせ）では従来通りlevel=m-1になる。スタートマス直後（m=1）では
+// 下限の1にクランプする。
+export function computeProgressLevel(currentNodeCount, difficultyValue, longestReachableNodeCount) {
+  const raw = ((currentNodeCount - 1) * difficultyValue) / (longestReachableNodeCount / 12);
+  return Math.max(1, Math.ceil(raw));
 }
 
 // 成長優先度の「鋭さ」。重みは(baseGrowth値+1)^kを正規化した確率で、
@@ -299,11 +304,12 @@ export const MONSTER_DATA = {
   yukiClock: { id: "yukiClock", name: "ユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
 };
 
-// ボスモンスターデータ: MONSTER_DATAと違い、growthはLv.1テンプレートでは
-// なく出現時点の最終的な割り振りをそのまま持つ（出現するタイミング・
-// 能力値の振り方がダンジョンごとに固定のため、レベルアップのシミュレー
-// トが要らない -- レベルはcomputeMonsterLevelでgrowthから自動的に決まる、
-// MONSTER_DATA同様ここでは明示的に持たない）。
+// ボスモンスターデータ: MONSTER_DATAのLv.1テンプレートと役割は同じ
+// （growthの比率を成長優先度の重みとして使う、createBossMonsterFromData
+// 参照）だが、値の出発点はLv.1ではなくLv.15相当（旧仕様の固定最終値を
+// そのまま流用 -- 難易度D=1・最深部の深度L=12という旧仕様唯一の組み
+// 合わせでのボスレベルD×M+3と一致する）。レベルはcomputeMonsterLevelで
+// growthから自動的に決まる、MONSTER_DATA同様ここでは明示的に持たない。
 export const BOSS_MONSTER_DATA = {
   takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
 };
@@ -346,11 +352,17 @@ export function createMonsterFromData(dataId, targetLevel) {
   return instantiateMonster(dataId, data.name, growth, data.attribute);
 }
 
-// BOSS_MONSTER_DATA から個体を生成する（growthは固定の最終割り振りその
-// ままなので、createMonsterFromDataと違いレベルアップは行わない）。
-export function createBossMonsterFromData(dataId) {
+// BOSS_MONSTER_DATA から個体を生成する。createMonsterFromDataと全く同じ
+// 重み付けレベルアップ（levelUpMonsterGrowth、rollWeightedGrowthを共有）
+// で、テンプレート（Lv.15相当）からtargetLevelまでレベルアップさせて
+// から生成する -- 参照するカタログがMONSTER_DATAかBOSS_MONSTER_DATAか、
+// テンプレートの出発点がLv.1かLv.15相当かが違うだけ。
+export function createBossMonsterFromData(dataId, targetLevel) {
   const data = BOSS_MONSTER_DATA[dataId];
-  return instantiateMonster(dataId, data.name, { ...data.growth }, data.attribute);
+  const templateLevel = computeMonsterLevel(data.growth);
+  const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
+  const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };
+  return instantiateMonster(dataId, data.name, growth, data.attribute);
 }
 
 // モンスターごとの固有報酬。category が "natural"/"rigid" のどちらの
@@ -786,9 +798,10 @@ export function pickRandomEmploymentIds(count) {
 //    INITIAL_EMPLOYMENT_DATA's own fixed weaponTypeId/materialId, no
 //    ラン進捗率 scaling at all -- 初期雇用データはこの雇用専用の別物
 //    という前提のまま。
-//  - `progress` given (通常雇用/行商モード): レベルはcomputeHiringLevel
-//    (m-1をLv.1下限でクランプ)、武器種はそのキャラが所持可能な武器から
-//    ランダム、武器の性能値合計と成長値の追加分はどちらもラン進捗率
+//  - `progress` given (通常雇用/行商モード): レベルはcomputeProgressLevel
+//    （m-1に難易度Dを掛け、最深部の深度Lに応じてスケールし、Lv.1下限で
+//    クランプ）、武器種はそのキャラが所持可能な武器からランダム、武器の
+//    性能値合計と成長値の追加分はどちらもラン進捗率
 //    (computeWeaponTradeStatSum)に応じて上昇し、コストは
 //    ザラメ鉱石×[レベル+武器の性能値合計]。
 export function createHiringCandidate(employmentId, { flatCost, costMultiplier = 1, progress } = {}) {
@@ -808,7 +821,7 @@ export function createHiringCandidate(employmentId, { flatCost, costMultiplier =
     };
   }
 
-  const targetLevel = computeHiringLevel(progress.currentNodeCount);
+  const targetLevel = computeProgressLevel(progress.currentNodeCount, progress.difficultyValue, progress.longestReachableNodeCount);
   const bonusPoints = Math.max(0, targetLevel + 4 - growthSum(data.growth));
   const bonusGrowth = rollWeightedGrowth(data.growth, bonusPoints);
   const growth = mergeGrowth(data.growth, bonusGrowth);

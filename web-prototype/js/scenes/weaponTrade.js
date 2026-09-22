@@ -1,6 +1,5 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { canAffordCost, purchaseWeapon } from "../state.js";
-import { DUNGEON_PARAMS } from "../data/testDungeon.js";
 import {
   RIGID_RESOURCES,
   WEAPON_TYPES,
@@ -23,7 +22,7 @@ const PEDDLER_COST_MULTIPLIER = 0.5;
 function currentProgress() {
   return {
     currentNodeCount: state.run.visitedNodeIds.length,
-    longestReachableNodeCount: DUNGEON_PARAMS[state.run.dungeon.id].longestReachableNodeCount,
+    longestReachableNodeCount: state.run.dungeonParams.longestReachableNodeCount,
   };
 }
 

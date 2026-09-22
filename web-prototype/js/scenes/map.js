@@ -1,6 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import state, { moveRunTo, consumeStartEventTrigger, recordPeddlerTriggered } from "../state.js";
-import { EVENT_SCENE_BY_NODE_TYPE, DUNGEON_PARAMS } from "../data/testDungeon.js";
+import { EVENT_SCENE_BY_NODE_TYPE } from "../data/testDungeon.js";
 import { peddlerEligibleTarget } from "../data/dungeonGenerator.js";
 import { computeEffectiveMaxHp } from "../data/resourceCatalog.js";
 import { pickRandomTimeEatsStoreMode } from "./timeEats.js";
@@ -67,7 +67,7 @@ export function MapScene(container, params, api) {
   // openNext越しの遷移では呼ばない）。
   function render(exhaustedNames) {
     const dungeon = state.run.dungeon;
-    const dungeonParams = DUNGEON_PARAMS[dungeon.id];
+    const dungeonParams = state.run.dungeonParams;
     const currentId = state.run.currentNodeId;
     const currentNode = dungeon.nodes[currentId];
     const visited = state.run.visitedNodeIds;

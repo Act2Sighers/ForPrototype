@@ -4,7 +4,7 @@
 // the spec without pretending we have a real save format yet.
 
 import { generateDungeon } from "./data/dungeonGenerator.js";
-import { DUNGEONS } from "./data/testDungeon.js";
+import { DUNGEONS, computeDungeonParams } from "./data/testDungeon.js";
 import {
   createEmptyResources,
   createEmptyObtainedResources,
@@ -134,8 +134,13 @@ export function createNewSaveData() {
   return data;
 }
 
-export function startNewRun(dungeonId, difficultyId) {
+export function startNewRun(dungeonId, difficultyId, depthId) {
   const dungeonMeta = DUNGEONS.find((d) => d.id === dungeonId);
+  // 難易度(D)・最深部の深度(L)から、このラン全体で固定のダンジョン
+  // パラメータを1回だけ算出する（休憩発生クロック・行商発生回数・ボス
+  // レベル/雇用候補者・モンスターのレベル算出式が全てこれを参照する --
+  // data/testDungeon.jsのcomputeDungeonParams参照）。
+  const dungeonParams = computeDungeonParams(difficultyId, depthId);
   state.run = {
     dungeonId,
     // マップ構造（マス配置・経路・マス種別）はランごとにランダム生成
@@ -144,8 +149,14 @@ export function startNewRun(dungeonId, difficultyId) {
     // の静的マップとは違い、この生成結果そのものが「そのランのマップ」
     // になる。retryRun()はこのフィールドに触れないので、リトライして
     // も同じマップのまま再挑戦できる）。
-    dungeon: generateDungeon({ id: dungeonId, name: dungeonMeta?.name ?? dungeonId }),
+    dungeon: generateDungeon({
+      id: dungeonId,
+      name: dungeonMeta?.name ?? dungeonId,
+      longestReachableNodeCount: dungeonParams.longestReachableNodeCount,
+    }),
+    dungeonParams,
     difficultyId,
+    depthId,
     currentNodeId: "start",
     visitedNodeIds: ["start"],
     takenOutItemIds: [],
@@ -176,7 +187,7 @@ export function startNewRun(dungeonId, difficultyId) {
     startEventTriggered: false,
     // 行商イベントの発生済み回数と、前回発生してから「通常のマス」
     // （休憩/行商の仮想マスを除く、実際のダンジョンノード）を踏んだ回数
-    // -- map.jsが毎回の描画でこれらとDUNGEON_PARAMS.peddlerCountを見て
+    // -- map.jsが毎回の描画でこれらとdungeonParams.peddlerCountを見て
     // 行商マスを出すかどうか判定する。moveRunToが通常マス到達のたびに
     // movesSincePeddlerを進め、recordPeddlerTriggeredが発生のたびに
     // カウンタをリセットする。

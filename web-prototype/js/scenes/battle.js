@@ -7,6 +7,7 @@ import {
   MONSTER_DATA,
   createMonsterFromData,
   createBossMonsterFromData,
+  computeProgressLevel,
   applyHpDamage,
   applyHpHeal,
   CHARACTER_STAT_FULL_LABELS,
@@ -18,7 +19,7 @@ import {
   COATING_ATTRIBUTE_LABELS,
   WEAPON_TYPES,
 } from "../data/resourceCatalog.js";
-import { DUNGEON_PARAMS } from "../data/testDungeon.js";
+import { computeBossLevel } from "../data/testDungeon.js";
 import { rollD6, rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -1667,14 +1668,18 @@ function pickNormalEnemyCount(columnIndex, restClock) {
 // 通常戦闘の敵構成：カルメヤ犬・チョコロック・電気ゼリー・メレンゲ猫・
 // フルーツリー・チューイング・マシン・飴アーミー・ユキドケイ（＝
 // MONSTER_DATAの全種、ボスはBOSS_MONSTER_DATA側の別カタログなので混ざ
-// らない）から重複ありランダムで選び、全員を同じレベル
-// （[現在の到達マス数]-1、スタート直後の1体目の戦闘でちょうどLv.1に
-// なる）まで配置時にレベルアップさせる。
+// らない）から重複ありランダムで選び、全員を同じレベル（難易度D・最深部
+// の深度Lを織り込んだcomputeProgressLevel、resourceCatalog.js参照）まで
+// 配置時にレベルアップさせる。
 function buildNormalEnemyUnits() {
   const dungeon = state.run.dungeon;
-  const dungeonParams = DUNGEON_PARAMS[dungeon.id];
+  const dungeonParams = state.run.dungeonParams;
   const currentNode = dungeon.nodes[state.run.currentNodeId];
-  const monsterLevel = Math.max(1, state.run.visitedNodeIds.length - 1);
+  const monsterLevel = computeProgressLevel(
+    state.run.visitedNodeIds.length,
+    dungeonParams.difficultyValue,
+    dungeonParams.longestReachableNodeCount
+  );
   const count = pickNormalEnemyCount(currentNode.columnIndex, dungeonParams.restClock);
   const monsterDataIds = Object.keys(MONSTER_DATA);
   return Array.from({ length: count }, () =>
@@ -1682,18 +1687,24 @@ function buildNormalEnemyUnits() {
   );
 }
 
-// ボス戦の敵構成：ダンジョンパラメータのbossEncounterをそのまま固定で
-// 並べる（isBoss指定はBOSS_MONSTER_DATA、それ以外はMONSTER_DATAを
-// levelまでレベルアップさせて生成 -- data/testDungeon.jsのDUNGEON_PARAMS
-// 参照）。
+// ボス戦の敵構成：タケニニテイル（レベルはD×M+3で自動算出、
+// BOSS_MONSTER_DATAの重み付けレベルアップで生成 -- data/testDungeon.jsの
+// computeBossLevel参照）＋MONSTER_DATAから重複ありランダムで4体（レベル
+// は最深部の深度Mに固定）。
+const BOSS_ESCORT_COUNT = 4;
+
 function buildBossEnemyUnits() {
-  const dungeonParams = DUNGEON_PARAMS[state.run.dungeon.id];
-  return dungeonParams.bossEncounter.map((entry) =>
+  const dungeonParams = state.run.dungeonParams;
+  const bossLevel = computeBossLevel(dungeonParams.difficultyValue, dungeonParams.longestReachableNodeCount);
+  const bossUnit = createBattleUnit(createBossMonsterFromData("takeniniteiru", bossLevel), "enemy");
+  const monsterDataIds = Object.keys(MONSTER_DATA);
+  const escortUnits = Array.from({ length: BOSS_ESCORT_COUNT }, () =>
     createBattleUnit(
-      entry.isBoss ? createBossMonsterFromData(entry.dataId) : createMonsterFromData(entry.dataId, entry.level),
+      createMonsterFromData(pickRandom(monsterDataIds), dungeonParams.longestReachableNodeCount),
       "enemy"
     )
   );
+  return [bossUnit, ...escortUnits];
 }
 
 export function BattleScene(container, params, api) {
