@@ -314,6 +314,19 @@ export const BOSS_MONSTER_DATA = {
   takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
 };
 
+// ボスモンスターの上位個体（elite boss）データ: BOSS_MONSTER_DATAと同じ
+// 役割（値の出発点はLv.15相当）だが、スキル構成だけを変えた強化版。
+// タケニニテイル系統はダンジョンの深度ではなく難易度（イージー/ノーマル
+// /ハード）で出現の可否が決まる想定（他の上位個体系統とは出現条件の
+// 決まり方が違う）。成長値はタケニニテイル本体と完全に同一（超純粋
+// 強化路線 -- スキルの規模感だけで差別化する）。createEliteBossMonsterFromData
+// 参照。まだ戦闘への組み込みは行っていない（buildBossEnemyUnitsは
+// 引き続きtakeniniteiru固定）。
+export const ELITE_BOSS_MONSTER_DATA = {
+  takesugiteiru: { id: "takesugiteiru", name: "タケスギテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
+  takedaketeiru: { id: "takedaketeiru", name: "タケダケテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
+};
+
 // 上位個体（elite）モンスターデータ: MONSTER_DATAの通常個体を土台に、
 // 成長値（growth）はそのまま流用しつつスキル構成だけを変えた強化版。
 // 中〜高難度向けに段階的に追加していく想定で、buildNormalEnemyUnits/
@@ -353,12 +366,11 @@ export const ELITE_MONSTER_DATA = {
   // 本体と同じ配分で賢さのみ伸ばした変種（属性は乾燥(dry)のまま）。
   chewingRobot: { id: "chewingRobot", name: "チューイング・ロボット", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 2, coordination: 0 }, attribute: "dry" },
   chewingComputer: { id: "chewingComputer", name: "チューイング・コンピュータ", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "dry" },
-  // 電気ゼリーの上位個体3体（進化ではなく水平展開）。火炎ゼリー・白雲
-  // ゼリーは電気ゼリー本体と同じ成長配分（属性のみ違う）。砂煙ゼリーは
-  // 成長配分自体が違う（破壊力ではなく協調性に寄せた配分）。
+  // 電気ゼリーの上位個体3体（進化ではなく水平展開）。3体とも電気ゼリー
+  // 本体と同じ成長配分で、属性のみ違う。
   fireJelly: { id: "fireJelly", name: "火炎ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "heat" },
   whiteCloudJelly: { id: "whiteCloudJelly", name: "白雲ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "humidity" },
-  sandDustJelly: { id: "sandDustJelly", name: "砂煙ゼリー", growth: { attack: 0, defense: 0, destruction: 0, wisdom: 1, coordination: 2 }, attribute: "dry" },
+  sandDustJelly: { id: "sandDustJelly", name: "砂煙ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "dry" },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
@@ -406,6 +418,19 @@ export function createMonsterFromData(dataId, targetLevel) {
 // テンプレートの出発点がLv.1かLv.15相当かが違うだけ。
 export function createBossMonsterFromData(dataId, targetLevel) {
   const data = BOSS_MONSTER_DATA[dataId];
+  const templateLevel = computeMonsterLevel(data.growth);
+  const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
+  const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };
+  return instantiateMonster(dataId, data.name, growth, data.attribute);
+}
+
+// ELITE_BOSS_MONSTER_DATA から個体を生成する。createBossMonsterFromData
+// と全く同じ重み付けレベルアップだが、参照するカタログがELITE_BOSS_
+// MONSTER_DATAである点だけが違う（テンプレートの出発点は通常の上位個体
+// と違いボスと同じLv.15相当）。まだ戦闘への組み込みは行っていないので、
+// 現状は将来のために個体生成手段だけ用意してある。
+export function createEliteBossMonsterFromData(dataId, targetLevel) {
+  const data = ELITE_BOSS_MONSTER_DATA[dataId];
   const templateLevel = computeMonsterLevel(data.growth);
   const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
   const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };

@@ -578,6 +578,24 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/威圧*",
     steps: [{ actionId: "intimidate", each: "opposing" }],
   },
+  // タケニニテイル系統（ボス）の上位個体用スキル。【要塞】(鼓舞(3)自身)
+  // の強さ違い -- 超純粋強化路線。
+  greatFortress: {
+    id: "greatFortress",
+    label: "大要塞",
+    targetFaction: "self",
+    monsterOnly: true,
+    shortNotation: "P/鼓舞4s",
+    steps: [{ actionId: "inspire", params: { n: 4 } }],
+  },
+  giantFortress: {
+    id: "giantFortress",
+    label: "巨大要塞",
+    targetFaction: "self",
+    monsterOnly: true,
+    shortNotation: "P/鼓舞5s",
+    steps: [{ actionId: "inspire", params: { n: 5 } }],
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -1685,6 +1703,60 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/1/弱体化(賢)2",
     steps: [{ actionId: "weakenWisdom", params: { n: 2 } }],
   },
+  // タケニニテイル系統（ボス）の上位個体用スキル。超純粋強化路線 --
+  // 【スラム】/【ラッシュ】の規模を大きくしただけ。
+  // 【ビッグスラム】【グランドスラム】：スラム(攻撃+スマッシュ)にスマッ
+  // シュを1回・2回追加した強さ違い。
+  bigSlam: {
+    id: "bigSlam",
+    label: "ビッグスラム",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃++",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }],
+  },
+  grandSlam: {
+    id: "grandSlam",
+    label: "グランドスラム",
+    targetFaction: "opposing",
+    cost: 4,
+    monsterOnly: true,
+    shortNotation: "M/4/攻撃+++",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }, { actionId: "smash" }],
+  },
+  // 【スーパーラッシュ】：ラッシュ(攻撃を対象違いで2回)の対象数を4体に
+  // 増やした強さ違い（相手陣営の生存数がそれ未満なら、対象が尽きた
+  // ステップ以降は不発になる -- opposingExcludingUsedの既存の挙動通り）。
+  superRush: {
+    id: "superRush",
+    label: "スーパーラッシュ",
+    targetFaction: "opposing",
+    cost: 4,
+    monsterOnly: true,
+    shortNotation: "M/4/攻撃4",
+    steps: [
+      { actionId: "attack" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+    ],
+  },
+  // 【ハイパーラッシュ】：コスト全消費。まず選択した相手陣営1体に攻撃を
+  // 行い、その後「このスキルに使った残りPT全額-1」回、その都度ランダム
+  // に選び直した相手陣営1体へ攻撃を繰り返す。攻撃回数自体が実行時の
+  // 残りPTという実行時の値で決まり、固定回数のstepsでは表現できないため
+  // custom resolver（resolveHyperRush）で処理する -- シェアカットと同じ
+  // 「毎回選び直す、対象の除外管理はしない」簡略版。
+  hyperRush: {
+    id: "hyperRush",
+    label: "ハイパーラッシュ",
+    targetFaction: "opposing",
+    cost: "all",
+    monsterOnly: true,
+    shortNotation: "M/全/特殊*",
+    custom: "hyperRush",
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -2297,6 +2369,23 @@ const MONSTER_SKILL_LOADOUTS = {
     main: [
       { moduleId: "sandstorm", chance: 0.8 },
       { moduleId: "sandDust", chance: 0.2 },
+    ],
+  },
+  // タケニニテイル（ボス）の上位個体（ノーマル/ハード難易度用）。
+  // ELITE_BOSS_MONSTER_DATA参照。成長値はタケニニテイル本体と完全に
+  // 同一の超純粋強化路線。
+  takesugiteiru: {
+    prep: [{ moduleId: "greatFortress", chance: 1 }],
+    main: [
+      { moduleId: "bigSlam", chance: 0.5 },
+      { moduleId: "superRush", chance: 0.5 },
+    ],
+  },
+  takedaketeiru: {
+    prep: [{ moduleId: "giantFortress", chance: 1 }],
+    main: [
+      { moduleId: "grandSlam", chance: 0.5 },
+      { moduleId: "hyperRush", chance: 0.5 },
     ],
   },
 };
@@ -3471,6 +3560,24 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【ハイパーラッシュ】専用の解決関数：まず選択した相手陣営1体（宣言
+  // 済みのtargetUnit）に攻撃し、その後「このスキルに使った残りPT全額-1」
+  // 回、その都度ランダムに選び直した相手陣営1体へ攻撃を繰り返す --
+  // シェアカットと同じ「毎回選び直す、対象の除外管理はしない」簡略版。
+  // 攻撃回数自体がcost:"all"で支払った量（unit.lastActionCost、
+  // resolveMainAction側で設定済み）という実行時の値で決まり、固定回数
+  // のstepsでは表現できないためcustom resolverにする。
+  async function resolveHyperRush(unit, targetUnit) {
+    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack, {});
+    const extraHits = unit.lastActionCost - 1;
+    for (let i = 0; i < extraHits; i++) {
+      const pool = opposingPoolFor(unit);
+      if (pool.length === 0) break;
+      const target = pickRandom(pool);
+      await applyLeafModule(unit, target, MAIN_MODULES.attack, {});
+    }
+  }
+
   // 【アレンジ】専用の解決関数：対象の継続回復⇔継続ダメージの交換
   // （継続割合ダメージは対象外、ユーザー指示の説明範囲外のため据え置
   // き）／全ての能力値補正のバフ⇔デバフ反転／体幹への-1倍、という
@@ -3516,6 +3623,7 @@ export function BattleScene(container, params, api) {
     bounce: resolveBounce,
     shareCut: resolveShareCut,
     arrange: resolveArrange,
+    hyperRush: resolveHyperRush,
   };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
