@@ -328,6 +328,10 @@ export const ELITE_MONSTER_DATA = {
   kasanariDog: { id: "kasanariDog", name: "カサナリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
   rengeCat: { id: "rengeCat", name: "レンゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
   shakunageCat: { id: "shakunageCat", name: "シャクナゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
+  chocoBlock: { id: "chocoBlock", name: "チョコブロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
+  chocoBariRock: { id: "chocoBariRock", name: "チョコバリロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
+  ooYukiClock: { id: "ooYukiClock", name: "オオユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
+  yukiBotoke: { id: "yukiBotoke", name: "ユキボトケ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に

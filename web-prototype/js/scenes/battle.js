@@ -451,6 +451,34 @@ Object.assign(PREP_MODULES, {
       { actionId: "inspire", params: { n: 3 }, target: "self" },
     ],
   },
+  // チョコロック系統の上位個体用スキル。【邪魔】(牽制(1)相手陣営1体)の
+  // 対象数を増やす方向の発展形。
+  trafficJam: {
+    id: "trafficJam",
+    label: "渋滞",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/牽制2",
+    steps: [{ actionId: "restrain" }, { actionId: "restrain", target: "opposingExcludingUsed" }],
+  },
+  gridlock: {
+    id: "gridlock",
+    label: "大渋滞",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/牽制*",
+    steps: [{ actionId: "restrain", each: "opposing" }],
+  },
+  // ユキドケイ系統の上位個体用スキル。【クロックアップ】(最適化(5)自身)
+  // の強さ違い。
+  clockHack: {
+    id: "clockHack",
+    label: "クロックハック",
+    targetFaction: "self",
+    monsterOnly: true,
+    shortNotation: "P/最適化99s",
+    steps: [{ actionId: "optimize", params: { n: 99 } }],
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -1228,6 +1256,77 @@ Object.assign(MAIN_MODULES, {
       { actionId: "staminaShift", params: { n: 2 }, target: "self" },
     ],
   },
+  // チョコロック系統の上位個体用スキル。回数・対象数を増やす方向の発展形。
+  collision: {
+    id: "collision",
+    label: "衝突",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/攻撃+",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }],
+  },
+  headOnCollision: {
+    id: "headOnCollision",
+    label: "正面衝突",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/攻撃++",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }],
+  },
+  fortify: {
+    id: "fortify",
+    label: "固め上げる",
+    targetFaction: "ownExcludingSelf",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/強化(防)2+",
+    steps: [
+      { actionId: "enhanceDefense", params: { n: 2 } },
+      { actionId: "enhanceDefense", params: { n: 2 }, target: "self" },
+    ],
+  },
+  fortifyAll: {
+    id: "fortifyAll",
+    label: "固め連ねる",
+    targetFaction: "none",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/強化(防)3*",
+    steps: [{ actionId: "enhanceDefense", params: { n: 3 }, each: "own" }],
+  },
+  // ユキドケイ系統の上位個体用スキル。
+  avalanche: {
+    id: "avalanche",
+    label: "雪崩",
+    targetFaction: "none",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/スマッシュ*",
+    steps: [{ actionId: "smash", each: "opposing" }],
+  },
+  // 【カウントダウン】/【カウントアップ】：アラート(タイマー)と同じ
+  // 「現在のターン数」を参照する仕組み（resolveStepParamsが渡す
+  // pools.turn）。戦闘が長引くほど強くなる。
+  countdown: {
+    id: "countdown",
+    label: "カウントダウン",
+    targetFaction: "none",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/継続ダメ?*",
+    steps: [{ actionId: "dot", each: "opposing", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
+  },
+  countUp: {
+    id: "countUp",
+    label: "カウントアップ",
+    targetFaction: "none",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/継続回復?*",
+    steps: [{ actionId: "regen", each: "own", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 3) }) }],
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1703,6 +1802,39 @@ const MONSTER_SKILL_LOADOUTS = {
       { moduleId: "sharpenClaws", chance: 0.2 },
       { moduleId: "transcendence", chance: 0.2 },
       { moduleId: "allure", chance: 0.2 },
+    ],
+  },
+  // チョコロックの上位個体（中盤1体＋終盤1体）。ELITE_MONSTER_DATA参照
+  // （成長値はチョコロックと同一、スキル構成だけを変えた強化版）。
+  chocoBlock: {
+    prep: [{ moduleId: "trafficJam", chance: 1 }],
+    main: [
+      { moduleId: "collision", chance: 0.4 },
+      { moduleId: "fortify", chance: 0.6 },
+    ],
+  },
+  chocoBariRock: {
+    prep: [{ moduleId: "gridlock", chance: 1 }],
+    main: [
+      { moduleId: "headOnCollision", chance: 0.4 },
+      { moduleId: "fortifyAll", chance: 0.6 },
+    ],
+  },
+  // ユキドケイの上位個体（中盤1体＋終盤1体）。同じくELITE_MONSTER_DATA
+  // 参照。
+  ooYukiClock: {
+    prep: [{ moduleId: "clockUp", chance: 1 }],
+    main: [
+      { moduleId: "avalanche", chance: 0.9 },
+      { moduleId: "countdown", chance: 0.1 },
+    ],
+  },
+  yukiBotoke: {
+    prep: [{ moduleId: "clockHack", chance: 1 }],
+    main: [
+      { moduleId: "avalanche", chance: 0.8 },
+      { moduleId: "countdown", chance: 0.1 },
+      { moduleId: "countUp", chance: 0.1 },
     ],
   },
 };
