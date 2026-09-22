@@ -524,6 +524,60 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/特殊D*",
     custom: "topsyTurvy",
   },
+  // チューイング・マシン系統の上位個体用スキル。【噛み合わせ】(牽制(1)
+  // 相手陣営1体+最適化(1)自身)の強さ違い。
+  combination: {
+    id: "combination",
+    label: "組み合わせ",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/牽制3+",
+    steps: [
+      { actionId: "restrain", params: { n: 3 } },
+      { actionId: "intimidate", params: { n: 1 } },
+      { actionId: "optimize", params: { n: 3 }, target: "self" },
+      { actionId: "inspire", params: { n: 1 }, target: "self" },
+    ],
+  },
+  interweaving: {
+    id: "interweaving",
+    label: "編み合わせ",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/牽制10+",
+    steps: [
+      { actionId: "restrain", params: { n: 10 } },
+      { actionId: "intimidate", params: { n: 3 } },
+      { actionId: "optimize", params: { n: 10 }, target: "self" },
+      { actionId: "inspire", params: { n: 3 }, target: "self" },
+    ],
+  },
+  // 電気ゼリー系統の上位個体用スキル。【静電気】(最適化(1)自陣営全員)と
+  // 同じ「陣営全体、対象選択不要」構成の変種（対象陣営と効果が違う）。
+  spark: {
+    id: "spark",
+    label: "火の粉",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/牽制*",
+    steps: [{ actionId: "restrain", each: "opposing" }],
+  },
+  mirage: {
+    id: "mirage",
+    label: "蜃気楼",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/鼓舞*",
+    steps: [{ actionId: "inspire", each: "own" }],
+  },
+  sandThrow: {
+    id: "sandThrow",
+    label: "砂かけ",
+    targetFaction: "none",
+    monsterOnly: true,
+    shortNotation: "P/威圧*",
+    steps: [{ actionId: "intimidate", each: "opposing" }],
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -1541,6 +1595,96 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/攻撃*4",
     steps: [{ actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }],
   },
+  // チューイング・マシン系統の上位個体用スキル。【ティック】→【タック】
+  // →【トー】の順にしか使えない前提スキル。requiresPriorActionIdsは
+  // サニーサイドアップと同じ仕組みで、「直前に自分が使った技の中に
+  // 含まれていた葉アクションid」を見る -- 【タック】はティックの葉
+  // アクション（攻撃、id:"attack"）の直後だけ、【トー】はタックの葉
+  // アクション（スマッシュ、id:"smash"）の直後だけ選択可能になる。
+  // ただしこのゲート自体はisModuleAvailableFor（隊員のプレイヤー選択
+  // 用）にしか元々存在しなかったため、モンスターの所持スキル選択
+  // （chooseMonsterSkillEntry）側にも同じゲートを追加する必要がある
+  // -- そちらを参照。
+  tack: {
+    id: "tack",
+    label: "タック",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    requiresPriorActionIds: ["attack"],
+    shortNotation: "M/1/スマッシュ/賢",
+    steps: [{ actionId: "smash", params: { aStat: "wisdom" } }],
+  },
+  toh: {
+    id: "toh",
+    label: "トー",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    requiresPriorActionIds: ["smash"],
+    shortNotation: "M/1/貫通攻撃/賢+",
+    steps: [
+      { actionId: "pierceAttack", params: { aStat: "wisdom" } },
+      { actionId: "pierceAttack", params: { aStat: "wisdom" } },
+    ],
+  },
+  // 電気ゼリー系統の上位個体用スキル。【感電】(攻撃+スマッシュ+弱体化魔法
+  // (破壊力)(2))の弱体化対象違い。
+  pillarOfFire: {
+    id: "pillarOfFire",
+    label: "火柱",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃+",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenCoordination", params: { n: 2 } }],
+  },
+  cumulus: {
+    id: "cumulus",
+    label: "積雲",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃+",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDefense", params: { n: 4 } }],
+  },
+  sandstorm: {
+    id: "sandstorm",
+    label: "砂嵐",
+    targetFaction: "opposing",
+    cost: 3,
+    monsterOnly: true,
+    shortNotation: "M/3/攻撃+",
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenWisdom", params: { n: 4 } }],
+  },
+  // 【放電】(弱体化魔法(破壊力)(1))の弱体化対象違い。
+  residualHeat: {
+    id: "residualHeat",
+    label: "余熱",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(協)",
+    steps: [{ actionId: "weakenCoordination" }],
+  },
+  cottonCloud: {
+    id: "cottonCloud",
+    label: "綿雲",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(防)2",
+    steps: [{ actionId: "weakenDefense", params: { n: 2 } }],
+  },
+  sandDust: {
+    id: "sandDust",
+    label: "砂埃",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(賢)2",
+    steps: [{ actionId: "weakenWisdom", params: { n: 2 } }],
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1922,8 +2066,8 @@ const MONSTER_SKILL_LOADOUTS = {
   electricJelly: {
     prep: [{ moduleId: "staticCling", chance: 1 }],
     main: [
-      { moduleId: "electrocute", chance: 1 },
-      { moduleId: "discharge", chance: 0 },
+      { moduleId: "electrocute", chance: 0.8 },
+      { moduleId: "discharge", chance: 0.2 },
     ],
   },
   merengeCat: {
@@ -2109,6 +2253,50 @@ const MONSTER_SKILL_LOADOUTS = {
       { moduleId: "overripeEnd", chance: 0.3 },
       { moduleId: "infestedEnd", chance: 0.3 },
       { moduleId: "rottingEnd", chance: 0.4 },
+    ],
+  },
+  // チューイング・マシンの上位個体（中盤1体＋終盤1体）。ELITE_MONSTER_DATA
+  // 参照。mainのchanceは【ティック】→【タック】→【トー】の順で使わせる
+  // ための値 -- タック/トーはrequiresPriorActionIdsで前提技を満たすまで
+  // 選択候補自体に入らないため、実際の発生順はこの前提技ゲートと
+  // カスケード方式の組み合わせで決まる（chooseMonsterSkillEntry参照）。
+  chewingRobot: {
+    prep: [{ moduleId: "combination", chance: 1 }],
+    main: [
+      { moduleId: "tick", chance: 0.01 },
+      { moduleId: "tack", chance: 0.99 },
+    ],
+  },
+  chewingComputer: {
+    prep: [{ moduleId: "interweaving", chance: 1 }],
+    main: [
+      { moduleId: "tick", chance: 0.01 },
+      { moduleId: "tack", chance: 0.01 },
+      { moduleId: "toh", chance: 0.98 },
+    ],
+  },
+  // 電気ゼリーの上位個体（中盤1体＋終盤2体）。ELITE_MONSTER_DATA参照
+  // （水平展開 -- 電気ゼリー本体を強化するのではなく、同格の別属性
+  // 個体を追加する形）。
+  fireJelly: {
+    prep: [{ moduleId: "spark", chance: 1 }],
+    main: [
+      { moduleId: "pillarOfFire", chance: 0.8 },
+      { moduleId: "residualHeat", chance: 0.2 },
+    ],
+  },
+  whiteCloudJelly: {
+    prep: [{ moduleId: "mirage", chance: 1 }],
+    main: [
+      { moduleId: "cumulus", chance: 0.8 },
+      { moduleId: "cottonCloud", chance: 0.2 },
+    ],
+  },
+  sandDustJelly: {
+    prep: [{ moduleId: "sandThrow", chance: 1 }],
+    main: [
+      { moduleId: "sandstorm", chance: 0.8 },
+      { moduleId: "sandDust", chance: 0.2 },
     ],
   },
 };
@@ -2555,6 +2743,12 @@ export function BattleScene(container, params, api) {
     const viable = skillList.filter(({ moduleId }) => {
       const module = registry[moduleId];
       if (phase === "main" && !isAffordable(unit, module)) return false;
+      // 前提技制限：isModuleAvailableFor（隊員のプレイヤー選択用）と同じ
+      // ゲートをモンスター側にも適用する（【タック】【トー】--
+      // チューイング・マシン系統上位個体参照）。元々このゲートは
+      // isModuleAvailableFor側にしかなく、モンスターの所持スキル選択は
+      // それを経由しないため、ここで改めてチェックする必要がある。
+      if (module.requiresPriorActionIds && !module.requiresPriorActionIds.some((id) => (unit.lastLeafActionIds ?? []).includes(id))) return false;
       return candidateUnits(unit, moduleId).length > 0;
     });
     if (viable.length === 0) return null;

@@ -349,6 +349,16 @@ export const ELITE_MONSTER_DATA = {
   sweetOne: { id: "sweetOne", name: "スイートワン", growth: { attack: 0, defense: 0, destruction: 0, wisdom: 0, coordination: 3 } },
   sourOne: { id: "sourOne", name: "サワーワン", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 0, coordination: 0 } },
   rottenTree: { id: "rottenTree", name: "ロッテンツリー", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "decay" },
+  // チューイング・マシンの上位個体2体。成長値はチューイング・マシン
+  // 本体と同じ配分で賢さのみ伸ばした変種（属性は乾燥(dry)のまま）。
+  chewingRobot: { id: "chewingRobot", name: "チューイング・ロボット", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 2, coordination: 0 }, attribute: "dry" },
+  chewingComputer: { id: "chewingComputer", name: "チューイング・コンピュータ", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "dry" },
+  // 電気ゼリーの上位個体3体（進化ではなく水平展開）。火炎ゼリー・白雲
+  // ゼリーは電気ゼリー本体と同じ成長配分（属性のみ違う）。砂煙ゼリーは
+  // 成長配分自体が違う（破壊力ではなく協調性に寄せた配分）。
+  fireJelly: { id: "fireJelly", name: "火炎ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "heat" },
+  whiteCloudJelly: { id: "whiteCloudJelly", name: "白雲ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "humidity" },
+  sandDustJelly: { id: "sandDustJelly", name: "砂煙ゼリー", growth: { attack: 0, defense: 0, destruction: 0, wisdom: 1, coordination: 2 }, attribute: "dry" },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
