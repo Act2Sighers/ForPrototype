@@ -188,7 +188,7 @@ export function ExplorationScene(container, params, api) {
   function workerRow(worker) {
     const roleLabel = worker.role === "gather" ? "採集担当" : "採掘担当";
     const tag = worker.isSupervisor ? `${roleLabel}・監督` : roleLabel;
-    const pct = (worker.progress / 5) * 100;
+    const pct = (worker.progress / worker.progressCap) * 100;
     return h("div", { class: "panel" }, [
       h("div", { class: "slot__meta" }, [h("span", { class: "slot__name", text: `${worker.character.name}（${tag}）` })]),
       h("div", { class: "hp-gauge" }, [h("div", { class: "progress-gauge__fill", style: `width:${pct}%` })]),

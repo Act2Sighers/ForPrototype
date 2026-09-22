@@ -10,8 +10,8 @@ import {
   computeGatherAbility,
   computeMineAbility,
   computeSuperviseAbility,
-  needsGatherSupervisor,
-  needsMineSupervisor,
+  computeProgressCap,
+  needsSupervisorCall,
   pickGatherReward,
   pickMineReward,
   STANDARD_ENVIRONMENT,
@@ -33,6 +33,9 @@ function createWorker(character, role) {
     role, // "gather" | "mine"
     isSupervisor: false,
     progress: 0,
+    // 進捗度上限：自身の採集/採掘能力から算出する固定値（computeProgressCap
+    // 参照）。この探索イベント中は能力値が変わらないので一度きり算出する。
+    progressCap: computeProgressCap(character, role),
     done: false,
     statusText: "",
     usedGather: false,
@@ -122,9 +125,9 @@ async function runWorkerRound(group, worker, environment, onUpdate, delayMs, hau
   await sleep(delayMs);
 
   let finalSuccessCount = successCount;
-  const needsHelp = worker.role === "gather" ? needsGatherSupervisor(successCount, environment) : needsMineSupervisor(successCount, environment);
   const supervisorAvailable = group.supervisor && group.supervisor !== worker && !group.supervisor.done;
-  if (needsHelp && supervisorAvailable) {
+  const needsHelp = supervisorAvailable && needsSupervisorCall(successCount, computeSuperviseAbility(group.supervisor.character));
+  if (needsHelp) {
     worker.statusText = `判定結果：成功数${successCount}　作業監督に連絡。到着待機中…`;
     onUpdate();
     finalSuccessCount = await requestSupervisorHelp(group, worker, successCount);
@@ -140,7 +143,7 @@ async function runWorkerRound(group, worker, environment, onUpdate, delayMs, hau
   await sleep(delayMs);
 
   worker.progress += 1;
-  if (worker.progress >= 5) {
+  if (worker.progress >= worker.progressCap) {
     worker.done = true;
     worker.statusText = "作業終了。他の隊員の作業完了を待機中…";
   }
@@ -182,16 +185,16 @@ async function handleCall(group, supervisor, call, onUpdate, delayMs) {
   resolve(finalCount);
 }
 
-// How much of the supervisor's own remaining capacity (5 - their
-// progress) is left over once the worst case of every remaining
+// How much of the supervisor's own remaining capacity (their progressCap
+// - their progress) is left over once the worst case of every remaining
 // non-supervisor work unit resulting in a call is accounted for. When
 // this is >=1 the supervisor can safely spend a round on their own
 // 採集/採掘 work without risking being unable to answer every future
 // call; see runSupervisorLoop's use of this for the idle-filler-work
 // behavior.
 function computeStandbyMargin(supervisor, others) {
-  const othersRemaining = others.length * 5 - others.reduce((sum, m) => sum + m.progress, 0);
-  return 5 - supervisor.progress - othersRemaining;
+  const othersRemaining = others.reduce((sum, m) => sum + (m.progressCap - m.progress), 0);
+  return supervisor.progressCap - supervisor.progress - othersRemaining;
 }
 
 async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
@@ -199,7 +202,7 @@ async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
   const others = group.members.filter((m) => m !== supervisor);
   const allOthersDone = () => others.every((m) => m.done);
 
-  while (!allOthersDone() && supervisor.progress < 5) {
+  while (!allOthersDone() && supervisor.progress < supervisor.progressCap) {
     if (group.callQueue.length > 0) {
       await handleCall(group, supervisor, group.callQueue.shift(), onUpdate, delayMs);
       continue;
@@ -208,7 +211,8 @@ async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
     // supervisor's own capacity (see computeStandbyMargin), spend the
     // otherwise-idle time on a round of their own group's work instead
     // of just waiting, so the pacing doesn't stall until every
-    // non-supervisor happens to finish all 5 rounds untouched.
+    // non-supervisor happens to finish every round of their own progressCap
+    // untouched.
     if (computeStandbyMargin(supervisor, others) >= 1) {
       await runWorkerRound(group, supervisor, environment, onUpdate, delayMs, haul);
       continue;
@@ -218,14 +222,14 @@ async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
     await sleep(delayMs);
   }
 
-  if (supervisor.progress >= 5) {
+  if (supervisor.progress >= supervisor.progressCap) {
     supervisor.done = true;
     // The supervisor's own final round (whether it was answering a call
     // or their own filler work above) may have left a status line that
     // doesn't read as "finished" (e.g. handleCall's "待機所に移動") --
     // force it to match every other finished worker's text.
     supervisor.statusText = "作業終了。他の隊員の作業完了を待機中…";
-    // Anyone already queued when the supervisor hit progress 5 can't be
+    // Anyone already queued when the supervisor hit their progress cap can't be
     // left hanging forever -- answer them with their own result
     // unmodified (the supervisor genuinely can't help anymore). No new
     // calls can arrive after this: runWorkerRound's own supervisorAvailable
@@ -246,7 +250,7 @@ async function runSupervisorLoop(group, environment, onUpdate, delayMs, haul) {
   supervisor.statusText = `担当区分の全隊員が作業を終えたため${activityLabel}作業に切り替え`;
   onUpdate();
   await sleep(delayMs);
-  while (supervisor.progress < 5) {
+  while (supervisor.progress < supervisor.progressCap) {
     await runWorkerRound(group, supervisor, environment, onUpdate, delayMs, haul);
   }
 }
@@ -255,7 +259,7 @@ async function runGroup(group, environment, onUpdate, delayMs, haul) {
   if (!group.members.length) return;
   if (group.members.length === 1) {
     const solo = group.members[0];
-    while (solo.progress < 5) {
+    while (solo.progress < solo.progressCap) {
       await runWorkerRound(group, solo, environment, onUpdate, delayMs, haul);
     }
     return;
@@ -266,7 +270,7 @@ async function runGroup(group, environment, onUpdate, delayMs, haul) {
   await Promise.all([
     runSupervisorLoop(group, environment, onUpdate, delayMs, haul),
     ...others.map(async (worker) => {
-      while (worker.progress < 5) {
+      while (worker.progress < worker.progressCap) {
         await runWorkerRound(group, worker, environment, onUpdate, delayMs, haul);
       }
     }),

@@ -27,6 +27,22 @@ export function computeSuperviseAbility(character) {
   return computeStats(character).coordination;
 }
 
+// 進捗度上限：各隊員の担当能力値(A、採集ならcomputeGatherAbility、採掘
+// ならcomputeMineAbility)から算出する（3+floor(A/3)）。旧仕様の固定5に
+// なるのはAが6〜8の時。
+export function computeProgressCap(character, role) {
+  const ability = role === "gather" ? computeGatherAbility(character) : computeMineAbility(character);
+  return 3 + Math.floor(ability / 3);
+}
+
+// 作業監督呼び出しの条件（採集/採掘共通・一律）：成功数が、その班の
+// 作業監督自身の監督能力の1/3（切り捨て）以下なら呼び出す。監督能力が
+// 高いほど「これくらいの成功数なら任せず自分が判定し直した方が良い」
+// という基準が上がる、という考え方。
+export function needsSupervisorCall(successCount, superviseAbility) {
+  return successCount <= Math.floor(superviseAbility / 3);
+}
+
 // Which single growth stat a character's 採集/採掘能力 actually came
 // from this run -- ties broken uniformly at random. Only meaningful at
 // the moment growth is applied (phase③); the ability *value* is the
@@ -81,12 +97,6 @@ export const STANDARD_ENVIRONMENT = {
   attributeLabel: "全て",
   gatherTiers: ["mid", "high", "premium"],
   mineTiers: ["low", "mid", "high"],
-  // 「獲得無し」（採集）／「獲得無し・最低品質」（採掘）だけを作業監督
-  // 呼び出しの対象にする -- 何段階も周回した後の大量獲得（低品質1個を
-  // 含む場合がある）まで呼び出し対象に含めると、強い結果なのに呼び出し
-  // てしまうため、成功数そのものへの閾値として持つ。
-  gatherSupervisorMaxSuccess: 0,
-  mineSupervisorMaxSuccess: 2,
   // 属性：全て -- every quality-tiered natural species (ベースクリーム
   // has no quality to award, so it's exempt) / every quality-tiered
   // rigid species except ザラメ鉱石 (exempt, same reason) and 高純度糖鉱
@@ -109,14 +119,6 @@ export const STANDARD_ENVIRONMENT = {
     "amberSugarMineral",
   ],
 };
-
-export function needsGatherSupervisor(successCount, environment = STANDARD_ENVIRONMENT) {
-  return successCount <= environment.gatherSupervisorMaxSuccess;
-}
-
-export function needsMineSupervisor(successCount, environment = STANDARD_ENVIRONMENT) {
-  return successCount <= environment.mineSupervisorMaxSuccess;
-}
 
 function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
