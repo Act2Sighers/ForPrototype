@@ -326,6 +326,8 @@ export const ELITE_MONSTER_DATA = {
   caramelDog: { id: "caramelDog", name: "カラメル犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
   castellaDog: { id: "castellaDog", name: "カステラ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
   kasanariDog: { id: "kasanariDog", name: "カサナリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  rengeCat: { id: "rengeCat", name: "レンゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
+  shakunageCat: { id: "shakunageCat", name: "シャクナゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に

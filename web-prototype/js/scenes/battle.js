@@ -186,17 +186,24 @@ const PREP_MODULES = {
       t.pt.max = Math.max(1, t.pt.max - n);
     },
   },
-  // 【ついて来て！】（内部の仕組みとしては「警護」）：自身以外の自陣営
-  // ユニット1体を「警護対象」状態にする。挑発/隠密と同じく、自陣営で
-  // 行動可能なのが自分しかいなければ不発（isSoleSurvivor）。実際の
-  // 「対象の差し替え」はopposingPoolFor側（Mainフェイズ限定）で行う --
-  // unit.guardedByが立っている候補は、その守護者自身に差し替わる。
-  guardAlly: {
-    id: "guardAlly",
-    label: "ついて来て！",
+  // 【警護】：自身以外の自陣営ユニット1体を「警護対象」状態にする土台の
+  // 葉アクション。挑発/隠密と同じく、自陣営で行動可能なのが自分しか
+  // いなければ不発（isSoleSurvivor）。実際の「対象の差し替え」は
+  // opposingPoolFor側（Mainフェイズ限定）で行う -- unit.guardedByが
+  // 立っている候補は、その守護者自身に差し替わる。
+  // 隊員向けの名前付きラッパー【ついて来て！】（下のObject.assignブロック
+  // 参照）と、モンスター側の【従順】【一途】（カルメヤ犬系統）がどちらも
+  // これをsteps側から参照する（【体当たり】が【攻撃】を参照するのと同じ
+  // 構造）。プレイヤーの自由選択メニューにはラッパー側だけを見せたいので、
+  // ここ自身はmonsterOnly（＝自陣営「ally」からの自由選択には出さない）
+  // 扱いにしておく -- steps経由の参照はisModuleAvailableForを通らない
+  // ため、モンスター側からもラッパー経由でも変わらず使える。
+  guard: {
+    id: "guard",
+    label: "警護",
     targetFaction: "ownExcludingSelf",
     statusLabel: "警護対象",
-    allyOnly: true,
+    monsterOnly: true,
     shortNotation: "P/警護",
     apply: (actor, target, allyUnits, enemyUnits) => {
       if (isSoleSurvivor(actor, allyUnits, enemyUnits)) return { applied: false };
@@ -220,6 +227,16 @@ Object.assign(PREP_MODULES, {
     targetFaction: "own",
     shortNotation: "P/最適化+",
     steps: [{ actionId: "optimize" }, { actionId: "inspire" }],
+  },
+  // 【ついて来て！】：警護をそのまま1ステップ使う名前付きラッパー
+  // （【体当たり】が【攻撃】を参照するのと同じ構造）。
+  guardAlly: {
+    id: "guardAlly",
+    label: "ついて来て！",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/警護",
+    steps: [{ actionId: "guard" }],
   },
   // 【陰陽】：牽制した後、（前ステップの対象とは無関係に）自身を対象に
   // 最適化を行う。スキル自身の対象選択は牽制の候補（相手陣営）1回のみ
@@ -389,17 +406,16 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/牽制3",
     steps: [{ actionId: "restrain", params: { n: 3 } }],
   },
-  // 【従順】：隊員専用だった【ついて来て！】(guardAlly)をそのまま1ステップ
-  // 流用（allyOnly:trueはisModuleAvailableFor経由の隊員選択メニュー用の
-  // 制限であり、MONSTER_SKILL_LOADOUTSからのactionId参照では素通しされる
-  // ため、モンスターの所持スキルの内部ステップとしては問題なく使える）。
+  // 【従順】：土台の葉アクション【警護】(guard)をそのまま1ステップ流用
+  // （【体当たり】が【攻撃】を参照するのと同じ構造。隊員向けの名前付き
+  // ラッパー【ついて来て！】(guardAlly)を経由せず、直接guardを参照する）。
   obedience: {
     id: "obedience",
     label: "従順",
     targetFaction: "ownExcludingSelf",
     monsterOnly: true,
     shortNotation: "P/警護",
-    steps: [{ actionId: "guardAlly" }],
+    steps: [{ actionId: "guard" }],
   },
   // 【一途】：警護した後、（前ステップの対象と）同じ対象に鼓舞(1)を行う。
   devotion: {
@@ -408,7 +424,32 @@ Object.assign(PREP_MODULES, {
     targetFaction: "ownExcludingSelf",
     monsterOnly: true,
     shortNotation: "P/警護+",
-    steps: [{ actionId: "guardAlly" }, { actionId: "inspire" }],
+    steps: [{ actionId: "guard" }, { actionId: "inspire" }],
+  },
+  // メレンゲ猫系統の上位個体用スキル。【優雅】(鼓舞(1)自身)の発展形：
+  // 相手を威圧してから、その分以上に自身を鼓舞する（相手から奪い、
+  // 自分に与える一貫したコンセプト）。
+  nobility: {
+    id: "nobility",
+    label: "高雅",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/威圧+",
+    steps: [
+      { actionId: "intimidate" },
+      { actionId: "inspire", params: { n: 2 }, target: "self" },
+    ],
+  },
+  serenity: {
+    id: "serenity",
+    label: "閑雅",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/威圧2+",
+    steps: [
+      { actionId: "intimidate", params: { n: 2 } },
+      { actionId: "inspire", params: { n: 3 }, target: "self" },
+    ],
   },
 });
 
@@ -1109,6 +1150,84 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/1/強化(攻)2",
     steps: [{ actionId: "enhanceAttack", params: { n: 2 } }],
   },
+  // メレンゲ猫系統の上位個体用スキル。相手から奪い、自分に与える一貫
+  // したコンセプト。
+  // 【引き裂き】：引っ掻き(貫通攻撃)をもう1体、別対象へ追加する。
+  tear: {
+    id: "tear",
+    label: "引き裂き",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/貫通攻撃2",
+    steps: [{ actionId: "pierceAttack" }, { actionId: "pierceAttack", target: "opposingExcludingUsed" }],
+  },
+  // 【歌い声】/【招き声】：弱体化魔法(攻撃力)をかけた後、自身に強化
+  // 魔法(攻撃力)をかける。
+  serenade: {
+    id: "serenade",
+    label: "歌い声",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(攻)2+",
+    steps: [
+      { actionId: "weakenAttack", params: { n: 2 } },
+      { actionId: "enhanceAttack", params: { n: 1 }, target: "self" },
+    ],
+  },
+  allure: {
+    id: "allure",
+    label: "招き声",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/弱体化(攻)3+",
+    steps: [
+      { actionId: "weakenAttack", params: { n: 3 } },
+      { actionId: "enhanceAttack", params: { n: 2 }, target: "self" },
+    ],
+  },
+  // 【爪研ぎ】：素のスマッシュをコスト1で使う。
+  sharpenClaws: {
+    id: "sharpenClaws",
+    label: "爪研ぎ",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/スマッシュ",
+    steps: [{ actionId: "smash" }],
+  },
+  // 体幹を判定無しで固定量だけ増減させる土台の葉アクション（スマッシュ/
+  // プロテクトの判定ベースの増減とは別枠 -- 【崇高】のような「n分だけ
+  // 確実に増減させる」効果のための専用プリミティブ）。
+  staminaShift: {
+    id: "staminaShift",
+    label: "体幹操作",
+    targetFaction: "opposing",
+    effect: "stamina",
+    monsterOnly: true,
+    shortNotation: "M/体幹操作",
+    apply: (actor, target, params = {}) => {
+      const { n = 0 } = params;
+      target.stamina = clampStamina(target.stamina + n);
+      return { magnitude: n, label: n >= 0 ? "体幹上昇" : "体幹低下" };
+    },
+  },
+  // 【崇高】：相手の体幹を2減少させ、その後自身の体幹を2増加させる
+  // （体幹操作を使った固定値、判定なし）。
+  transcendence: {
+    id: "transcendence",
+    label: "崇高",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/体幹操作+",
+    steps: [
+      { actionId: "staminaShift", params: { n: -2 } },
+      { actionId: "staminaShift", params: { n: 2 }, target: "self" },
+    ],
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1565,6 +1684,25 @@ const MONSTER_SKILL_LOADOUTS = {
       { moduleId: "fawn", chance: 0.1 },
       { moduleId: "howl", chance: 0.1 },
       { moduleId: "whimper", chance: 0.1 },
+    ],
+  },
+  // メレンゲ猫の上位個体（中盤1体＋終盤1体）。ELITE_MONSTER_DATA参照
+  // （成長値はメレンゲ猫と同一、スキル構成だけを変えた強化版）。
+  rengeCat: {
+    prep: [{ moduleId: "nobility", chance: 1 }],
+    main: [
+      { moduleId: "scratch", chance: 0.5 },
+      { moduleId: "sharpenClaws", chance: 0.25 },
+      { moduleId: "serenade", chance: 0.25 },
+    ],
+  },
+  shakunageCat: {
+    prep: [{ moduleId: "serenity", chance: 1 }],
+    main: [
+      { moduleId: "tear", chance: 0.4 },
+      { moduleId: "sharpenClaws", chance: 0.2 },
+      { moduleId: "transcendence", chance: 0.2 },
+      { moduleId: "allure", chance: 0.2 },
     ],
   },
 };
