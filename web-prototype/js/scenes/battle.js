@@ -355,6 +355,61 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/鼓舞3s",
     steps: [{ actionId: "inspire", params: { n: 3 } }],
   },
+  // カルメヤ犬系統の上位個体用スキル。【興奮】(最適化(1)自身)の強さ違い。
+  delight: {
+    id: "delight",
+    label: "幸喜",
+    targetFaction: "self",
+    monsterOnly: true,
+    shortNotation: "P/最適化2s",
+    steps: [{ actionId: "optimize", params: { n: 2 } }],
+  },
+  happiness: {
+    id: "happiness",
+    label: "幸福",
+    targetFaction: "self",
+    monsterOnly: true,
+    shortNotation: "P/最適化3s",
+    steps: [{ actionId: "optimize", params: { n: 3 } }],
+  },
+  // 【威嚇】/【凝視】：【邪魔】(牽制(1)相手陣営1体)の強さ違い。
+  threaten: {
+    id: "threaten",
+    label: "威嚇",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/牽制2",
+    steps: [{ actionId: "restrain", params: { n: 2 } }],
+  },
+  glare: {
+    id: "glare",
+    label: "凝視",
+    targetFaction: "opposing",
+    monsterOnly: true,
+    shortNotation: "P/牽制3",
+    steps: [{ actionId: "restrain", params: { n: 3 } }],
+  },
+  // 【従順】：隊員専用だった【ついて来て！】(guardAlly)をそのまま1ステップ
+  // 流用（allyOnly:trueはisModuleAvailableFor経由の隊員選択メニュー用の
+  // 制限であり、MONSTER_SKILL_LOADOUTSからのactionId参照では素通しされる
+  // ため、モンスターの所持スキルの内部ステップとしては問題なく使える）。
+  obedience: {
+    id: "obedience",
+    label: "従順",
+    targetFaction: "ownExcludingSelf",
+    monsterOnly: true,
+    shortNotation: "P/警護",
+    steps: [{ actionId: "guardAlly" }],
+  },
+  // 【一途】：警護した後、（前ステップの対象と）同じ対象に鼓舞(1)を行う。
+  devotion: {
+    id: "devotion",
+    label: "一途",
+    targetFaction: "ownExcludingSelf",
+    monsterOnly: true,
+    shortNotation: "P/警護+",
+    steps: [{ actionId: "guardAlly" }, { actionId: "inspire" }],
+  },
 });
 
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
@@ -989,6 +1044,71 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/攻撃2",
     steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
   },
+  // カルメヤ犬系統の上位個体用スキル。
+  // 【八つ当たり】：選択した1体に攻撃を2回連続で行う（同一対象）。
+  tantrum: {
+    id: "tantrum",
+    label: "八つ当たり",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/攻撃2",
+    steps: [{ actionId: "attack" }, { actionId: "attack" }],
+  },
+  // 【見回り】：ラッシュと同じ構造（別対象へ2連続攻撃）だがコスト2。
+  patrol: {
+    id: "patrol",
+    label: "見回り",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/攻撃+",
+    steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
+  },
+  // 【大回り】：見回りをさらに1体分延長し、計3体に順番に攻撃する。
+  grandPatrol: {
+    id: "grandPatrol",
+    label: "大回り",
+    targetFaction: "opposing",
+    cost: 2,
+    monsterOnly: true,
+    shortNotation: "M/2/攻撃3",
+    steps: [
+      { actionId: "attack" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+    ],
+  },
+  // 【泣き声】：【鳴き声】(弱体化魔法(攻撃力)(1))の強さ違い。
+  whimper: {
+    id: "whimper",
+    label: "泣き声",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(攻)2",
+    steps: [{ actionId: "weakenAttack", params: { n: 2 } }],
+  },
+  // 【懐き声】：相手陣営1体に弱体化魔法(防御力)(2)をかける。
+  fawn: {
+    id: "fawn",
+    label: "懐き声",
+    targetFaction: "opposing",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/弱体化(防)2",
+    steps: [{ actionId: "weakenDefense", params: { n: 2 } }],
+  },
+  // 【遠吠え】：自陣営1体に強化魔法(攻撃力)(2)をかける。
+  howl: {
+    id: "howl",
+    label: "遠吠え",
+    targetFaction: "own",
+    cost: 1,
+    monsterOnly: true,
+    shortNotation: "M/1/強化(攻)2",
+    steps: [{ actionId: "enhanceAttack", params: { n: 2 } }],
+  },
 });
 
 // キャラクタースキル・Mainフェイズ。allyOnly:trueでモンスターの行動
@@ -1408,6 +1528,43 @@ const MONSTER_SKILL_LOADOUTS = {
     main: [
       { moduleId: "slam", chance: 0.5 },
       { moduleId: "rush", chance: 0.5 },
+    ],
+  },
+  // カルメヤ犬の上位個体（中盤3体＋終盤1体）。ELITE_MONSTER_DATA参照
+  // （成長値はカルメヤ犬と同一、スキル構成だけを変えた強化版）。
+  katakuriDog: {
+    prep: [{ moduleId: "delight", chance: 1 }],
+    main: [
+      { moduleId: "tackle", chance: 0.6 },
+      { moduleId: "fawn", chance: 0.4 },
+    ],
+  },
+  caramelDog: {
+    prep: [{ moduleId: "threaten", chance: 1 }],
+    main: [
+      { moduleId: "tackle", chance: 0.6 },
+      { moduleId: "howl", chance: 0.4 },
+    ],
+  },
+  castellaDog: {
+    prep: [{ moduleId: "obedience", chance: 1 }],
+    main: [
+      { moduleId: "patrol", chance: 0.8 },
+      { moduleId: "cry", chance: 0.2 },
+    ],
+  },
+  kasanariDog: {
+    prep: [
+      { moduleId: "happiness", chance: 0.3 },
+      { moduleId: "glare", chance: 0.3 },
+      { moduleId: "devotion", chance: 0.4 },
+    ],
+    main: [
+      { moduleId: "tantrum", chance: 0.4 },
+      { moduleId: "grandPatrol", chance: 0.3 },
+      { moduleId: "fawn", chance: 0.1 },
+      { moduleId: "howl", chance: 0.1 },
+      { moduleId: "whimper", chance: 0.1 },
     ],
   },
 };

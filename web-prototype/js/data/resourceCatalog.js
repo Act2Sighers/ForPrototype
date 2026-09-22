@@ -314,6 +314,20 @@ export const BOSS_MONSTER_DATA = {
   takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
 };
 
+// 上位個体（elite）モンスターデータ: MONSTER_DATAの通常個体を土台に、
+// 成長値（growth）はそのまま流用しつつスキル構成だけを変えた強化版。
+// 中〜高難度向けに段階的に追加していく想定で、buildNormalEnemyUnits/
+// buildBossEnemyUnits（battle.js）はどちらもMONSTER_DATAしか参照しない
+// ため、ここに置いてある限りテストダンジョンの抽選には出現しない
+// （抽選への組み込みは、上位個体のデータが出揃ってから別途行う）。
+// dataIdの実際のスキル構成はbattle.jsのMONSTER_SKILL_LOADOUTS参照。
+export const ELITE_MONSTER_DATA = {
+  katakuriDog: { id: "katakuriDog", name: "カタクリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  caramelDog: { id: "caramelDog", name: "カラメル犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  castellaDog: { id: "castellaDog", name: "カステラ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+  kasanariDog: { id: "kasanariDog", name: "カサナリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
+};
+
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
 // 応じた重みで配分する（rollWeightedGrowth参照、隊員の追加成長値配分と
 // 共有）。HPはgrowthの合計×12で決まるので、これだけで「最大HPを12成長
@@ -359,6 +373,19 @@ export function createMonsterFromData(dataId, targetLevel) {
 // テンプレートの出発点がLv.1かLv.15相当かが違うだけ。
 export function createBossMonsterFromData(dataId, targetLevel) {
   const data = BOSS_MONSTER_DATA[dataId];
+  const templateLevel = computeMonsterLevel(data.growth);
+  const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
+  const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };
+  return instantiateMonster(dataId, data.name, growth, data.attribute);
+}
+
+// ELITE_MONSTER_DATA から個体を生成する。createMonsterFromDataと全く同じ
+// 重み付けレベルアップだが、参照するカタログがELITE_MONSTER_DATAである
+// 点だけが違う（テンプレートの出発点はボスと違いLv.1相当、通常個体と
+// 同じ）。まだ戦闘への組み込みは行っていないので、現状は将来のために
+// 個体生成手段だけ用意してある。
+export function createEliteMonsterFromData(dataId, targetLevel) {
+  const data = ELITE_MONSTER_DATA[dataId];
   const templateLevel = computeMonsterLevel(data.growth);
   const levelsToGain = targetLevel != null ? Math.max(0, targetLevel - templateLevel) : 0;
   const growth = levelsToGain > 0 ? levelUpMonsterGrowth(data.growth, levelsToGain) : { ...data.growth };
