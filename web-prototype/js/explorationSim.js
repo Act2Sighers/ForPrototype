@@ -5,6 +5,7 @@
 // reason about. No DOM: the scene (scenes/exploration.js) owns
 // rendering and just passes an `onUpdate` callback to call after every
 // state change, plus reads the worker objects this module mutates.
+import state from "./state.js";
 import { rollJudgement } from "./dice.js";
 import {
   computeGatherAbility,
@@ -24,7 +25,7 @@ import {
 } from "./data/resourceCatalog.js";
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms / (state.explorationDoubleSpeed ? 2 : 1)));
 }
 
 function createWorker(character, role) {

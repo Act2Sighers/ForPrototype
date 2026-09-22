@@ -1,6 +1,6 @@
 import { renderScreen, button, h, resourceHud } from "../dom.js";
 import { resourceIndividualNodes } from "../resourceDisplay.js";
-import state, { grantResource, grantTieredResource, grantAmberSugarMineralInstances } from "../state.js";
+import state, { grantResource, grantTieredResource, grantAmberSugarMineralInstances, setExplorationDoubleSpeed } from "../state.js";
 import { CHARACTER_STAT_LABELS, CHARACTER_STAT_FULL_LABELS, growCharacterStat } from "../data/resourceCatalog.js";
 import {
   computeGatherAbility,
@@ -223,6 +223,13 @@ export function ExplorationScene(container, params, api) {
       onPause: () => api.callScene("pause"),
       actions: [
         button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() }),
+        button("倍速", {
+          variant: state.explorationDoubleSpeed ? "primary" : "ghost",
+          onClick: () => {
+            setExplorationDoubleSpeed(!state.explorationDoubleSpeed);
+            render();
+          },
+        }),
       ],
     });
   }

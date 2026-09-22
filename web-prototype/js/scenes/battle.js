@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { grantResource, grantTieredResource, recordDefeatedMonsterLevels, recordRescue } from "../state.js";
+import state, { grantResource, grantTieredResource, recordDefeatedMonsterLevels, recordRescue, setBattleDoubleSpeed } from "../state.js";
 import {
   computeStats,
   computeEffectiveMaxHp,
@@ -30,7 +30,7 @@ const ACTION_DELAY_MS = FAST ? 10 : 1000;
 const MAIN_PHASE_WAIT_MS = FAST ? 20 : 2000;
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms / (state.battleDoubleSpeed ? 2 : 1)));
 }
 
 function pickRandom(list) {
@@ -3082,8 +3082,15 @@ export function BattleScene(container, params, api) {
   // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
   function battleActions() {
     const skipButton = button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() });
-    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton];
-    return [skipButton];
+    const speedButton = button("倍速", {
+      variant: state.battleDoubleSpeed ? "primary" : "ghost",
+      onClick: () => {
+        setBattleDoubleSpeed(!state.battleDoubleSpeed);
+        render();
+      },
+    });
+    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton, speedButton];
+    return [skipButton, speedButton];
   }
 
   function render() {

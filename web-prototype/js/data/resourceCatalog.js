@@ -1720,7 +1720,11 @@ export function computeTimeEatsCheckoutTotal(mode, lineup, purchases) {
 
 // 部隊編成画面（配給／全員配給モード）が、隊員1人に時間食1つを与えた
 // 際の変換処理。仕様の①～④に対応：
-//  ① 変調×変換効率(%)（切り上げ）を正変調に加算し、変調を0にする。
+//  ① 変換効率が100%以上の場合、変調×変換効率(%)（切り上げ）を正変調に
+//     加算し、変調を0にする（従来通り）。100%未満の場合、「変調×変換
+//     効率(%)」（切り上げ）だけを正変調変換分として正変調に加算し、
+//     "同じ量"を変調からも取り除く（＝変調は全て消えるわけではなく、
+//     変換されなかった分がそのまま残る）。
 //  ② 正変調が現在のレベルの要求正変調量（levelUpRequirement）を満た
 //     す限り、それを消費してレベルを1ずつ上げる。
 //  ③ （実装上は暗黙）レベルアップ後の実効最大HPはcomputeMaxHpForLevel
@@ -1732,9 +1736,10 @@ export function computeTimeEatsCheckoutTotal(mode, lineup, purchases) {
 // ⑤ の熟成画面呼び出しの要否は、戻り値のgrowthPointsを見て呼び出し側
 // (squadFormation.js)が判断する。
 export function applyTimeEatsToCharacter(character, item) {
-  const gainedPositiveCondition = Math.ceil((character.condition ?? 0) * (item.conversionEfficiency / 100));
+  const conditionBefore = character.condition ?? 0;
+  const gainedPositiveCondition = Math.ceil(conditionBefore * (item.conversionEfficiency / 100));
   character.positiveCondition = (character.positiveCondition ?? 0) + gainedPositiveCondition;
-  character.condition = 0;
+  character.condition = item.conversionEfficiency >= 100 ? 0 : Math.max(0, conditionBefore - gainedPositiveCondition);
 
   const levelBefore = character.level;
   while (character.positiveCondition >= levelUpRequirement(character.level)) {

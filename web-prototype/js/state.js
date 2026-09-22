@@ -112,6 +112,14 @@ const state = {
     staminaNaturalDecay: STAMINA_NATURAL_DECAY_DEFAULT,
   },
 
+  // 戦闘画面・探索画面（探索中）下部の「倍速」ボタンの状態（ウェイトを
+  // 半分にする）。押されていたかどうかを、直前のその種別のイベントが
+  // 終わった時点の状態のまま次回に引き継ぐ（戦闘と探索は別々に記憶）
+  // ため、セーブデータではなくアプリ全体のグローバル設定として持つ。
+  // battle.js/explorationSim.jsのsleep()がここを直接参照する。
+  battleDoubleSpeed: false,
+  explorationDoubleSpeed: false,
+
   // 糖衣 (coatings): carried between runs, so they live here rather than
   // on the run. Live working copy of whichever save is active — see
   // freshProfile()/createNewSaveData()/loadSlot().
@@ -240,6 +248,15 @@ export function canAffordCost(cost) {
 // 呼び出し側（options.js）のUI入力側で行う。
 export function setBattleTuning(key, value) {
   state.battleTuning[key] = value;
+}
+
+// 戦闘/探索画面の「倍速」ボタンからの唯一の書き換え口。
+export function setBattleDoubleSpeed(value) {
+  state.battleDoubleSpeed = value;
+}
+
+export function setExplorationDoubleSpeed(value) {
+  state.explorationDoubleSpeed = value;
 }
 
 export function hasSquadRoom() {
