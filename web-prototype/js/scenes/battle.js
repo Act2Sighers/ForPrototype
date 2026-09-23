@@ -2714,13 +2714,13 @@ const MONSTER_SKILL_LOADOUTS = {
 // （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
 // 全モジュールを自由選択できる。
 const CHARACTER_SKILL_LOADOUTS = {
-  flakeSugar: ["guardAlly", "quickAttack", "guardingHand"],
-  cubeSugar: ["retreatCall", "firstAid", "attackingHand"],
-  honeyScrew: ["festivalHunch", "firstAid", "honeyBeeBeat"],
-  chocolatBitterTaste: ["shadowJustice", "firstAid", "bitterFeel"],
-  lollipopSpiral: ["sisterCheer", "quickAttack", "perfectSupport"],
-  flawlessNoColor: ["check", "firstAid", "flush"],
-  sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "prescription"],
+  flakeSugar: ["guardAlly", "quickAttack", "firstAid", "guardingHand"],
+  cubeSugar: ["retreatCall", "quickAttack", "firstAid", "attackingHand"],
+  honeyScrew: ["festivalHunch", "quickAttack", "firstAid", "honeyBeat"],
+  chocolatBitterTaste: ["shadowJustice", "quickAttack", "firstAid", "bitterFeel"],
+  lollipopSpiral: ["sisterCheer", "quickAttack", "firstAid", "supportComfort"],
+  flawlessNoColor: ["check", "quickAttack", "firstAid", "flush"],
+  sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "firstAid", "prescription"],
 };
 
 // 隊員のレベルアップに伴うスキル成長ツリー（データのみ）。所持スキルが
