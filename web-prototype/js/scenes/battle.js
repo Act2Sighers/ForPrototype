@@ -238,6 +238,18 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/警護",
     steps: [{ actionId: "guard" }],
   },
+  // 【通さない！】：ついて来て！の警護対象を2体に増やした成長後スキル。
+  // 警護は自分以外が前提の効果なので、2体目の選出はownExcludingUsedで
+  // はなくownExcludingSelfAndUsedを使う（自分自身が2体目候補に紛れ
+  // 込まないようにする）。
+  noPassing: {
+    id: "noPassing",
+    label: "通さない！",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/警護+",
+    steps: [{ actionId: "guard" }, { actionId: "guard", target: "ownExcludingSelfAndUsed" }],
+  },
   // 【陰陽】：牽制した後、（前ステップの対象とは無関係に）自身を対象に
   // 最適化を行う。スキル自身の対象選択は牽制の候補（相手陣営）1回のみ
   // -- target:"self"が2ステップ目の対象を行動主体自身に固定する。
@@ -612,6 +624,16 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/挑発",
     steps: [{ actionId: "provoke" }],
   },
+  // 【逃がさない！】：下がって！（挑発）の対象数を2体に増やした成長後
+  // スキル。opposingExcludingUsedで既存の1体とは別の相手陣営1体を選ぶ。
+  neverLetGo: {
+    id: "neverLetGo",
+    label: "逃がさない！",
+    targetFaction: "opposing",
+    allyOnly: true,
+    shortNotation: "P/挑発+",
+    steps: [{ actionId: "provoke" }, { actionId: "provoke", target: "opposingExcludingUsed" }],
+  },
   // 【お祭りのヨカン】：自身に鼓舞(1)、最適化(2)を順に行う。
   festivalHunch: {
     id: "festivalHunch",
@@ -620,6 +642,15 @@ Object.assign(PREP_MODULES, {
     allyOnly: true,
     shortNotation: "P/鼓舞s+",
     steps: [{ actionId: "inspire", params: { n: 1 } }, { actionId: "optimize", params: { n: 2 } }],
+  },
+  // 【お祭りのススメ】：お祭りのヨカンの強さ違い（鼓舞2、最適化4）。
+  festivalAdvice: {
+    id: "festivalAdvice",
+    label: "お祭りのススメ",
+    targetFaction: "self",
+    allyOnly: true,
+    shortNotation: "P/鼓舞2s+",
+    steps: [{ actionId: "inspire", params: { n: 2 } }, { actionId: "optimize", params: { n: 4 } }],
   },
   // 【日陰者のセイギ】：隠密をそのままラップしただけ。
   shadowJustice: {
@@ -630,16 +661,38 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/隠密s",
     steps: [{ actionId: "stealth" }],
   },
-  // 【お姉ちゃん頑張れ〜】：自身以外の自陣営全員に鼓舞(1)。対象候補の
-  // 選択自体が不要（targetFaction:"none"）で、each:"ownExcludingSelf"
-  // が自身を除いた自陣営の生存者全員を順番に処理する。
+  // 【日陰者のツトメ】：自身以外の自陣営1体に隠密を行わせた後、自身も
+  // 隠密を行う。隠密のapply()は対象を問わず機能する（自分専用の効果
+  // ではない）ため、そのまま他者向けに流用できる。
+  shadowJusticeDuty: {
+    id: "shadowJusticeDuty",
+    label: "日陰者のツトメ",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/隠密+s",
+    steps: [{ actionId: "stealth" }, { actionId: "stealth", target: "self" }],
+  },
+  // 【お姉ちゃん頑張れ〜】：自陣営全員（自身を含む）に鼓舞(1)。ただし
+  // 自陣営で行動可能なのが自身しかいなければ不発（警護/挑発/隠密と
+  // 同じisSoleSurvivorの判定）。「自身を含む全員」への一括判定はstepsの
+  // 汎用each機構（対象ごとの分岐はできない）では表現できないため、
+  // 食べ比べ系と同じcustom resolver（resolveSisterCheer）に振り分ける。
   sisterCheer: {
     id: "sisterCheer",
     label: "お姉ちゃん頑張れ〜",
     targetFaction: "none",
     allyOnly: true,
     shortNotation: "P/鼓舞*",
-    steps: [{ actionId: "inspire", each: "ownExcludingSelf", params: { n: 1 } }],
+    custom: "sisterCheer",
+  },
+  // 【流石だよ、お姉ちゃん！】：お姉ちゃん頑張れ〜の強さ違い（鼓舞2）。
+  sisterCheerUpgrade: {
+    id: "sisterCheerUpgrade",
+    label: "流石だよ、お姉ちゃん！",
+    targetFaction: "none",
+    allyOnly: true,
+    shortNotation: "P/鼓舞2*",
+    custom: "sisterCheerUpgrade",
   },
   // 【チェック】：相手陣営1体を威圧(1)し、同じ相手ではなく自身を対象に
   // 鼓舞(1)を行う（陰陽と同じtarget:"self"override）。
@@ -650,6 +703,20 @@ Object.assign(PREP_MODULES, {
     allyOnly: true,
     shortNotation: "P/威圧+",
     steps: [{ actionId: "intimidate", params: { n: 1 } }, { actionId: "inspire", target: "self", params: { n: 1 } }],
+  },
+  // 【ダブルチェック】：チェックの相手陣営対象を2体に増やし、自身への
+  // 鼓舞も2に強化。
+  doubleCheck: {
+    id: "doubleCheck",
+    label: "ダブルチェック",
+    targetFaction: "opposing",
+    allyOnly: true,
+    shortNotation: "P/威圧+*2",
+    steps: [
+      { actionId: "intimidate", params: { n: 1 } },
+      { actionId: "intimidate", target: "opposingExcludingUsed", params: { n: 1 } },
+      { actionId: "inspire", target: "self", params: { n: 2 } },
+    ],
   },
   // 【ハイ・プロット】/【ロー・プロット】：どちらも自身にのみ作用する
   // （targetFaction:"self"のため、各stepのtargetは何も指定しなくても
@@ -664,6 +731,19 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/最適化5s+",
     steps: [{ actionId: "optimize", params: { n: 5 } }, { actionId: "intimidate", params: { n: 2 } }],
   },
+  // 【ハイ・ベット】：ハイ・プロットのIN⇔PTトレードオフを自身1人から
+  // 自陣営全員に拡張した成長後スキル（強さは自身分だけ抑えて3/1に）。
+  highBet: {
+    id: "highBet",
+    label: "ハイ・ベット",
+    targetFaction: "none",
+    allyOnly: true,
+    shortNotation: "P/最適化3*+",
+    steps: [
+      { actionId: "optimize", each: "own", params: { n: 3 } },
+      { actionId: "intimidate", each: "own", params: { n: 1 } },
+    ],
+  },
   lowPlot: {
     id: "lowPlot",
     label: "ロー・プロット",
@@ -671,6 +751,18 @@ Object.assign(PREP_MODULES, {
     allyOnly: true,
     shortNotation: "P/牽制5s+",
     steps: [{ actionId: "restrain", params: { n: 5 } }, { actionId: "inspire", params: { n: 2 } }],
+  },
+  // 【ロー・ベット】：ロー・プロットの自陣営全員版（強さは3/1に抑制）。
+  lowBet: {
+    id: "lowBet",
+    label: "ロー・ベット",
+    targetFaction: "none",
+    allyOnly: true,
+    shortNotation: "P/牽制3*+",
+    steps: [
+      { actionId: "restrain", each: "own", params: { n: 3 } },
+      { actionId: "inspire", each: "own", params: { n: 1 } },
+    ],
   },
 });
 
@@ -1804,6 +1896,39 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/2/プロテクトs+",
     steps: [{ actionId: "protect" }, { actionId: "enhanceDefense", params: { n: 2 } }],
   },
+  // 【守りの掟】：守りの手（プロテクト+強化魔法(防御力)(2)）を自身以外
+  // の自陣営1体に行った後、自身にも同じく行う。守りの手自体をnested
+  // reference（【鉄槌】と同じ構造）として2回使うことで、「1つの対象に
+  // まとめて2効果」を1ステップで済ませる -- 守りの手自身のcostはここ
+  // では参照されない。
+  protectiveCode: {
+    id: "protectiveCode",
+    label: "守りの掟",
+    targetFaction: "ownExcludingSelf",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/プロテクト+*2",
+    steps: [{ actionId: "guardingHand" }, { actionId: "guardingHand", target: "self" }],
+  },
+  // 【守りの原点】：守りの手を自身以外の自陣営2体（ownExcludingSelfAndUsed
+  // で2体目を選出）に行った後、自身にはプロテクトを2回、強化魔法(防御力)
+  // (4)を1回行う（自身の分だけ守りの手と異なる配分のため、こちらは
+  // nested referenceを使わず葉アクションを直接並べる）。
+  protectiveOrigin: {
+    id: "protectiveOrigin",
+    label: "守りの原点",
+    targetFaction: "ownExcludingSelf",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/プロテクト+*3",
+    steps: [
+      { actionId: "guardingHand" },
+      { actionId: "guardingHand", target: "ownExcludingSelfAndUsed" },
+      { actionId: "protect", target: "self" },
+      { actionId: "protect", target: "self" },
+      { actionId: "enhanceDefense", params: { n: 4 }, target: "self" },
+    ],
+  },
   // 【攻めの手】：攻撃した後、対象が「釘付け」状態（target.pinnedByが
   // 立っている）なら追加で貫通攻撃を行う。固定のchance確率ではなく、
   // (unit,targetUnit)=>numberの関数chanceを使うことで、既存のchance
@@ -1820,6 +1945,44 @@ Object.assign(MAIN_MODULES, {
       { actionId: "pierceAttack", chance: (unit, targetUnit) => (targetUnit.pinnedBy ? 1 : 0) },
     ],
   },
+  // 【攻めの術】：攻めの手の「釘付けなら追加」を貫通攻撃2回に強化。
+  attackingArt: {
+    id: "attackingArt",
+    label: "攻めの術",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/攻撃++",
+    steps: [
+      { actionId: "attack" },
+      { actionId: "pierceAttack", chance: (unit, targetUnit) => (targetUnit.pinnedBy ? 1 : 0) },
+      { actionId: "pierceAttack", chance: (unit, targetUnit) => (targetUnit.pinnedBy ? 1 : 0) },
+    ],
+  },
+  // 【攻めの最果】：攻めの術（攻撃+釘付け時貫通攻撃2回）を別々の相手
+  // 陣営2体に対して行う。nested referenceで2回使う -- 2回目は
+  // opposingExcludingUsedで別対象を選び、そのchance判定もnested先の
+  // targetUnit（=このステップで選ばれた対象）を正しく参照する。
+  attackingFrontier: {
+    id: "attackingFrontier",
+    label: "攻めの最果",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/攻撃++*2",
+    steps: [{ actionId: "attackingArt" }, { actionId: "attackingArt", target: "opposingExcludingUsed" }],
+  },
+  // 【ハニービート】：相手陣営1体にスマッシュ、攻撃を順に行う（ハニー
+  // ビービートの弱化版、成長前の初期修得スキル）。
+  honeyBeat: {
+    id: "honeyBeat",
+    label: "ハニービート",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/スマッシュ+",
+    steps: [{ actionId: "smash" }, { actionId: "attack" }],
+  },
   // 【ハニービービート】：相手陣営1体にスマッシュ、スマッシュ、攻撃を
   // 順に行う。
   honeyBeeBeat: {
@@ -1830,6 +1993,21 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/3/スマッシュ2+",
     steps: [{ actionId: "smash" }, { actionId: "smash" }, { actionId: "attack" }],
+  },
+  // 【ハニービーストビート】：コスト全消費。相手陣営1体に、スマッシュを
+  // 「消費したPT-1」回行い、その後同じ対象に攻撃を行う。回数自体が
+  // 実行時の支払いPT（unit.lastActionCost）という値で決まり、固定回数
+  // のstepsでは表現できないためcustom resolver（resolveHoneyBeastBeat）
+  // で処理する。スマッシュは体幹のみを操作しHPを減らさないため、途中で
+  // 対象が戦闘不能になる心配はない。
+  honeyBeastBeat: {
+    id: "honeyBeastBeat",
+    label: "ハニービーストビート",
+    targetFaction: "opposing",
+    cost: "all",
+    allyOnly: true,
+    shortNotation: "M/r/スマッシュ*r+攻撃",
+    custom: "honeyBeastBeat",
   },
   // 【ビターフィール】：相手陣営1体に継続ダメージ(5)を付与した後、
   // （前ステップの対象とは無関係に）自身に継続ダメージ(2)を付与する。
@@ -1842,37 +2020,145 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/2/継続ダメ5+",
     steps: [{ actionId: "dot", params: { n: 5 } }, { actionId: "dot", target: "self", params: { n: 2 } }],
   },
-  // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(3)、
-  // 弱体化魔法(防御力)(3)を順に行う。判定に使う能動能力値は（弱体化
+  // 【ミルクフィール】/【ホワイトフィール】：ビターフィールの成長後
+  // スキル、賢さ<協調性の場合の分岐先。相手ではなく自陣営1体に継続
+  // 回復をかける（狙いを攻撃から支援へ転換）。自身への継続ダメージの
+  // 自傷は据え置き。この賢さ/協調性による分岐そのものは、今はまだ実装
+  // しないレベルアップ時のスキル習得システム側の仕事（ここではどちらの
+  // 系列も等しくデータとして登録するだけ）。
+  milkFeel: {
+    id: "milkFeel",
+    label: "ミルクフィール",
+    targetFaction: "own",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/継続回復8+",
+    steps: [{ actionId: "regen", params: { n: 8 } }, { actionId: "dot", target: "self", params: { n: 4 } }],
+  },
+  whiteFeel: {
+    id: "whiteFeel",
+    label: "ホワイトフィール",
+    targetFaction: "own",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/継続回復12+",
+    steps: [{ actionId: "regen", params: { n: 12 } }, { actionId: "dot", target: "self", params: { n: 6 } }],
+  },
+  // 【カカオフィール】/【ブラックフィール】：ビターフィールの成長後
+  // スキル、賢さ≧協調性の場合の分岐先。相手陣営への継続ダメージ路線を
+  // そのまま強化する。
+  cacaoFeel: {
+    id: "cacaoFeel",
+    label: "カカオフィール",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/継続ダメ8+",
+    steps: [{ actionId: "dot", params: { n: 8 } }, { actionId: "dot", target: "self", params: { n: 4 } }],
+  },
+  blackFeel: {
+    id: "blackFeel",
+    label: "ブラックフィール",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/継続ダメ12+",
+    steps: [{ actionId: "dot", params: { n: 12 } }, { actionId: "dot", target: "self", params: { n: 6 } }],
+  },
+  // 【安心のサポート】：完璧なサポートの弱化版（成長前の初期修得
+  // スキル）。判定に使う能動能力値を協調性に上書きする点は同じ。
+  supportComfort: {
+    id: "supportComfort",
+    label: "安心のサポート",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/弱体化(攻防)2/協",
+    steps: [
+      { actionId: "weakenAttack", params: { n: 2, aStat: "coordination" } },
+      { actionId: "weakenDefense", params: { n: 2, aStat: "coordination" } },
+    ],
+  },
+  // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(4)、
+  // 弱体化魔法(防御力)(4)を順に行う。判定に使う能動能力値は（弱体化
   // 魔法の既定である賢さではなく）協調性に上書きする -- ロリポップ・
   // スパイラルの課題（協調性の成長が彼女の技のどれからも参照されて
   // いなかった）への回答として、Stage0のcreateCorrectionModule.
-  // params.aStat拡張をそのまま使う。
+  // params.aStat拡張をそのまま使う。安心のサポートが初期修得スキルへ
+  // 降格したのに伴い、n:3→4に微強化。
   perfectSupport: {
     id: "perfectSupport",
     label: "完璧なサポート",
     targetFaction: "opposing",
     cost: 3,
     allyOnly: true,
-    shortNotation: "M/3/弱体化(攻防)3/協",
+    shortNotation: "M/3/弱体化(攻防)4/協",
     steps: [
-      { actionId: "weakenAttack", params: { n: 3, aStat: "coordination" } },
-      { actionId: "weakenDefense", params: { n: 3, aStat: "coordination" } },
+      { actionId: "weakenAttack", params: { n: 4, aStat: "coordination" } },
+      { actionId: "weakenDefense", params: { n: 4, aStat: "coordination" } },
     ],
   },
-  // 【フラッシュ】：相手陣営全員に攻撃した後、自身にも攻撃を行う（反動
-  // ダメージ）。targetFaction:"none"のため対象候補の選択自体が不要 --
-  // 最初のstepのeach:"opposing"が相手陣営全員を、2番目のstepは（何も
-  // 指定しなくても既にactor自身を指す既定のtargetUnitのまま）自身を
-  // 対象にする。
+  // 【伝説のサポート】：完璧なサポートのさらなる強さ違い（n:7）。
+  legendarySupport: {
+    id: "legendarySupport",
+    label: "伝説のサポート",
+    targetFaction: "opposing",
+    cost: 4,
+    allyOnly: true,
+    shortNotation: "M/4/弱体化(攻防)7/協",
+    steps: [
+      { actionId: "weakenAttack", params: { n: 7, aStat: "coordination" } },
+      { actionId: "weakenDefense", params: { n: 7, aStat: "coordination" } },
+    ],
+  },
+  // 【フラッシュ】：相手陣営1体に攻撃を行った後、他の相手陣営2体に
+  // それぞれ攻撃を行い、最後に自身にも攻撃を行う（反動ダメージ）。
+  // 旧来のフラッシュ（相手陣営全員+自身）はＲ・フラッシュへ格上げされ、
+  // 代わりにこちらが初期修得スキルとして弱体化（全員ではなく固定3体）
+  // した版になった。
   flash: {
     id: "flash",
     label: "フラッシュ",
+    targetFaction: "opposing",
+    cost: 4,
+    allyOnly: true,
+    shortNotation: "M/4/攻撃3+s",
+    steps: [
+      { actionId: "attack" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+      { actionId: "attack", target: "opposingExcludingUsed" },
+      { actionId: "attack", target: "self" },
+    ],
+  },
+  // 【Ｒ・フラッシュ】：旧来のフラッシュの効果そのもの（相手陣営全員に
+  // 攻撃した後、自身にも攻撃）。targetFaction:"none"のため対象候補の
+  // 選択自体が不要 -- 最初のstepのeach:"opposing"が相手陣営全員を、
+  // 2番目のstepは（何も指定しなくても既にactor自身を指す既定の
+  // targetUnitのまま）自身を対象にする。
+  rFlash: {
+    id: "rFlash",
+    label: "Ｒ・フラッシュ",
     targetFaction: "none",
     cost: 4,
     allyOnly: true,
-    shortNotation: "M/4/攻撃*",
+    shortNotation: "M/4/攻撃*+s",
     steps: [{ actionId: "attack", each: "opposing" }, { actionId: "attack" }],
+  },
+  // 【Ｒ・Ｓ・フラッシュ】：Ｒ・フラッシュの全員攻撃・自傷をそれぞれ
+  // 2回に強化。
+  rsFlash: {
+    id: "rsFlash",
+    label: "Ｒ・Ｓ・フラッシュ",
+    targetFaction: "none",
+    cost: 5,
+    allyOnly: true,
+    shortNotation: "M/5/攻撃*2+s2",
+    steps: [
+      { actionId: "attack", each: "opposing" },
+      { actionId: "attack", each: "opposing" },
+      { actionId: "attack" },
+      { actionId: "attack" },
+    ],
   },
   // 【処方箋】：残りPTを全額消費する代わりに、回復力へ「消費したPT-3」
   // を加算する（最低1）。cost:"all"はresolveMainAction側で「PTが足り
@@ -1887,6 +2173,33 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/r/回復r",
     steps: [{ actionId: "heal", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
+  },
+  // 【処方論】：処方箋の回復対象を自陣営2体に増やす。2体目はownExcludingUsed
+  // （自分自身も、まだ使われていなければ引き続き候補になり得る）。
+  // 2体それぞれが独立に「消費したPT-3」の恩恵を受ける（PT自体は最初の
+  // 支払いで1回しか消費しないので、回復力の加算だけが2体ぶん効く）。
+  prescriptionTheory: {
+    id: "prescriptionTheory",
+    label: "処方論",
+    targetFaction: "own",
+    cost: "all",
+    allyOnly: true,
+    shortNotation: "M/r/回復r+",
+    steps: [
+      { actionId: "heal", params: (unit) => ({ b: unit.lastActionCost - 3 }) },
+      { actionId: "heal", target: "ownExcludingUsed", params: (unit) => ({ b: unit.lastActionCost - 3 }) },
+    ],
+  },
+  // 【証明】：処方論の回復対象を自陣営全員に拡張。全員が同じ動的な
+  // 加算を受けるだけなので、こちらは素直にeach:"own"で表現できる。
+  proof: {
+    id: "proof",
+    label: "証明",
+    targetFaction: "none",
+    cost: "all",
+    allyOnly: true,
+    shortNotation: "M/r/回復r*",
+    steps: [{ actionId: "heal", each: "own", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
   },
 });
 
@@ -2408,6 +2721,77 @@ const CHARACTER_SKILL_LOADOUTS = {
   sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "prescription"],
 };
 
+// 隊員のレベルアップに伴うスキル成長ツリー（データのみ）。所持スキルが
+// 一定のキリのいいレベルに達すると自動修得し、修得と同時に成長前の
+// スキルは失われる想定だが、その「いつ・どう修得させるか」という習得
+// システム自体はまだ実装しない（このデータを後から参照する形で別途
+// 組み込む）。各キャラクターの配列は{from, to}の連なりで、fromに
+// 挙げたモジュールidがtoへ丸ごと置き換わる（PREP_MODULES/MAIN_MODULES
+// どちらのidかは各モジュール定義側を参照すればよく、ここでは区別しない）。
+// ショコラ・ビターテイストのビターフィールだけは単一のtoではなくbranch
+// を持つ -- 修得時点のそのキャラクターの賢さ・協調性を比較し、
+// 条件に応じてカカオフィール系/ミルクフィール系のどちらか一方だけを
+// 修得する（比較条件そのものの評価はここでは行わない、習得システム側
+// の仕事）。
+// 即席攻撃・応急手当にはあえて成長後スキルを設けていない（現状は
+// 前者だけ・後者だけを持つ隊員がいるが、将来的に全員が両方を持つよう
+// 改修する予定で、その改修が済むまでは成長対象にしない）。
+export const CHARACTER_SKILL_GROWTH = {
+  flakeSugar: [
+    { from: "guardAlly", to: "noPassing" },
+    { from: "guardingHand", to: "protectiveCode" },
+    { from: "protectiveCode", to: "protectiveOrigin" },
+  ],
+  cubeSugar: [
+    { from: "retreatCall", to: "neverLetGo" },
+    { from: "attackingHand", to: "attackingArt" },
+    { from: "attackingArt", to: "attackingFrontier" },
+  ],
+  honeyScrew: [
+    { from: "festivalHunch", to: "festivalAdvice" },
+    // 【ハニービート】は今回新設した弱化版の初期修得スキル。既存の
+    // 【ハニービービート】（従来は初期修得スキルだった）はその成長後
+    // スキルへ格上げになった。
+    { from: "honeyBeat", to: "honeyBeeBeat" },
+    { from: "honeyBeeBeat", to: "honeyBeastBeat" },
+  ],
+  chocolatBitterTaste: [
+    { from: "shadowJustice", to: "shadowJusticeDuty" },
+    {
+      from: "bitterFeel",
+      branch: [
+        { to: "cacaoFeel", condition: "wisdomGteCoordination" },
+        { to: "milkFeel", condition: "wisdomLtCoordination" },
+      ],
+    },
+    { from: "cacaoFeel", to: "blackFeel" },
+    { from: "milkFeel", to: "whiteFeel" },
+  ],
+  lollipopSpiral: [
+    { from: "sisterCheer", to: "sisterCheerUpgrade" },
+    // 【安心のサポート】は今回新設した弱化版の初期修得スキル。既存の
+    // 【完璧なサポート】（従来は初期修得スキルだった）はその成長後
+    // スキルへ格上げになり、新設に伴って微強化もされている
+    // （n:3→4、MAIN_MODULES.perfectSupport参照）。
+    { from: "supportComfort", to: "perfectSupport" },
+    { from: "perfectSupport", to: "legendarySupport" },
+  ],
+  flawlessNoColor: [
+    { from: "check", to: "doubleCheck" },
+    // 【フラッシュ】は効果をナーフした上で初期修得スキルの名前を維持、
+    // 旧来の効果（相手陣営全員+自身）は【Ｒ・フラッシュ】として成長後
+    // スキルへ格上げになった。
+    { from: "flash", to: "rFlash" },
+    { from: "rFlash", to: "rsFlash" },
+  ],
+  sunlightSaccharum: [
+    { from: "highPlot", to: "highBet" },
+    { from: "lowPlot", to: "lowBet" },
+    { from: "prescription", to: "prescriptionTheory" },
+    { from: "prescriptionTheory", to: "proof" },
+  ],
+};
+
 // 「【スキル名】最短表記」の組み立てと、隊員/武器情報表示専用の逆引き。
 // PREP_MODULES/MAIN_MODULESどちらのidも一意なので1つの辞書にまとめて
 // 引ける（両レジストリのObject.assignが全て終わった後で作る必要がある
@@ -2794,6 +3178,10 @@ export function BattleScene(container, params, api) {
   // 相手陣営全員なので、ここで直接拾う。
   function declaredTargetsFor(unit, module) {
     if (module.custom === "topsyTurvy") return opposingPoolFor(unit);
+    // 【お姉ちゃん頑張れ〜】【流石だよ、お姉ちゃん！】もsteps自体を
+    // 持たないcustom分岐スキルだが、成立時に効果が及ぶのは自陣営全員
+    // （自身を含む）なので、あべこべと同じくここで直接拾う。
+    if (module.custom === "sisterCheer" || module.custom === "sisterCheerUpgrade") return ownPoolFor(unit);
     const each = module.steps?.[0]?.each;
     if (!each) return null;
     if (each === "own") return ownPoolFor(unit);
@@ -3289,6 +3677,24 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【お姉ちゃん頑張れ〜】【流石だよ、お姉ちゃん！】専用の処理：自陣営
+  // 全員（自身を含む）に鼓舞(n)を行うが、自陣営で行動可能なのが自身
+  // しかいなければ、警護/挑発/隠密と同じisSoleSurvivorの判定で不発に
+  // 終わる。「自身を含む全員に同じ効果、ただし特定の条件で全体が丸ごと
+  // 不発」という構成はstepsの汎用each機構では表現できないため、custom
+  // resolverにする。
+  async function resolveSisterCheer(unit, n) {
+    if (isSoleSurvivor(unit, allyUnits, enemyUnits)) {
+      pushLog(`${unit.displayName}以外に自陣営の行動可能なユニットがいないため、効果は不発に終わった。`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+      return;
+    }
+    for (const target of ownPoolFor(unit)) {
+      await applyLeafPrepModule(unit, target, PREP_MODULES.inspire, { n });
+    }
+  }
+
   // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
   // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
   // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
@@ -3323,6 +3729,14 @@ export function BattleScene(container, params, api) {
     }
     if (module.custom === "topsyTurvy") {
       await resolveTopsyTurvy(unit);
+      return;
+    }
+    if (module.custom === "sisterCheer") {
+      await resolveSisterCheer(unit, 1);
+      return;
+    }
+    if (module.custom === "sisterCheerUpgrade") {
+      await resolveSisterCheer(unit, 2);
       return;
     }
     await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
@@ -3399,6 +3813,22 @@ export function BattleScene(container, params, api) {
     if (step.target === "self") return unit;
     if (step.target === "opposingExcludingUsed") {
       const candidates = opposingPoolFor(unit).filter((u) => !usedTargets.includes(u));
+      return pickRandom(candidates);
+    }
+    // "ownExcludingUsed"：自陣営から、このスキル内で既に対象になった
+    // ユニットを除いた中からランダムに1体（opposingExcludingUsedの
+    // 自陣営版）。自分自身は既に使われていない限り候補に残る（【処方論】
+    // 【証明】のような「もう1人、別の味方に回復」構成向け -- 自分を
+    // 含めてよい）。
+    if (step.target === "ownExcludingUsed") {
+      const candidates = ownPoolFor(unit).filter((u) => !usedTargets.includes(u));
+      return pickRandom(candidates);
+    }
+    // "ownExcludingSelfAndUsed"：上と同じだが、自分自身は常に除外する
+    // （【通さない！】【守りの原点】のような、警護のように「対象は必ず
+    // 自分以外」を前提とする効果を2回以上使うスキル向け）。
+    if (step.target === "ownExcludingSelfAndUsed") {
+      const candidates = ownPoolFor(unit).filter((u) => !usedTargets.includes(u) && u !== unit);
       return pickRandom(candidates);
     }
     return targetUnit;
@@ -3578,6 +4008,21 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【ハニービーストビート】専用の解決関数：選択した相手陣営1体（宣言
+  // 済みのtargetUnit）に、支払ったPT全額-1回スマッシュを行い、最後に
+  // 同じ対象へ攻撃を1回行う。ハイパーラッシュと違い対象は最初から
+  // 固定（毎回選び直さない）で、スマッシュは体幹のみを操作しHPを減らさ
+  // ないため対象が途中で戦闘不能になる心配もない。回数自体が実行時の
+  // 支払いPTという値で決まるため、固定回数のstepsでは表現できず
+  // custom resolverにする。
+  async function resolveHoneyBeastBeat(unit, targetUnit) {
+    const smashCount = unit.lastActionCost - 1;
+    for (let i = 0; i < smashCount; i++) {
+      await applyLeafModule(unit, targetUnit, MAIN_MODULES.smash, {});
+    }
+    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack, {});
+  }
+
   // 【アレンジ】専用の解決関数：対象の継続回復⇔継続ダメージの交換
   // （継続割合ダメージは対象外、ユーザー指示の説明範囲外のため据え置
   // き）／全ての能力値補正のバフ⇔デバフ反転／体幹への-1倍、という
@@ -3624,6 +4069,7 @@ export function BattleScene(container, params, api) {
     shareCut: resolveShareCut,
     arrange: resolveArrange,
     hyperRush: resolveHyperRush,
+    honeyBeastBeat: resolveHoneyBeastBeat,
   };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
