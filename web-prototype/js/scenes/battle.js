@@ -2113,11 +2113,13 @@ Object.assign(MAIN_MODULES, {
   },
   // 【フラッシュ】：相手陣営1体に攻撃を行った後、他の相手陣営2体に
   // それぞれ攻撃を行い、最後に自身にも攻撃を行う（反動ダメージ）。
-  // 旧来のフラッシュ（相手陣営全員+自身）はＲ・フラッシュへ格上げされ、
-  // 代わりにこちらが初期修得スキルとして弱体化（全員ではなく固定3体）
-  // した版になった。
-  flash: {
-    id: "flash",
+  // 旧来のフラッシュ（相手陣営全員+自身）はＳ・フラッシュ（ストレート
+  // フラッシュ、id:straightFlush）へ格上げされ、代わりにこちらが初期
+  // 修得スキルとして弱体化（全員ではなく固定3体）した版になった。
+  // 読み方に合わせて、フラッシュ系統3体のidはトランプ役と同じ
+  // flush/straightFlush/royalStraightFlushで揃えている。
+  flush: {
+    id: "flush",
     label: "フラッシュ",
     targetFaction: "opposing",
     cost: 4,
@@ -2130,24 +2132,24 @@ Object.assign(MAIN_MODULES, {
       { actionId: "attack", target: "self" },
     ],
   },
-  // 【Ｒ・フラッシュ】：旧来のフラッシュの効果そのもの（相手陣営全員に
-  // 攻撃した後、自身にも攻撃）。targetFaction:"none"のため対象候補の
-  // 選択自体が不要 -- 最初のstepのeach:"opposing"が相手陣営全員を、
-  // 2番目のstepは（何も指定しなくても既にactor自身を指す既定の
-  // targetUnitのまま）自身を対象にする。
-  rFlash: {
-    id: "rFlash",
-    label: "Ｒ・フラッシュ",
+  // 【Ｓ・フラッシュ】（ストレートフラッシュ）：旧来のフラッシュの効果
+  // そのもの（相手陣営全員に攻撃した後、自身にも攻撃）。
+  // targetFaction:"none"のため対象候補の選択自体が不要 -- 最初のstepの
+  // each:"opposing"が相手陣営全員を、2番目のstepは（何も指定しなくても
+  // 既にactor自身を指す既定のtargetUnitのまま）自身を対象にする。
+  straightFlush: {
+    id: "straightFlush",
+    label: "Ｓ・フラッシュ",
     targetFaction: "none",
     cost: 4,
     allyOnly: true,
     shortNotation: "M/4/攻撃*+s",
     steps: [{ actionId: "attack", each: "opposing" }, { actionId: "attack" }],
   },
-  // 【Ｒ・Ｓ・フラッシュ】：Ｒ・フラッシュの全員攻撃・自傷をそれぞれ
-  // 2回に強化。
-  rsFlash: {
-    id: "rsFlash",
+  // 【Ｒ・Ｓ・フラッシュ】（ロイヤルストレートフラッシュ）：Ｓ・
+  // フラッシュの全員攻撃・自傷をそれぞれ2回に強化。
+  royalStraightFlush: {
+    id: "royalStraightFlush",
     label: "Ｒ・Ｓ・フラッシュ",
     targetFaction: "none",
     cost: 5,
@@ -2717,7 +2719,7 @@ const CHARACTER_SKILL_LOADOUTS = {
   honeyScrew: ["festivalHunch", "firstAid", "honeyBeeBeat"],
   chocolatBitterTaste: ["shadowJustice", "firstAid", "bitterFeel"],
   lollipopSpiral: ["sisterCheer", "quickAttack", "perfectSupport"],
-  flawlessNoColor: ["check", "firstAid", "flash"],
+  flawlessNoColor: ["check", "firstAid", "flush"],
   sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "prescription"],
 };
 
@@ -2779,10 +2781,11 @@ export const CHARACTER_SKILL_GROWTH = {
   flawlessNoColor: [
     { from: "check", to: "doubleCheck" },
     // 【フラッシュ】は効果をナーフした上で初期修得スキルの名前を維持、
-    // 旧来の効果（相手陣営全員+自身）は【Ｒ・フラッシュ】として成長後
-    // スキルへ格上げになった。
-    { from: "flash", to: "rFlash" },
-    { from: "rFlash", to: "rsFlash" },
+    // 旧来の効果（相手陣営全員+自身）は【Ｓ・フラッシュ】（ストレート
+    // フラッシュ）として成長後スキルへ格上げになった。トランプ役の
+    // 読み方に合わせ、idはflush/straightFlush/royalStraightFlushで揃える。
+    { from: "flush", to: "straightFlush" },
+    { from: "straightFlush", to: "royalStraightFlush" },
   ],
   sunlightSaccharum: [
     { from: "highPlot", to: "highBet" },
@@ -3170,7 +3173,7 @@ export function BattleScene(container, params, api) {
   }
 
   // 矢印表示用：「陣営全体」を対象に取るスキル（先頭のstepがstep.each
-  // を持つもの。sisterCheer/flash/quagmire/staticClingなど）は、宣言の
+  // を持つもの。straightFlush/quagmire/staticClingなど）は、宣言の
   // 時点で実際に効果が及ぶ全ユニットが確定しているので、それを返す。
   // 単体対象のスキルはnull（呼び出し側は従来通り単一のtarget表示に
   // フォールバックする）。あべこべ（custom:"topsyTurvy"）はsteps自体を
