@@ -7,7 +7,7 @@ import { computeStats } from "./resourceCatalog.js";
 
 export function computeGatherAbility(character) {
   const s = computeStats(character);
-  return Math.max(s.defense, s.wisdom);
+  return Math.max(s.defence, s.wisdom);
 }
 
 // トウド(攻撃力)'s base value sits 2 higher than シゲキ(破壊力)'s (see
@@ -20,11 +20,11 @@ const MINE_ATTACK_ADJUSTMENT = 2;
 
 export function computeMineAbility(character) {
   const s = computeStats(character);
-  return Math.max(s.attack - MINE_ATTACK_ADJUSTMENT, s.destruction);
+  return Math.max(s.attack - MINE_ATTACK_ADJUSTMENT, s.power);
 }
 
 export function computeSuperviseAbility(character) {
-  return computeStats(character).coordination;
+  return computeStats(character).sociality;
 }
 
 // 進捗度上限：各隊員の担当能力値(A、採集ならcomputeGatherAbility、採掘
@@ -49,15 +49,15 @@ export function needsSupervisorCall(successCount, superviseAbility) {
 // same regardless of which tied stat "wins".
 export function gatherGrowthStatKey(character) {
   const s = computeStats(character);
-  if (s.defense === s.wisdom) return Math.random() < 0.5 ? "defense" : "wisdom";
-  return s.defense > s.wisdom ? "defense" : "wisdom";
+  if (s.defence === s.wisdom) return Math.random() < 0.5 ? "defence" : "wisdom";
+  return s.defence > s.wisdom ? "defence" : "wisdom";
 }
 
 export function mineGrowthStatKey(character) {
   const s = computeStats(character);
   const adjustedAttack = s.attack - MINE_ATTACK_ADJUSTMENT;
-  if (adjustedAttack === s.destruction) return Math.random() < 0.5 ? "attack" : "destruction";
-  return adjustedAttack > s.destruction ? "attack" : "destruction";
+  if (adjustedAttack === s.power) return Math.random() < 0.5 ? "attack" : "power";
+  return adjustedAttack > s.power ? "attack" : "power";
 }
 
 // 成功数から獲得品質の並びを決める、採集/採掘共通の周回式。tiersは

@@ -34,15 +34,15 @@
      color, applied everywhere both are shown (see characterCard.js). --- */
   --stat-hp: #ffa64d;
   --stat-attack: #ff5c5c;
-  --stat-defense: #5ec8ff;
-  --stat-destruction: #ffd93d;
+  --stat-defence: #5ec8ff;
+  --stat-power: #ffd93d;
   --stat-wisdom: #6bdb7a;
-  --stat-coordination: #b98aff;
+  --stat-sociality: #b98aff;
 
   /* --- 探索イベントの複合能力値 colors (採集能力/採掘能力 draw from
      two different 能力値 depending on the character, so they get their
      own colors rather than borrowing one specific stat's; 監督能力 is
-     always coordination, so it reuses that color). --- */
+     always sociality, so it reuses that color). --- */
   --ability-gather: #6bdb7a;
   --ability-mine: #ffa64d;
   --ability-supervise: #b98aff;
@@ -388,24 +388,24 @@ body {
 /* 武器強化画面: 性能値ごとの「強化」ボタンが、その性能値と同じ色で
    ハイライトされる (see .stat-* text colors, same --stat-* variables). */
 .btn--stat-attack,
-.btn--stat-defense,
-.btn--stat-destruction,
+.btn--stat-defence,
+.btn--stat-power,
 .btn--stat-wisdom,
-.btn--stat-coordination {
+.btn--stat-sociality {
   color: var(--ember-ink);
 }
 
 .btn--stat-attack { background: var(--stat-attack); border-color: var(--stat-attack); }
-.btn--stat-defense { background: var(--stat-defense); border-color: var(--stat-defense); }
-.btn--stat-destruction { background: var(--stat-destruction); border-color: var(--stat-destruction); }
+.btn--stat-defence { background: var(--stat-defence); border-color: var(--stat-defence); }
+.btn--stat-power { background: var(--stat-power); border-color: var(--stat-power); }
 .btn--stat-wisdom { background: var(--stat-wisdom); border-color: var(--stat-wisdom); }
-.btn--stat-coordination { background: var(--stat-coordination); border-color: var(--stat-coordination); }
+.btn--stat-sociality { background: var(--stat-sociality); border-color: var(--stat-sociality); }
 
 .btn--stat-attack:hover:not(:disabled),
-.btn--stat-defense:hover:not(:disabled),
-.btn--stat-destruction:hover:not(:disabled),
+.btn--stat-defence:hover:not(:disabled),
+.btn--stat-power:hover:not(:disabled),
 .btn--stat-wisdom:hover:not(:disabled),
-.btn--stat-coordination:hover:not(:disabled) {
+.btn--stat-sociality:hover:not(:disabled) {
   filter: brightness(1.08);
 }
 
@@ -525,10 +525,10 @@ body {
 }
 
 .enhance-dot.stat-attack { background: var(--stat-attack); }
-.enhance-dot.stat-defense { background: var(--stat-defense); }
-.enhance-dot.stat-destruction { background: var(--stat-destruction); }
+.enhance-dot.stat-defence { background: var(--stat-defence); }
+.enhance-dot.stat-power { background: var(--stat-power); }
 .enhance-dot.stat-wisdom { background: var(--stat-wisdom); }
-.enhance-dot.stat-coordination { background: var(--stat-coordination); }
+.enhance-dot.stat-sociality { background: var(--stat-sociality); }
 
 .enhance-line {
   width: 20px;
@@ -538,10 +538,10 @@ body {
 }
 
 .enhance-line.stat-attack { background: var(--stat-attack); }
-.enhance-line.stat-defense { background: var(--stat-defense); }
-.enhance-line.stat-destruction { background: var(--stat-destruction); }
+.enhance-line.stat-defence { background: var(--stat-defence); }
+.enhance-line.stat-power { background: var(--stat-power); }
 .enhance-line.stat-wisdom { background: var(--stat-wisdom); }
-.enhance-line.stat-coordination { background: var(--stat-coordination); }
+.enhance-line.stat-sociality { background: var(--stat-sociality); }
 
 .field-group {
   display: flex;
@@ -807,7 +807,7 @@ body {
 /* 休憩発生クロックの境界を示す縦点線。SVG内で最初に描画される（＝
    マップ本体より後ろ）。 */
 .map-checkpoint-line {
-  stroke: var(--stat-defense);
+  stroke: var(--stat-defence);
   stroke-width: 2;
   stroke-dasharray: 6 4;
   opacity: 0.5;
@@ -842,12 +842,12 @@ body {
 .map-node.map-node--battle circle { fill: var(--stat-attack); }
 .map-node.map-node--exploration circle { fill: var(--stat-wisdom); }
 .map-node.map-node--episode circle { fill: var(--stat-hp); }
-.map-node.map-node--village circle { fill: var(--stat-defense); }
-.map-node.map-node--snack circle { fill: var(--stat-destruction); }
-.map-node.map-node--workshop circle { fill: var(--stat-coordination); }
+.map-node.map-node--village circle { fill: var(--stat-defence); }
+.map-node.map-node--snack circle { fill: var(--stat-power); }
+.map-node.map-node--workshop circle { fill: var(--stat-sociality); }
 /* 休憩＝青（集落と同色）、行商＝橙（遭遇と同色）-- 色の被りは仕様どおり
    気にしない。 */
-.map-node.map-node--rest circle { fill: var(--stat-defense); }
+.map-node.map-node--rest circle { fill: var(--stat-defence); }
 .map-node.map-node--peddler circle { fill: var(--stat-hp); }
 
 .map-node.is-visited circle {
@@ -924,10 +924,10 @@ body {
 
 .stat-hp { color: var(--stat-hp); }
 .stat-attack { color: var(--stat-attack); }
-.stat-defense { color: var(--stat-defense); }
-.stat-destruction { color: var(--stat-destruction); }
+.stat-defence { color: var(--stat-defence); }
+.stat-power { color: var(--stat-power); }
 .stat-wisdom { color: var(--stat-wisdom); }
-.stat-coordination { color: var(--stat-coordination); }
+.stat-sociality { color: var(--stat-sociality); }
 
 .ability-gather { color: var(--ability-gather); }
 .ability-mine { color: var(--ability-mine); }
@@ -941,7 +941,7 @@ body {
    -- used only when the affected quantity has no dedicated stat color
    of its own; a stat's own color always wins over these (see
    episode.js's applyEffect). */
-.effect-positive { color: var(--stat-defense); }
+.effect-positive { color: var(--stat-defence); }
 .effect-negative { color: var(--danger-strong); }
 
 /* ---------------------------------------------------------
@@ -1031,7 +1031,7 @@ body {
 .character-card__condition {
   font-family: var(--font-mono);
   font-size: 12px;
-  color: var(--stat-coordination);
+  color: var(--stat-sociality);
   margin-left: auto;
 }
 
@@ -1182,7 +1182,7 @@ body {
 
 /* 味方の行動は青、敵の行動は赤。フェイズ見出しは白のまま太字にして
    目立たせる（残りHP一覧はkind="roster"で、色はそのまま通常の太さ）。 */
-.battle-log__line--ally { color: var(--stat-defense); }
+.battle-log__line--ally { color: var(--stat-defence); }
 .battle-log__line--enemy { color: var(--danger-strong); }
 .battle-log__line--phase { font-weight: 600; }
 
@@ -1331,7 +1331,7 @@ body {
 
 /* 隠密状態のユニットのステータス枠の隣に出す、薄い青のバツ印。 */
 .battle-stealth-mark {
-  stroke: var(--stat-defense);
+  stroke: var(--stat-defence);
   stroke-width: 2;
   opacity: 0.5;
 }
@@ -1417,8 +1417,8 @@ body {
   white-space: nowrap;
 }
 
-.battle-unit__stamina--armor { color: var(--stat-defense); }
-.battle-unit__stamina--fragile { color: var(--stat-destruction); }
+.battle-unit__stamina--armor { color: var(--stat-defence); }
+.battle-unit__stamina--fragile { color: var(--stat-power); }
 
 /* 能力値の行とイニシアチブ(IN)を同じ行に、ININは右揃えで。 */
 .battle-unit__statline {
@@ -1443,7 +1443,7 @@ body {
 /* 変調：隊員（味方陣営）限定の常設パラメータ、紫（協調性と同じ色）。 */
 .battle-unit__condition {
   font-size: 11px;
-  color: var(--stat-coordination);
+  color: var(--stat-sociality);
   white-space: nowrap;
 }
 
@@ -1453,7 +1453,7 @@ body {
   color: var(--ink-dim);
 }
 
-.battle-stat--boost { color: var(--stat-defense); }
+.battle-stat--boost { color: var(--stat-defence); }
 .battle-stat--drop { color: var(--danger); }
 
 /* 体幹は左、PT＋ランプは右揃え。 */

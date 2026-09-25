@@ -31,7 +31,7 @@ import { DUNGEON_SCRIPTS, EPISODE_ARCHIVE_ENTRIES } from "../data/scripts.js";
 // キー・武器性能値キー。CHARACTER_STAT_LABELS/WEAPON_STAT_LABELSの
 // キー一覧をそのまま使ってもよいが、hpを含む/含まないの取り違えを
 // 避けるため、ここで明示的に列挙しておく。
-const JUDGEABLE_CHARACTER_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+const JUDGEABLE_CHARACTER_STAT_KEYS = ["attack", "defence", "power", "wisdom", "sociality"];
 const WEAPON_STAT_KEYS = ["sweetness", "hardness", "poisonResist", "stability", "flexibility"];
 
 function pickRandomFrom(list) {

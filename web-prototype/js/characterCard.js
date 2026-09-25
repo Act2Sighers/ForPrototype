@@ -23,13 +23,13 @@ import {
 import { describeCharacterSkills, describeWeaponSkill } from "./scenes/battle.js";
 
 // Split across two lines (rather than one 5-stat row) per the user's
-// preference for readability: attack+defense, then the other three.
-const STAT_LINE_1 = ["attack", "defense"];
+// preference for readability: attack+defence, then the other three.
+const STAT_LINE_1 = ["attack", "defence"];
 // ギャラリー・雇用画面用：HPゲージの代わりに、カロリー(HP)も能力値の
 // 一覧に含めて表示する（両画面とも表示される隊員は必ずHP全快のため、
 // 最大HPさえ分かれば十分という判断 -- characterStatLineWithMaxHp参照）。
-const STAT_LINE_1_WITH_HP = ["hp", "attack", "defense"];
-const STAT_LINE_2 = ["destruction", "wisdom", "coordination"];
+const STAT_LINE_1_WITH_HP = ["hp", "attack", "defence"];
+const STAT_LINE_2 = ["power", "wisdom", "sociality"];
 const FULL_WIDTH_SPACE = "　";
 
 export function characterHpGauge(character) {

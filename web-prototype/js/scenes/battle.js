@@ -930,15 +930,15 @@ function createCorrectionModule(id, label, statKey, sign, judgeStatKey, shortNot
 
 const CORRECTION_MODULE_DEFS = [
   { statKey: "attack", statLabel: "攻撃力", shortStat: "攻", enhanceId: "enhanceAttack", weakenId: "weakenAttack" },
-  { statKey: "defense", statLabel: "防御力", shortStat: "防", enhanceId: "enhanceDefense", weakenId: "weakenDefense" },
-  { statKey: "destruction", statLabel: "破壊力", shortStat: "破", enhanceId: "enhanceDestruction", weakenId: "weakenDestruction" },
+  { statKey: "defence", statLabel: "防御力", shortStat: "防", enhanceId: "enhanceDefence", weakenId: "weakenDefence" },
+  { statKey: "power", statLabel: "破壊力", shortStat: "破", enhanceId: "enhancePower", weakenId: "weakenPower" },
   { statKey: "wisdom", statLabel: "賢さ", shortStat: "賢", enhanceId: "enhanceWisdom", weakenId: "weakenWisdom" },
-  { statKey: "coordination", statLabel: "協調性", shortStat: "協", enhanceId: "enhanceCoordination", weakenId: "weakenCoordination" },
+  { statKey: "sociality", statLabel: "協調性", shortStat: "協", enhanceId: "enhanceSociality", weakenId: "weakenSociality" },
 ];
 
 const CORRECTION_MODULES = {};
 for (const { statKey, statLabel, shortStat, enhanceId, weakenId } of CORRECTION_MODULE_DEFS) {
-  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "coordination", `M/強化(${shortStat})`);
+  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "sociality", `M/強化(${shortStat})`);
   CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom", `M/弱体化(${shortStat})`);
 }
 
@@ -959,7 +959,7 @@ function attributeProcChance(actor) {
 // なくattributeDebuffNから取る専用の葉モジュール。MAIN_MODULESには
 // 登録しない（プレイヤーが直接選べる項目ではなく、属性攻撃スキルの
 // 内部でだけ使うため）。
-const ATTRIBUTE_STAT_KEYS = { soak: "attack", humidity: "defense", cold: "destruction", dry: "wisdom", heat: "coordination" };
+const ATTRIBUTE_STAT_KEYS = { soak: "attack", humidity: "defence", cold: "power", dry: "wisdom", heat: "sociality" };
 function createAttributeStatDebuff(statKey) {
   return {
     effect: "correction",
@@ -1018,12 +1018,12 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "hp",
     shortNotation: "M/攻撃",
-    // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defense）。
+    // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defence）。
     // スキル側がstep.paramsで指定する（例：ティックの能動:賢さ、
     // 受動:賢さ）。
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
-      const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "defence"));
       const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
@@ -1051,13 +1051,13 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "hp",
     shortNotation: "M/回復",
-    // params.aStat：判定に使う能動能力値の上書き（既定coordination）。
+    // params.aStat：判定に使う能動能力値の上書き（既定sociality）。
     // params.b：回復力への加算（既定0、負値も可）。【処方箋】のような
     // 「回復力そのものを動的に増減させる」スキルのための拡張 -- 合計は
     // 最低1に切り上げる（successCountToR自体も最低1だが、bがマイナスの
     // 時はそれだけでは足りないため改めて保証する）。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "coordination"));
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "sociality"));
       const healPower = Math.max(1, successCountToR(successCount) + (params.b ?? 0));
       const healAmount = rollSum(healPower);
       applyHpHeal(target.character, healAmount);
@@ -1070,12 +1070,12 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "stamina",
     shortNotation: "M/プロテクト",
-    // params.aStat：能動能力値の上書き（既定defense）。戻り値の
+    // params.aStat：能動能力値の上書き（既定defence）。戻り値の
     // magnitudeは体幹の増加量（成功度合いそのもの）-- 【エコロジー】の
     // ような「直前のステップの結果を次のステップのparamsが参照する」
     // 構成のために持たせる（このapply自体は自分の戻り値を使わない）。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "defense"));
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "defence"));
       const x = successCountToR(successCount);
       target.stamina = clampStamina(target.stamina + x);
       return { magnitude: x, label: "体幹上昇" };
@@ -1087,10 +1087,10 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "stamina",
     shortNotation: "M/スマッシュ",
-    // params.aStat：能動能力値の上書き（既定destruction）。戻り値の
+    // params.aStat：能動能力値の上書き（既定power）。戻り値の
     // magnitudeは体幹の減少量（プロテクトと同じ理由で持たせる）。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "destruction"));
+      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "power"));
       const x = successCountToR(successCount);
       target.stamina = clampStamina(target.stamina - x);
       return { magnitude: x, label: "体幹低下" };
@@ -1104,10 +1104,10 @@ const MAIN_MODULES = {
     effect: "continuous",
     shortNotation: "M/継続回復",
     // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
-    // coordination）。
+    // sociality）。
     apply: (actor, target, params = {}) => {
       const { n = 1, aStat } = params;
-      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "coordination"));
+      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "sociality"));
       const turns = successCountToR(successCount);
       return applyContinuousStatus(target, n, "heal", turns);
     },
@@ -1120,7 +1120,7 @@ const MAIN_MODULES = {
     shortNotation: "M/蘇生",
     apply: (actor, target) => {
       if (actor.faction === "enemy") return { applied: false };
-      const healedHp = Math.min(computeEffectiveMaxHp(target.character), correctedStat(actor, "coordination") * 2);
+      const healedHp = Math.min(computeEffectiveMaxHp(target.character), correctedStat(actor, "sociality") * 2);
       target.character.currentHp = healedHp;
       return { applied: true, healedHp };
     },
@@ -1214,7 +1214,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     shortNotation: "M/1/強化(防)s",
-    steps: [{ actionId: "enhanceDefense" }],
+    steps: [{ actionId: "enhanceDefence" }],
   },
   scratch: {
     id: "scratch",
@@ -1232,7 +1232,7 @@ Object.assign(MAIN_MODULES, {
     cost: 3,
     monsterOnly: true,
     shortNotation: "M/3/攻撃+",
-    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDestruction", params: { n: 2 } }],
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenPower", params: { n: 2 } }],
   },
   discharge: {
     id: "discharge",
@@ -1241,7 +1241,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     shortNotation: "M/1/弱体化(破)",
-    steps: [{ actionId: "weakenDestruction" }],
+    steps: [{ actionId: "weakenPower" }],
   },
   // 【甘い果実】：healTarget:trueが、CPU側の対象選択で「候補からランダム
   // に1体」ではなく「自陣営の残りHPが最も少ない1体」を選ばせる（同値は
@@ -1375,7 +1375,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     shortNotation: "M/1/弱体化(防)2",
-    steps: [{ actionId: "weakenDefense", params: { n: 2 } }],
+    steps: [{ actionId: "weakenDefence", params: { n: 2 } }],
   },
   // 【遠吠え】：自陣営1体に強化魔法(攻撃力)(2)をかける。
   howl: {
@@ -1492,8 +1492,8 @@ Object.assign(MAIN_MODULES, {
     monsterOnly: true,
     shortNotation: "M/1/強化(防)2+",
     steps: [
-      { actionId: "enhanceDefense", params: { n: 2 } },
-      { actionId: "enhanceDefense", params: { n: 2 }, target: "self" },
+      { actionId: "enhanceDefence", params: { n: 2 } },
+      { actionId: "enhanceDefence", params: { n: 2 }, target: "self" },
     ],
   },
   fortifyAll: {
@@ -1503,7 +1503,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     monsterOnly: true,
     shortNotation: "M/2/強化(防)3*",
-    steps: [{ actionId: "enhanceDefense", params: { n: 3 }, each: "own" }],
+    steps: [{ actionId: "enhanceDefence", params: { n: 3 }, each: "own" }],
   },
   // ユキドケイ系統の上位個体用スキル。
   avalanche: {
@@ -1563,7 +1563,7 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/弱体化(賢)3+",
     steps: [
       { actionId: "weakenWisdom", params: { n: 3 } },
-      { actionId: "weakenCoordination", params: { n: 3 } },
+      { actionId: "weakenSociality", params: { n: 3 } },
     ],
   },
   // 【当身】：素のスマッシュをコスト1で使う。
@@ -1624,12 +1624,12 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/特殊",
     apply: (actor, target, params = {}) => {
       const { n = 5 } = params;
-      const statKeys = ["attack", "defense", "destruction", "wisdom", "coordination"];
+      const statKeys = ["attack", "defence", "power", "wisdom", "sociality"];
       const values = statKeys.map((key) => rawStat(target, key));
       const max = Math.max(...values);
       const tied = statKeys.filter((key, i) => values[i] === max);
       const statKey = pickRandom(tied);
-      const { successCount } = rollJudgement(rawStat(actor, "coordination"));
+      const { successCount } = rollJudgement(rawStat(actor, "sociality"));
       const turns = successCountToR(successCount);
       return applyCorrection(target, statKey, n, 1, turns);
     },
@@ -1671,10 +1671,10 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/弱体化5種3",
     steps: [
       { actionId: "weakenAttack", params: { n: 3 } },
-      { actionId: "weakenDefense", params: { n: 3 } },
-      { actionId: "weakenDestruction", params: { n: 3 } },
+      { actionId: "weakenDefence", params: { n: 3 } },
+      { actionId: "weakenPower", params: { n: 3 } },
       { actionId: "weakenWisdom", params: { n: 3 } },
-      { actionId: "weakenCoordination", params: { n: 3 } },
+      { actionId: "weakenSociality", params: { n: 3 } },
     ],
   },
   // 【虫の湧いた結末】：相手陣営1体に継続ダメージ(6)を付与した後、
@@ -1747,7 +1747,7 @@ Object.assign(MAIN_MODULES, {
     cost: 3,
     monsterOnly: true,
     shortNotation: "M/3/攻撃+",
-    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenCoordination", params: { n: 2 } }],
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenSociality", params: { n: 2 } }],
   },
   cumulus: {
     id: "cumulus",
@@ -1756,7 +1756,7 @@ Object.assign(MAIN_MODULES, {
     cost: 3,
     monsterOnly: true,
     shortNotation: "M/3/攻撃+",
-    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDefense", params: { n: 4 } }],
+    steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDefence", params: { n: 4 } }],
   },
   sandstorm: {
     id: "sandstorm",
@@ -1775,7 +1775,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     shortNotation: "M/1/弱体化(協)",
-    steps: [{ actionId: "weakenCoordination" }],
+    steps: [{ actionId: "weakenSociality" }],
   },
   cottonCloud: {
     id: "cottonCloud",
@@ -1784,7 +1784,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     shortNotation: "M/1/弱体化(防)2",
-    steps: [{ actionId: "weakenDefense", params: { n: 2 } }],
+    steps: [{ actionId: "weakenDefence", params: { n: 2 } }],
   },
   sandDust: {
     id: "sandDust",
@@ -1869,7 +1869,7 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/1/即席攻撃",
     apply: (actor, target, params = {}) => {
       const a = rollSum(2);
-      const d = rollSum(correctedStat(target, params.dStat ?? "defense"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "defence"));
       const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
       const damage = Math.ceil(((a * a) / (a + d)) * c);
       applyHpDamage(target.character, damage);
@@ -1894,7 +1894,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     shortNotation: "M/2/プロテクトs+",
-    steps: [{ actionId: "protect" }, { actionId: "enhanceDefense", params: { n: 2 } }],
+    steps: [{ actionId: "protect" }, { actionId: "enhanceDefence", params: { n: 2 } }],
   },
   // 【守りの掟】：守りの手（プロテクト+強化魔法(防御力)(2)）を自身以外
   // の自陣営1体に行った後、自身にも同じく行う。守りの手自体をnested
@@ -1926,7 +1926,7 @@ Object.assign(MAIN_MODULES, {
       { actionId: "guardingHand", target: "ownExcludingSelfAndUsed" },
       { actionId: "protect", target: "self" },
       { actionId: "protect", target: "self" },
-      { actionId: "enhanceDefense", params: { n: 4 }, target: "self" },
+      { actionId: "enhanceDefence", params: { n: 4 }, target: "self" },
     ],
   },
   // 【攻めの手】：攻撃した後、対象が「釘付け」状態（target.pinnedByが
@@ -2075,8 +2075,8 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/2/弱体化(攻防)2/協",
     steps: [
-      { actionId: "weakenAttack", params: { n: 2, aStat: "coordination" } },
-      { actionId: "weakenDefense", params: { n: 2, aStat: "coordination" } },
+      { actionId: "weakenAttack", params: { n: 2, aStat: "sociality" } },
+      { actionId: "weakenDefence", params: { n: 2, aStat: "sociality" } },
     ],
   },
   // 【完璧なサポート】：相手陣営1体に弱体化魔法(攻撃力)(4)、
@@ -2094,8 +2094,8 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/3/弱体化(攻防)4/協",
     steps: [
-      { actionId: "weakenAttack", params: { n: 4, aStat: "coordination" } },
-      { actionId: "weakenDefense", params: { n: 4, aStat: "coordination" } },
+      { actionId: "weakenAttack", params: { n: 4, aStat: "sociality" } },
+      { actionId: "weakenDefence", params: { n: 4, aStat: "sociality" } },
     ],
   },
   // 【伝説のサポート】：完璧なサポートのさらなる強さ違い（n:7）。
@@ -2107,8 +2107,8 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/4/弱体化(攻防)7/協",
     steps: [
-      { actionId: "weakenAttack", params: { n: 7, aStat: "coordination" } },
-      { actionId: "weakenDefense", params: { n: 7, aStat: "coordination" } },
+      { actionId: "weakenAttack", params: { n: 7, aStat: "sociality" } },
+      { actionId: "weakenDefence", params: { n: 7, aStat: "sociality" } },
     ],
   },
   // 【フラッシュ】：相手陣営1体に攻撃を行った後、他の相手陣営2体に
@@ -2214,7 +2214,7 @@ Object.assign(MAIN_MODULES, {
   // 構成（処方箋と同じcost:"all"パターン -- unit.lastActionCostへ支払
   // 額が記録済みのものを弱体化のnとしてそのまま使う）。ダメージより
   // 威勢を削ぐことを狙ったコンセプトで、弱体化の判定ステータスは
-  // weakenAttack/weakenDestruction/weakenDefenseそれぞれの既定（賢さ）
+  // weakenAttack/weakenPower/weakenDefenceそれぞれの既定（賢さ）
   // のまま上書きしない。
   hornBreak: {
     id: "hornBreak",
@@ -2234,7 +2234,7 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     weaponOnly: true,
     shortNotation: "M/r/弱体化(破)r",
-    steps: [{ actionId: "attack" }, { actionId: "weakenDestruction", params: (unit) => ({ n: unit.lastActionCost }) }],
+    steps: [{ actionId: "attack" }, { actionId: "weakenPower", params: (unit) => ({ n: unit.lastActionCost }) }],
   },
   shellBreak: {
     id: "shellBreak",
@@ -2244,7 +2244,7 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     weaponOnly: true,
     shortNotation: "M/r/弱体化(防)r",
-    steps: [{ actionId: "attack" }, { actionId: "weakenDefense", params: (unit) => ({ n: unit.lastActionCost }) }],
+    steps: [{ actionId: "attack" }, { actionId: "weakenDefence", params: (unit) => ({ n: unit.lastActionCost }) }],
   },
   // 【サプライズ】（ストロー）：攻撃の能動能力値を協調性に上書きする
   // （Stage0のattack.params.aStat拡張をそのまま使う）。
@@ -2256,7 +2256,7 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     weaponOnly: true,
     shortNotation: "M/2/攻撃/協",
-    steps: [{ actionId: "attack", params: { aStat: "coordination" } }],
+    steps: [{ actionId: "attack", params: { aStat: "sociality" } }],
   },
   // 【バウンス】（ディッパー）：自身のIN値で分岐する特殊スキル。実際の
   // 分岐処理はcustom resolver（resolveBounce、BattleScene内）が持つ。
@@ -2315,7 +2315,7 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/2/プロテクトs+",
     steps: [
       { actionId: "protect" },
-      { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defense" }) },
+      { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defence" }) },
     ],
   },
   // 【シェアカット】（ピザカッター）：対象選択の必要なし（targetFaction:
@@ -2762,8 +2762,8 @@ export const CHARACTER_SKILL_GROWTH = {
     {
       from: "bitterFeel",
       branch: [
-        { to: "cacaoFeel", condition: "wisdomGteCoordination" },
-        { to: "milkFeel", condition: "wisdomLtCoordination" },
+        { to: "cacaoFeel", condition: "wisdomGteSociality" },
+        { to: "milkFeel", condition: "wisdomLtSociality" },
       ],
     },
     { from: "cacaoFeel", to: "blackFeel" },
@@ -2839,7 +2839,7 @@ function createBattleUnit(character, faction) {
     in: 0,
     pt: { current: PREP_START_PT, max: PREP_START_PT },
     stamina: 0,
-    corrections: { attack: null, defense: null, destruction: null, wisdom: null, coordination: null },
+    corrections: { attack: null, defence: null, power: null, wisdom: null, sociality: null },
     continuousHp: null,
     pinnedBy: null,
     stealthed: false,
@@ -2872,8 +2872,8 @@ function assignDisplayNames(units) {
   }
 }
 
-const BATTLE_STAT_ORDER = ["attack", "defense", "destruction", "wisdom", "coordination"];
-const BATTLE_STAT_ABBR = { attack: "攻", defense: "防", destruction: "破", wisdom: "賢", coordination: "協" };
+const BATTLE_STAT_ORDER = ["attack", "defence", "power", "wisdom", "sociality"];
+const BATTLE_STAT_ABBR = { attack: "攻", defence: "防", power: "破", wisdom: "賢", sociality: "協" };
 
 // 能力値の補正状態 -- "positive" | "negative" | null。強化魔法/弱体化
 // 魔法でその能力値に補正がかかっていれば符号を返す（表示の色分け用）。
@@ -3965,9 +3965,9 @@ export function BattleScene(container, params, api) {
   // ユーザー指示によりバウンス/ブレンドはこの方式に統一）。
   async function resolveBounce(unit) {
     if (unit.in >= 1) {
-      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDestruction, { n: unit.in });
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhancePower, { n: unit.in });
     } else if (unit.in <= -1) {
-      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDefense, { n: -unit.in });
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDefence, { n: -unit.in });
     } else {
       pushLog(`${unit.displayName}はIN（行動値）が0のため、「バウンス」は不発に終わった。`, unit.faction);
       render();
@@ -3981,7 +3981,7 @@ export function BattleScene(container, params, api) {
   // -- ユーザー指示により対象選択の候補管理は行わない簡略版）。相手
   // 陣営が全滅するなどして候補がいなくなった時点で打ち切る。
   async function resolveShareCut(unit) {
-    const statKeys = ["attack", "defense", "destruction", "wisdom", "coordination"];
+    const statKeys = ["attack", "defence", "power", "wisdom", "sociality"];
     const values = statKeys.map((key) => rawStat(unit, key));
     const max = Math.max(...values);
     const hitCount = values.filter((v) => v === max).length;
@@ -4042,7 +4042,7 @@ export function BattleScene(container, params, api) {
       pushLog(`${targetUnit.displayName}の${beforeLabel}が${afterLabel}に変わった！`, unit.faction);
       changed = true;
     }
-    for (const statKey of ["attack", "defense", "destruction", "wisdom", "coordination"]) {
+    for (const statKey of ["attack", "defence", "power", "wisdom", "sociality"]) {
       const correction = targetUnit.corrections[statKey];
       if (!correction) continue;
       correction.sign *= -1;

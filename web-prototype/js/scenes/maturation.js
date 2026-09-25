@@ -9,7 +9,7 @@ import {
   growCharacterStat,
 } from "../data/resourceCatalog.js";
 
-const GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+const GROWTH_STAT_KEYS = ["attack", "defence", "power", "wisdom", "sociality"];
 
 function weaponDetailLine(character) {
   if (!character.weapon) {
@@ -33,7 +33,7 @@ function weaponDetailLine(character) {
 // の成長値に加算し、呼び出し元（squadFormation.js）へ戻る。
 export function MaturationScene(container, params, api) {
   const { character, growthPoints, levelBefore, levelAfter } = params;
-  const allocations = { attack: 0, defense: 0, destruction: 0, wisdom: 0, coordination: 0 };
+  const allocations = { attack: 0, defence: 0, power: 0, wisdom: 0, sociality: 0 };
 
   function remainingPoints() {
     return growthPoints - GROWTH_STAT_KEYS.reduce((sum, key) => sum + allocations[key], 0);

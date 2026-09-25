@@ -99,8 +99,8 @@ export function ExplorationScene(container, params, api) {
         growthEntries.push({ character, statKey, before, after });
       }
       if (worker.usedSupervise) {
-        const { before, after } = growCharacterStat(character, "coordination", 1);
-        growthEntries.push({ character, statKey: "coordination", before, after });
+        const { before, after } = growCharacterStat(character, "sociality", 1);
+        growthEntries.push({ character, statKey: "sociality", before, after });
       }
     }
     commitHaul(haul);

@@ -40,15 +40,15 @@ export function canEquip(character, weapon) {
   return character.synergies.some((synergyId) => weaponSynergies.includes(synergyId));
 }
 
-export const CHARACTER_BASE = { attack: 3, defense: 1, destruction: 1, wisdom: 1, coordination: 1 };
+export const CHARACTER_BASE = { attack: 3, defence: 1, power: 1, wisdom: 1, sociality: 1 };
 
 export const CHARACTER_STAT_LABELS = {
   hp: "カロリー",
   attack: "トウド",
-  defense: "ヒフク",
-  destruction: "シゲキ",
+  defence: "ヒフク",
+  power: "シゲキ",
   wisdom: "フクミ",
-  coordination: "カオリ",
+  sociality: "カオリ",
 };
 
 // Full descriptive names, shown in parentheses alongside the short
@@ -57,23 +57,23 @@ export const CHARACTER_STAT_LABELS = {
 export const CHARACTER_STAT_FULL_LABELS = {
   hp: "HP",
   attack: "攻撃力",
-  defense: "防御力",
-  destruction: "破壊力",
+  defence: "防御力",
+  power: "破壊力",
   wisdom: "賢さ",
-  coordination: "協調性",
+  sociality: "協調性",
 };
 
 function growthSum(growth) {
-  return growth.attack + growth.defense + growth.destruction + growth.wisdom + growth.coordination;
+  return growth.attack + growth.defence + growth.power + growth.wisdom + growth.sociality;
 }
 
 function mergeGrowth(base, bonus) {
   return {
     attack: base.attack + (bonus.attack ?? 0),
-    defense: base.defense + (bonus.defense ?? 0),
-    destruction: base.destruction + (bonus.destruction ?? 0),
+    defence: base.defence + (bonus.defence ?? 0),
+    power: base.power + (bonus.power ?? 0),
     wisdom: base.wisdom + (bonus.wisdom ?? 0),
-    coordination: base.coordination + (bonus.coordination ?? 0),
+    sociality: base.sociality + (bonus.sociality ?? 0),
   };
 }
 
@@ -82,7 +82,7 @@ function mergeGrowth(base, bonus) {
 // weaponTrade.js)がstate.run.visitedNodeIds.length/state.run.dungeonParams
 // から渡す -- このファイルはstateに依存しない方針を保つため、生の数値
 // だけを受け取る。
-const GROWTH_STAT_KEYS = ["attack", "defense", "destruction", "wisdom", "coordination"];
+const GROWTH_STAT_KEYS = ["attack", "defence", "power", "wisdom", "sociality"];
 
 // 雇用候補者/道中モンスターのレベル算出式。難易度D・最深部の深度
 // （＝最長到達マス数）Lが高難易度/短深度なほど、道中の同じ到達マス数m
@@ -194,10 +194,10 @@ export function levelUpRequirement(level) {
 // abbreviations the same as the 能力値 they feed.
 export const WEAPON_STAT_BY_CHARACTER_STAT = {
   attack: "sweetness",
-  defense: "hardness",
-  destruction: "poisonResist",
+  defence: "hardness",
+  power: "poisonResist",
   wisdom: "stability",
-  coordination: "flexibility",
+  sociality: "flexibility",
 };
 
 export const CHARACTER_STAT_BY_WEAPON_STAT = Object.fromEntries(
@@ -214,10 +214,10 @@ export function computeStats(character) {
   return {
     hp: computeMaxHp(g),
     attack: withWeapon(CHARACTER_BASE.attack + g.attack, "attack"),
-    defense: withWeapon(CHARACTER_BASE.defense + g.defense, "defense"),
-    destruction: withWeapon(CHARACTER_BASE.destruction + g.destruction, "destruction"),
+    defence: withWeapon(CHARACTER_BASE.defence + g.defence, "defence"),
+    power: withWeapon(CHARACTER_BASE.power + g.power, "power"),
     wisdom: withWeapon(CHARACTER_BASE.wisdom + g.wisdom, "wisdom"),
-    coordination: withWeapon(CHARACTER_BASE.coordination + g.coordination, "coordination"),
+    sociality: withWeapon(CHARACTER_BASE.sociality + g.sociality, "sociality"),
   };
 }
 
@@ -227,20 +227,20 @@ export function computeStats(character) {
 // of these via createCharacterFromData's bonusGrowth, not editing the
 // template itself.
 export const CHARACTER_DATA = {
-  flakeSugar: { id: "flakeSugar", name: "フレーク・シュガー", growth: { attack: 0, defense: 2, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["araimono"] },
-  cubeSugar: { id: "cubeSugar", name: "キューブ・シュガー", growth: { attack: 2, defense: 0, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["cut"] },
-  honeyScrew: { id: "honeyScrew", name: "ハニー・スクリュー", growth: { attack: 1, defense: 1, destruction: 2, wisdom: 0, coordination: 1 }, synergies: ["grill"] },
-  chocolatBitterTaste: { id: "chocolatBitterTaste", name: "ショコラ・ビターテイスト", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 2, coordination: 0 }, synergies: ["hole"] },
-  lollipopSpiral: { id: "lollipopSpiral", name: "ロリポップ・スパイラル", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 1, coordination: 2 }, synergies: ["fry"] },
-  flawlessNoColor: { id: "flawlessNoColor", name: "フローレス・ノーカラー", growth: { attack: 2, defense: 2, destruction: 0, wisdom: 1, coordination: 0 }, synergies: ["cut", "fry"] },
-  sunlightSaccharum: { id: "sunlightSaccharum", name: "サンライト・サッカルム", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 2, coordination: 2 }, synergies: ["kaikei"] },
-  biscuitBaker: { id: "biscuitBaker", name: "ビスケット・ベーカー", growth: { attack: 1, defense: 1, destruction: 1, wisdom: 1, coordination: 1 }, synergies: ["grill"] },
-  paletteFlash: { id: "paletteFlash", name: "パレット・フラッシュ", growth: { attack: 0, defense: 1, destruction: 1, wisdom: 0, coordination: 3 }, synergies: ["hole", "araimono"] },
-  chalkThroat: { id: "chalkThroat", name: "チョーク・スロート", growth: { attack: 0, defense: 3, destruction: 1, wisdom: 1, coordination: 0 }, synergies: ["kaikei", "araimono"] },
-  jellyMaltose: { id: "jellyMaltose", name: "ゼリー・マルトース", growth: { attack: 3, defense: 0, destruction: 1, wisdom: 0, coordination: 1 }, synergies: ["cut", "grill"] },
-  drinkFree: { id: "drinkFree", name: "ドリンク・フリー", growth: { attack: 2, defense: 1, destruction: 0, wisdom: 0, coordination: 2 }, synergies: ["fry", "araimono"] },
-  sherbetFrost: { id: "sherbetFrost", name: "シャーベット・フロスト", growth: { attack: 0, defense: 2, destruction: 2, wisdom: 1, coordination: 0 }, synergies: ["grill", "hole"] },
-  shelfStable: { id: "shelfStable", name: "シェルフ・ステイブル", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 3, coordination: 1 }, synergies: ["fry", "kaikei"] },
+  flakeSugar: { id: "flakeSugar", name: "フレーク・シュガー", growth: { attack: 0, defence: 2, power: 1, wisdom: 1, sociality: 1 }, synergies: ["araimono"] },
+  cubeSugar: { id: "cubeSugar", name: "キューブ・シュガー", growth: { attack: 2, defence: 0, power: 1, wisdom: 1, sociality: 1 }, synergies: ["cut"] },
+  honeyScrew: { id: "honeyScrew", name: "ハニー・スクリュー", growth: { attack: 1, defence: 1, power: 2, wisdom: 0, sociality: 1 }, synergies: ["grill"] },
+  chocolatBitterTaste: { id: "chocolatBitterTaste", name: "ショコラ・ビターテイスト", growth: { attack: 1, defence: 1, power: 1, wisdom: 2, sociality: 0 }, synergies: ["hole"] },
+  lollipopSpiral: { id: "lollipopSpiral", name: "ロリポップ・スパイラル", growth: { attack: 1, defence: 1, power: 0, wisdom: 1, sociality: 2 }, synergies: ["fry"] },
+  flawlessNoColor: { id: "flawlessNoColor", name: "フローレス・ノーカラー", growth: { attack: 2, defence: 2, power: 0, wisdom: 1, sociality: 0 }, synergies: ["cut", "fry"] },
+  sunlightSaccharum: { id: "sunlightSaccharum", name: "サンライト・サッカルム", growth: { attack: 0, defence: 0, power: 1, wisdom: 2, sociality: 2 }, synergies: ["kaikei"] },
+  biscuitBaker: { id: "biscuitBaker", name: "ビスケット・ベーカー", growth: { attack: 1, defence: 1, power: 1, wisdom: 1, sociality: 1 }, synergies: ["grill"] },
+  paletteFlash: { id: "paletteFlash", name: "パレット・フラッシュ", growth: { attack: 0, defence: 1, power: 1, wisdom: 0, sociality: 3 }, synergies: ["hole", "araimono"] },
+  chalkThroat: { id: "chalkThroat", name: "チョーク・スロート", growth: { attack: 0, defence: 3, power: 1, wisdom: 1, sociality: 0 }, synergies: ["kaikei", "araimono"] },
+  jellyMaltose: { id: "jellyMaltose", name: "ゼリー・マルトース", growth: { attack: 3, defence: 0, power: 1, wisdom: 0, sociality: 1 }, synergies: ["cut", "grill"] },
+  drinkFree: { id: "drinkFree", name: "ドリンク・フリー", growth: { attack: 2, defence: 1, power: 0, wisdom: 0, sociality: 2 }, synergies: ["fry", "araimono"] },
+  sherbetFrost: { id: "sherbetFrost", name: "シャーベット・フロスト", growth: { attack: 0, defence: 2, power: 2, wisdom: 1, sociality: 0 }, synergies: ["grill", "hole"] },
+  shelfStable: { id: "shelfStable", name: "シェルフ・ステイブル", growth: { attack: 0, defence: 0, power: 1, wisdom: 3, sociality: 1 }, synergies: ["fry", "kaikei"] },
 };
 
 // Instantiates an actual 隊員 from a キャラクターデータ template, with
@@ -297,14 +297,14 @@ export function computeMonsterLevel(growth) {
 // と同じキー体系。無属性＝衝撃相当のモンスターはこのフィールド自体を
 // 持たない）。
 export const MONSTER_DATA = {
-  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
-  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "cold" },
-  merengeCat: { id: "merengeCat", name: "メレンゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
-  fruitTree: { id: "fruitTree", name: "フルーツリー", growth: { attack: 0, defense: 0, destruction: 1, wisdom: 1, coordination: 1 }, attribute: "humidity" },
-  chewingMachine: { id: "chewingMachine", name: "チューイング・マシン", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 1, coordination: 0 }, attribute: "dry" },
-  candyArmy: { id: "candyArmy", name: "飴アーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
-  yukiClock: { id: "yukiClock", name: "ユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
+  karumeDog: { id: "karumeDog", name: "カルメヤ犬", growth: { attack: 1, defence: 0, power: 0, wisdom: 1, sociality: 1 } },
+  chocoRock: { id: "chocoRock", name: "チョコロック", growth: { attack: 0, defence: 3, power: 0, wisdom: 0, sociality: 0 } },
+  electricJelly: { id: "electricJelly", name: "電気ゼリー", growth: { attack: 0, defence: 0, power: 2, wisdom: 1, sociality: 0 }, attribute: "cold" },
+  merengeCat: { id: "merengeCat", name: "メレンゲ猫", growth: { attack: 1, defence: 0, power: 1, wisdom: 1, sociality: 0 } },
+  fruitTree: { id: "fruitTree", name: "フルーツリー", growth: { attack: 0, defence: 0, power: 1, wisdom: 1, sociality: 1 }, attribute: "humidity" },
+  chewingMachine: { id: "chewingMachine", name: "チューイング・マシン", growth: { attack: 1, defence: 1, power: 0, wisdom: 1, sociality: 0 }, attribute: "dry" },
+  candyArmy: { id: "candyArmy", name: "飴アーミー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
+  yukiClock: { id: "yukiClock", name: "ユキドケイ", growth: { attack: 0, defence: 0, power: 3, wisdom: 0, sociality: 0 }, attribute: "time" },
 };
 
 // ボスモンスターデータ: MONSTER_DATAのLv.1テンプレートと役割は同じ
@@ -314,7 +314,7 @@ export const MONSTER_DATA = {
 // 合わせでのボスレベルD×M+3と一致する）。レベルはcomputeMonsterLevelで
 // growthから自動的に決まる、MONSTER_DATA同様ここでは明示的に持たない。
 export const BOSS_MONSTER_DATA = {
-  takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
+  takeniniteiru: { id: "takeniniteiru", name: "タケニニテイル", growth: { attack: 4, defence: 6, power: 4, wisdom: 3, sociality: 0 } },
 };
 
 // ボスモンスターの上位個体（elite boss）データ: BOSS_MONSTER_DATAと同じ
@@ -326,8 +326,8 @@ export const BOSS_MONSTER_DATA = {
 // 参照。まだ戦闘への組み込みは行っていない（buildBossEnemyUnitsは
 // 引き続きtakeniniteiru固定）。
 export const ELITE_BOSS_MONSTER_DATA = {
-  takesugiteiru: { id: "takesugiteiru", name: "タケスギテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
-  takedaketeiru: { id: "takedaketeiru", name: "タケダケテイル", growth: { attack: 4, defense: 6, destruction: 4, wisdom: 3, coordination: 0 } },
+  takesugiteiru: { id: "takesugiteiru", name: "タケスギテイル", growth: { attack: 4, defence: 6, power: 4, wisdom: 3, sociality: 0 } },
+  takedaketeiru: { id: "takedaketeiru", name: "タケダケテイル", growth: { attack: 4, defence: 6, power: 4, wisdom: 3, sociality: 0 } },
 };
 
 // 上位個体（elite）モンスターデータ: MONSTER_DATAの通常個体を土台に、
@@ -338,42 +338,42 @@ export const ELITE_BOSS_MONSTER_DATA = {
 // （抽選への組み込みは、上位個体のデータが出揃ってから別途行う）。
 // dataIdの実際のスキル構成はbattle.jsのMONSTER_SKILL_LOADOUTS参照。
 export const ELITE_MONSTER_DATA = {
-  katakuriDog: { id: "katakuriDog", name: "カタクリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  caramelDog: { id: "caramelDog", name: "カラメル犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  castellaDog: { id: "castellaDog", name: "カステラ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  kasanariDog: { id: "kasanariDog", name: "カサナリ犬", growth: { attack: 1, defense: 0, destruction: 0, wisdom: 1, coordination: 1 } },
-  rengeCat: { id: "rengeCat", name: "レンゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
-  shakunageCat: { id: "shakunageCat", name: "シャクナゲ猫", growth: { attack: 1, defense: 0, destruction: 1, wisdom: 1, coordination: 0 } },
-  chocoBlock: { id: "chocoBlock", name: "チョコブロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
-  chocoBariRock: { id: "chocoBariRock", name: "チョコバリロック", growth: { attack: 0, defense: 3, destruction: 0, wisdom: 0, coordination: 0 } },
-  ooYukiClock: { id: "ooYukiClock", name: "オオユキドケイ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
-  yukiBotoke: { id: "yukiBotoke", name: "ユキボトケ", growth: { attack: 0, defense: 0, destruction: 3, wisdom: 0, coordination: 0 }, attribute: "time" },
+  katakuriDog: { id: "katakuriDog", name: "カタクリ犬", growth: { attack: 1, defence: 0, power: 0, wisdom: 1, sociality: 1 } },
+  caramelDog: { id: "caramelDog", name: "カラメル犬", growth: { attack: 1, defence: 0, power: 0, wisdom: 1, sociality: 1 } },
+  castellaDog: { id: "castellaDog", name: "カステラ犬", growth: { attack: 1, defence: 0, power: 0, wisdom: 1, sociality: 1 } },
+  kasanariDog: { id: "kasanariDog", name: "カサナリ犬", growth: { attack: 1, defence: 0, power: 0, wisdom: 1, sociality: 1 } },
+  rengeCat: { id: "rengeCat", name: "レンゲ猫", growth: { attack: 1, defence: 0, power: 1, wisdom: 1, sociality: 0 } },
+  shakunageCat: { id: "shakunageCat", name: "シャクナゲ猫", growth: { attack: 1, defence: 0, power: 1, wisdom: 1, sociality: 0 } },
+  chocoBlock: { id: "chocoBlock", name: "チョコブロック", growth: { attack: 0, defence: 3, power: 0, wisdom: 0, sociality: 0 } },
+  chocoBariRock: { id: "chocoBariRock", name: "チョコバリロック", growth: { attack: 0, defence: 3, power: 0, wisdom: 0, sociality: 0 } },
+  ooYukiClock: { id: "ooYukiClock", name: "オオユキドケイ", growth: { attack: 0, defence: 0, power: 3, wisdom: 0, sociality: 0 }, attribute: "time" },
+  yukiBotoke: { id: "yukiBotoke", name: "ユキボトケ", growth: { attack: 0, defence: 0, power: 3, wisdom: 0, sociality: 0 }, attribute: "time" },
   // 飴アーミーの上位個体5体。成長値は飴アーミー（MONSTER_DATA.candyArmy）
   // と同一。飴バトル/マジック/シールドアーミーは中盤・終盤の両方に跨って
   // 登場する想定（誤記ではない）。
   // 【メモ】飴アーミー系統は戦闘への出現条件・敵構成自体を他のモンスター
   // と変える予定（詳細未定）。組み込み時はbuildNormalEnemyUnits等の通常
   // 抽選ロジックをそのまま使わない可能性がある。
-  candyBattleArmy: { id: "candyBattleArmy", name: "飴バトルアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
-  candyMagicArmy: { id: "candyMagicArmy", name: "飴マジックアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
-  candyShieldArmy: { id: "candyShieldArmy", name: "飴シールドアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
-  candyMedicalArmy: { id: "candyMedicalArmy", name: "飴メディカルアーミー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
-  candyCommander: { id: "candyCommander", name: "飴コマンダー", growth: { attack: 2, defense: 0, destruction: 0, wisdom: 0, coordination: 1 } },
+  candyBattleArmy: { id: "candyBattleArmy", name: "飴バトルアーミー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
+  candyMagicArmy: { id: "candyMagicArmy", name: "飴マジックアーミー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
+  candyShieldArmy: { id: "candyShieldArmy", name: "飴シールドアーミー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
+  candyMedicalArmy: { id: "candyMedicalArmy", name: "飴メディカルアーミー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
+  candyCommander: { id: "candyCommander", name: "飴コマンダー", growth: { attack: 2, defence: 0, power: 0, wisdom: 0, sociality: 1 } },
   // フルーツリーの上位個体3体。成長値は個体ごとに異なる（他の系統と
   // 違い、フルーツリー本体とは異なる成長配分になる）。ロッテンツリーは
   // 属性もフルーツリー本体の多湿(humidity)ではなく腐敗(decay)に変わる。
-  sweetOne: { id: "sweetOne", name: "スイートワン", growth: { attack: 0, defense: 0, destruction: 0, wisdom: 0, coordination: 3 } },
-  sourOne: { id: "sourOne", name: "サワーワン", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 0, coordination: 0 } },
-  rottenTree: { id: "rottenTree", name: "ロッテンツリー", growth: { attack: 3, defense: 0, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "decay" },
+  sweetOne: { id: "sweetOne", name: "スイートワン", growth: { attack: 0, defence: 0, power: 0, wisdom: 0, sociality: 3 } },
+  sourOne: { id: "sourOne", name: "サワーワン", growth: { attack: 3, defence: 0, power: 0, wisdom: 0, sociality: 0 } },
+  rottenTree: { id: "rottenTree", name: "ロッテンツリー", growth: { attack: 3, defence: 0, power: 0, wisdom: 3, sociality: 0 }, attribute: "decay" },
   // チューイング・マシンの上位個体2体。成長値はチューイング・マシン
   // 本体と同じ配分で賢さのみ伸ばした変種（属性は乾燥(dry)のまま）。
-  chewingRobot: { id: "chewingRobot", name: "チューイング・ロボット", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 2, coordination: 0 }, attribute: "dry" },
-  chewingComputer: { id: "chewingComputer", name: "チューイング・コンピュータ", growth: { attack: 1, defense: 1, destruction: 0, wisdom: 3, coordination: 0 }, attribute: "dry" },
+  chewingRobot: { id: "chewingRobot", name: "チューイング・ロボット", growth: { attack: 1, defence: 1, power: 0, wisdom: 2, sociality: 0 }, attribute: "dry" },
+  chewingComputer: { id: "chewingComputer", name: "チューイング・コンピュータ", growth: { attack: 1, defence: 1, power: 0, wisdom: 3, sociality: 0 }, attribute: "dry" },
   // 電気ゼリーの上位個体3体（進化ではなく水平展開）。3体とも電気ゼリー
   // 本体と同じ成長配分で、属性のみ違う。
-  fireJelly: { id: "fireJelly", name: "火炎ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "heat" },
-  whiteCloudJelly: { id: "whiteCloudJelly", name: "白雲ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "humidity" },
-  sandDustJelly: { id: "sandDustJelly", name: "砂煙ゼリー", growth: { attack: 0, defense: 0, destruction: 2, wisdom: 1, coordination: 0 }, attribute: "dry" },
+  fireJelly: { id: "fireJelly", name: "火炎ゼリー", growth: { attack: 0, defence: 0, power: 2, wisdom: 1, sociality: 0 }, attribute: "heat" },
+  whiteCloudJelly: { id: "whiteCloudJelly", name: "白雲ゼリー", growth: { attack: 0, defence: 0, power: 2, wisdom: 1, sociality: 0 }, attribute: "humidity" },
+  sandDustJelly: { id: "sandDustJelly", name: "砂煙ゼリー", growth: { attack: 0, defence: 0, power: 2, wisdom: 1, sociality: 0 }, attribute: "dry" },
 };
 
 // レベルアップぶんの成長値を、Lv.1テンプレート(growth)の成長優先度に
@@ -1144,14 +1144,14 @@ export const RESOURCE_COLOR_CLASS = {
   baseCream: "stat-hp",
   dropSpiralOre: "stat-attack",
   squeezedFructoseLiquid: "stat-attack",
-  cacaoLayeredRock: "stat-defense",
-  gummyElasticMaterial: "stat-defense",
-  sorbetEternalIce: "stat-destruction",
-  waferMembraneObject: "stat-destruction",
+  cacaoLayeredRock: "stat-defence",
+  gummyElasticMaterial: "stat-defence",
+  sorbetEternalIce: "stat-power",
+  waferMembraneObject: "stat-power",
   driedFructoseRock: "stat-wisdom",
   sableSoftGravel: "stat-wisdom",
-  honeyCrystalOre: "stat-coordination",
-  electroMagneticGelatin: "stat-coordination",
+  honeyCrystalOre: "stat-sociality",
+  electroMagneticGelatin: "stat-sociality",
   highPuritySugar: "resource-premium",
 };
 
@@ -1490,7 +1490,7 @@ export function craftWeapon(weaponTypeId, moduleStats) {
 
 // Which single 自然資源 species a 性能値's enhancement draws from --
 // this happens to already match RESOURCE_COLOR_CLASS's own pairing
-// (シボリ果糖液=red=attack/糖度, 口香弾性質=blue=defense/硬性, etc.),
+// (シボリ果糖液=red=attack/糖度, 口香弾性質=blue=defence/硬性, etc.),
 // so the same `stat-${charKey}` color classes used everywhere else
 // double as this screen's gauge/button colors with no new palette.
 export const NATURAL_SPECIES_BY_WEAPON_STAT = {

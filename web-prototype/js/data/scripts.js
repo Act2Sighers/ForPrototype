@@ -135,8 +135,8 @@ export const ENCOUNTER_SCRIPT = {
     },
     "down-judge": {
       type: "judgement",
-      statKey: "destruction",
-      statLabel: CHARACTER_STAT_LABELS.destruction,
+      statKey: "power",
+      statLabel: CHARACTER_STAT_LABELS.power,
       success: "down-success1",
       failure: "down-fail1",
     },
