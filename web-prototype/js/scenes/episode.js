@@ -6,6 +6,7 @@ import state, {
   grantAmberSugarMineral,
   grantTimeEatsItem,
   recordEpisodeSeen,
+  recordRescue,
 } from "../state.js";
 import {
   RIGID_RESOURCES,
@@ -202,6 +203,9 @@ function applyEffect(effect, context) {
         character.currentHp = Math.ceil(computeEffectiveMaxHp(character) / 4);
         after = character.currentHp;
         revivedText = `　${character.name}は倒れかけたが、なんとか持ち直した…（${after}まで回復）`;
+        // 戦闘のreviveIncapacitatedAlliesと同じ「戦闘不能のまま生存」
+        // 救済なので、リザルト画面の減点カウンタも同様に積み上げる。
+        recordRescue(1);
       }
       const hpLabel = `${CHARACTER_STAT_LABELS.hp}(${CHARACTER_STAT_FULL_LABELS.hp})`;
       return {
@@ -358,7 +362,10 @@ export function EpisodeScene(container, params, api) {
   // 同様、一度きり・毎回の再描画では振り直さない）。
   function resolveDifficultyJudgement(beat) {
     const character = context.selectedCharacter;
-    const statKey = pickRandomFrom(JUDGEABLE_CHARACTER_STAT_KEYS);
+    // 判定に使う能力値は、直前のcharacterSelectビート（resolveBeat側）で
+    // 既に選ばれ、プレイヤーにも提示済みのものをそのまま使う -- ここで
+    // 改めて抽選し直すと、選択画面で見せた能力値と実際の判定がズレる。
+    const statKey = context.judgementStatKey ?? pickRandomFrom(JUDGEABLE_CHARACTER_STAT_KEYS);
     const statValue = computeStats(character)[statKey];
     const difficulty = currentDifficulty();
     context.difficulty = difficulty;
@@ -387,7 +394,22 @@ export function EpisodeScene(container, params, api) {
     };
   }
 
+  // 「characterSelect」ビート：この先がdifficultyJudgementビートに
+  // つながっているなら、判定に使う能力値をこの時点で抽選し、context に
+  // 保持しておく（difficultyJudgement側はこの値をそのまま使う）。
+  // プレイヤーが隊員を選ぶ前に、何の能力値で判定されるのか分かるように
+  // するための前倒し -- 以前はdifficultyJudgement側でしか抽選しておらず、
+  // 選択画面には一切出せていなかった。
+  function resolveCharacterSelect(beat) {
+    const nextBeat = script.beats[beat.next];
+    if (!isRecall && nextBeat?.type === "difficultyJudgement") {
+      context.judgementStatKey = pickRandomFrom(JUDGEABLE_CHARACTER_STAT_KEYS);
+    }
+    return beat;
+  }
+
   function resolveBeat(beat) {
+    if (beat.type === "characterSelect") return resolveCharacterSelect(beat);
     if (beat.type === "difficultyJudgement") return isRecall ? manualBranchChoice(beat) : resolveDifficultyJudgement(beat);
     if (beat.type !== "judgement") return beat;
     if (isRecall) return manualBranchChoice(beat);
@@ -500,6 +522,12 @@ export function EpisodeScene(container, params, api) {
         )
       );
     } else if (!isFinished && current.type === "characterSelect") {
+      const judgementStatKey = context.judgementStatKey;
+      if (judgementStatKey) {
+        body.push(
+          h("p", { class: "episode-effect", text: `今回の判定能力値：${CHARACTER_STAT_FULL_LABELS[judgementStatKey]}（${CHARACTER_STAT_LABELS[judgementStatKey]}）` })
+        );
+      }
       body.push(
         h(
           "div",
@@ -509,6 +537,9 @@ export function EpisodeScene(container, params, api) {
               h("div", { class: "slot__meta" }, [
                 h("span", { class: "slot__id", text: `Lv.${character.level}` }),
                 h("span", { class: "slot__name", text: character.name }),
+                judgementStatKey
+                  ? h("span", { class: "slot__id", text: `${CHARACTER_STAT_LABELS[judgementStatKey]}${computeStats(character)[judgementStatKey]}` })
+                  : null,
               ]),
               h("div", { class: "slot__actions" }, [
                 button("選択する", { variant: "primary", onClick: () => selectCharacter(character, current.next) }),

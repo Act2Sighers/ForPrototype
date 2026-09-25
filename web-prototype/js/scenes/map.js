@@ -279,11 +279,33 @@ export function MapScene(container, params, api) {
     // 中央が画面中央に来るようにする。進む先が無い（ゴール到達時）は
     // 現在地だけを中央に据える。renderScreen直後・.screenがis-active
     // な状態でだけ呼ばれるので、clientWidthはこの時点で正しく取れる。
+    //
+    // マップの表示全長（mapWidth）がビューポート（clientWidth）より
+    // 狭い場合、単純なscrollLeftクランプだけでは中央に据えられず、
+    // 左端に寄って見えてしまう。.map-scroll自身の左右に、ビューポート
+    // 半分ぶんの余白（パディング）を追加しておくことで、マップの端に
+    // 近いマスであっても中央寄せの余地を常に確保する（詳細は下記）。
+    const halfViewport = mapScroll.clientWidth / 2;
+    mapScroll.style.paddingLeft = `${halfViewport}px`;
+    mapScroll.style.paddingRight = `${halfViewport}px`;
+
     const nextTargetIds = reachable.length > 0 ? reachable : virtualStops.map((stop) => stop.toId);
     const nextColumnX = nextTargetIds.length > 0 ? dungeon.nodes[nextTargetIds[0]].x : currentNode.x;
     const centerX = (currentNode.x + nextColumnX) / 2;
-    const maxScrollLeft = Math.max(0, mapScroll.scrollWidth - mapScroll.clientWidth);
-    mapScroll.scrollLeft = Math.min(maxScrollLeft, Math.max(0, centerX - mapScroll.clientWidth / 2));
+    // 左右パディングを追加したことで、スクロール可能領域は
+    // 「paddingLeft + mapWidth + paddingRight」= mapWidth + clientWidth
+    // ぶんに広がっている。paddingLeftぶんだけ元のマップ座標系から
+    // ずれるため、あるX座標をビューポート中央に置くのに必要な
+    // scrollLeftは「(x + paddingLeft) - clientWidth/2」= x
+    // （paddingLeft = clientWidth/2のため）に単純化できる。
+    //
+    // マップ全長がビューポートに収まりきる場合は、現在地/次のマス基準
+    // (centerX)ではなくマップ全体の中央(mapWidth/2)を使う -- でないと、
+    // 全体が収まるほど余裕があるのに、現在地が端に寄っているというだけ
+    // で片側が余分に見切れてしまう（センタリングの意図に反する）。
+    // 収まりきらない場合だけ、従来通りcenterXを中央に据える。
+    const target = mapWidth <= mapScroll.clientWidth ? mapWidth / 2 : centerX;
+    mapScroll.scrollLeft = Math.min(mapWidth, Math.max(0, target));
   }
 
   render();

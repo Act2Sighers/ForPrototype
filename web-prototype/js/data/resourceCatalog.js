@@ -152,9 +152,12 @@ export function computeEffectiveMaxHp(character) {
 
 // 変調を増やし、実効最大HPの低下に応じて現在HPも押し下げる（全快中に
 // 最大HPが下がった場合などを含め、現在HPが新しい最大HPを超えることは
-// ない）。
+// ない）。変調自体は「本来の最大HP-1」を上限に蓄積する -- 上限を設けない
+// と実効最大HPが0まで落ち、マップに戻っても（0/0のまま）復活しない
+// 状態になり得るため。
 export function increaseCondition(character, amount) {
-  character.condition = Math.max(0, (character.condition ?? 0) + amount);
+  const conditionCap = computeMaxHp(character.growth) - 1;
+  character.condition = Math.min(conditionCap, Math.max(0, (character.condition ?? 0) + amount));
   const maxHp = computeEffectiveMaxHp(character);
   if ((character.currentHp ?? maxHp) > maxHp) character.currentHp = maxHp;
 }
@@ -1833,10 +1836,17 @@ export function applyTimeEatsToCharacter(character, item) {
   }
   const levelAfter = character.level;
 
+  // ④の「実効最大HP」は、この時点で①による変換が済んだ後のcharacter.
+  // conditionを、レベルアップ直後の暫定最大HP(computeMaxHpForLevel、
+  // 170行目のコメント参照)から差し引いたもの。ここでraw maxHpを使うと、
+  // 変換効率が低い（あるいは0の）HP回復専用の時間食を与えた際に、実効
+  // 最大HPを超えてHPが回復してしまう（例: 本来の最大HP60・変調48で
+  // 実効最大HPが12のところ、60まで回復してしまう）。
   const maxHp = computeMaxHpForLevel(character.level);
-  const delta = Math.ceil(maxHp * (item.hpRecoveryPercent / 100));
+  const effectiveMaxHp = Math.max(0, maxHp - (character.condition ?? 0));
+  const delta = Math.ceil(effectiveMaxHp * (item.hpRecoveryPercent / 100));
   const floor = item.hpRecoveryPercent < 0 ? 1 : 0;
-  character.currentHp = Math.min(maxHp, Math.max(floor, (character.currentHp ?? maxHp) + delta));
+  character.currentHp = Math.min(effectiveMaxHp, Math.max(floor, (character.currentHp ?? effectiveMaxHp) + delta));
 
   return { levelBefore, levelAfter, growthPoints: levelAfter - levelBefore };
 }

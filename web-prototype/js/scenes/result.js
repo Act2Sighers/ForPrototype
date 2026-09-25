@@ -13,7 +13,7 @@ const SCORE_BREAKDOWN_LABELS = {
   characterLevel: "隊員レベル合計",
   weaponPerformance: "武器性能合計",
   defeatedMonsterLevel: "討伐レベル合計",
-  rescuePenalty: "戦闘後救済",
+  rescuePenalty: "戦闘不能からの救済",
   resourceQuality: "資源品質加点",
 };
 
