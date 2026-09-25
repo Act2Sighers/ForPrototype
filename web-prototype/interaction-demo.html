@@ -1,0 +1,68 @@
+<title>インタラクション実験ページ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hachi+Maru+Pop&family=Zen+Maru+Gothic:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/interaction-demo.css">
+
+<div class="demo-page">
+  <h1 class="demo-page__title">インタラクション実験ページ</h1>
+  <p class="demo-page__lede">
+    6つの要望を、既存のHTML/CSS/DOMの土台のまま（Canvasやゲームループへの
+    載せ替えなしに）実現できるかを確認するための単体デモです。各セクションを
+    実際に動かして確認してください。
+  </p>
+
+  <section class="demo-section" id="section-hover">
+    <h2>① マウスオーバーで追従するポップアップ</h2>
+    <p class="demo-section__note">枠にマウスを乗せている間だけ説明が出て、マウスに追従します。外すと消えます。</p>
+    <div class="demo-hover-target" id="hover-target">この枠にマウスオーバー</div>
+  </section>
+
+  <section class="demo-section" id="section-drag">
+    <h2>② ドラッグ＆ドロップ（マウスに追従・自由配置）</h2>
+    <p class="demo-section__note">丸をドラッグして、下の枠内の好きな位置に置いてください（スナップなし）。枠外で離すと元の位置に戻ります。</p>
+    <div class="demo-drag-arena">
+      <div class="demo-drag-token" id="drag-token">駒</div>
+      <div class="demo-drop-zone" id="drop-zone">ここに置く</div>
+    </div>
+    <p class="demo-section__status" id="drag-status">まだ配置されていません。</p>
+  </section>
+
+  <section class="demo-section" id="section-arrow">
+    <h2>③ ドラッグで伸びる矢印（対象指定）</h2>
+    <p class="demo-section__note">左の丸からドラッグを開始してマウスを動かすと、マウスの位置まで矢印が伸び続けます。右の丸の上で離すと対象確定です。</p>
+    <div class="demo-arrow-arena">
+      <svg class="demo-arrow-svg" id="arrow-svg">
+        <defs>
+          <marker id="drag-arrow-head" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="var(--ember-strong)" />
+          </marker>
+        </defs>
+      </svg>
+      <div class="demo-arrow-node demo-arrow-node--start" id="arrow-start">始点</div>
+      <div class="demo-arrow-node demo-arrow-node--target" id="arrow-target-a">対象A</div>
+      <div class="demo-arrow-node demo-arrow-node--target" id="arrow-target-b">対象B</div>
+    </div>
+    <p class="demo-section__status" id="arrow-status">まだ対象は選ばれていません。</p>
+  </section>
+
+  <section class="demo-section" id="section-timed">
+    <h2>④ 操作と無関係に自動で出て自動で消えるポップアップ</h2>
+    <p class="demo-section__note">ボタンを押すと、1.2秒後にポップアップが現れ、2.5秒間表示されたあと自動で消えます（シーン進行に伴う自動演出の想定）。</p>
+    <button class="demo-btn" id="timed-trigger">シーンイベントを再生</button>
+  </section>
+
+  <section class="demo-section" id="section-marquee">
+    <h2>⑤ 一方向に流れ続けるテキスト</h2>
+    <p class="demo-section__note">枠内を右から左へ、途切れず流れ続けます。</p>
+    <div class="demo-marquee-frame" id="marquee-frame"></div>
+  </section>
+
+  <section class="demo-section" id="section-freeform">
+    <h2>⑥ 任意座標への自由配置（スナップなし）</h2>
+    <p class="demo-section__note">背景の上に、グリッドに縛られない任意の座標でアイコンを配置した例です。</p>
+    <div class="demo-freeform-board" id="freeform-board"></div>
+  </section>
+</div>
+
+<script type="module" src="js/interaction-demo.js"></script>
