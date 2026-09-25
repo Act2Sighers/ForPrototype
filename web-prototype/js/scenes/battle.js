@@ -29,12 +29,31 @@ const FAST = typeof window !== "undefined" && window.__BATTLE_FAST__;
 const ACTION_DELAY_MS = FAST ? 10 : 1000;
 const MAIN_PHASE_WAIT_MS = FAST ? 20 : 2000;
 
+// モジュール設計（2026-09時点の見直し）で新たに導入された固定係数。
+// 体幹軽減係数だけはstate.battleTuning.staminaCorrectionMultiplier
+// （オプション画面から調整可能、既定値はstate.js参照）に統合済みで、
+// ここには含めない。
+const PENETRATION_COEFFICIENT = 3; // 貫通係数：貫通攻撃/割合貫通攻撃の受動側ダイス数を割る
+const REVIVE_DIFFICULTY = 5; // 蘇生難易度：蘇生の割合回復量を割る
+const RATIO_DIFFICULTY = 3; // 割合系難易度：割合攻撃/割合貫通攻撃/割合回復を割る
+const CONTINUOUS_DIFFICULTY = 2; // 継続系難易度：継続回復/継続ダメージの毎ターン量を割る
+const CONTINUOUS_RATIO_DIFFICULTY = 6; // 継続割合系難易度：継続割合回復/継続割合ダメージの毎ターン量を割る
+const STATUS_AILMENT_COEFFICIENT = 3; // 状態異常係数：属性攻撃の状態異常発動確率＝使用者レベル×この値(%)
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms / (state.battleDoubleSpeed ? 2 : 1)));
 }
 
 function pickRandom(list) {
   return list[Math.floor(Math.random() * list.length)];
+}
+
+// 「Bd6合計」のB（ボーナス）が負の値になり得る箇所（例：【処方箋】の
+// 「消費したPT-3」）で使う符号付き版。負ならその絶対値ぶんダイスを
+// 振って合計し、符号を反転する（rollSum(負の数)はダイス0個扱いに
+// なって単に0を返してしまい、減算として機能しないため）。
+function signedRollSum(count) {
+  return count >= 0 ? rollSum(count) : -rollSum(-count);
 }
 
 // 体幹の絶対値を、オプション画面「体幹関連係数」の「体幹変動幅上限」
@@ -281,6 +300,25 @@ Object.assign(PREP_MODULES, {
     targetFaction: "opposing",
     shortNotation: "P/威圧+",
     steps: [{ actionId: "intimidate" }, { actionId: "intimidate", target: "opposingExcludingUsed" }],
+  },
+  // 【誘導】：牽制した後、（前ステップの対象とは無関係に）自身を対象に
+  // 最適化を行う -- 構造は陰陽と同一の、モジュール一覧に載る汎用版。
+  guidance: {
+    id: "guidance",
+    label: "誘導",
+    targetFaction: "opposing",
+    shortNotation: "P/誘導",
+    steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
+  },
+  // 【奪取】：威圧した後、（前ステップの対象とは無関係に）自身を対象に
+  // 鼓舞を行う -- 構造は【チェック】（フローレス・ノーカラーの初期修得
+  // スキル）と同一の、モジュール一覧に載る汎用版。
+  steal: {
+    id: "steal",
+    label: "奪取",
+    targetFaction: "opposing",
+    shortNotation: "P/奪取",
+    steps: [{ actionId: "intimidate" }, { actionId: "inspire", target: "self" }],
   },
   // 【泥沼】：行動対象の指定を受けず（targetFaction: "none"）、相手陣営
   // の生存者全員に順番に牽制を行う -- step.each:"opposing"が対象候補の
@@ -861,20 +899,57 @@ function isModuleAvailableFor(unit, module) {
   return true;
 }
 
-// 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。強化魔法/
-// 弱体化魔法自身の発動判定（X用ダイス数）だけはこちらを使う。
+// 補正なしの素の能力値（隊員本体のcomputeStatsの値そのまま）。上昇/
+// 低下モジュール自身の判定用ダイス数（AおよびD）は必ずこちらを使う
+// （補正の乗った能力値をさらに上昇/低下の強さに使うと、正の
+// フィードバックループが起きてしまうため）。
 function rawStat(unit, key) {
   return computeStats(unit.character)[key];
 }
 
 // 実効能力値：unit.correctionsに補正がかかっていればそれを加味した値。
-// 上記以外の全モジュール（攻撃/貫通攻撃/回復/プロテクト/スマッシュ/
-// 継続回復/継続ダメージのダイス数）はこちらを使う。0未満にはしない
-// （攻撃力だけは0だと成立しなくなってしまうため、最低値を1にする）。
+// 上昇/低下モジュール自身の判定以外の全モジュール（攻撃/貫通攻撃/
+// 回復/プロテクト/スマッシュ/継続回復/継続ダメージのダイス数）は
+// こちらを使う。0未満にはしない（攻撃力だけは0だと成立しなくなって
+// しまうため、最低値を1にする）。
 function correctedStat(unit, key) {
   const c = unit.corrections[key];
   const floor = key === "attack" ? 1 : 0;
   return Math.max(floor, rawStat(unit, key) + (c ? c.sign * c.n : 0));
+}
+
+const BATTLE_STAT_KEYS = ["attack", "defence", "power", "wisdom", "sociality"];
+
+// 5能力値の平均値（切り上げ、実効能力値ベース）。回復/割合回復/蘇生の
+// 受動能力値（既定Mean）に使う。
+function meanStat(unit) {
+  return Math.ceil(BATTLE_STAT_KEYS.reduce((sum, key) => sum + correctedStat(unit, key), 0) / BATTLE_STAT_KEYS.length);
+}
+
+// 「NΔ」（三角数変換）: dice.jsのsuccessCountToRそのもの。名前の対応が
+// 分かりにくいため、Δの意味で使う箇所はこちらのエイリアスを通す。
+const triangular = successCountToR;
+
+// 上昇/低下・プロテクト/スマッシュが共通して使う合成式：reversed=true
+// （上昇・プロテクトなど支援系）は「a×(a+d)/a」、reversed=false（低下・
+// スマッシュなど攻撃系）は「a×a/(a+d)」。aが0の時は式全体を0として扱う
+// （0除算を避けつつ、「Aが0なら効果も0」という設計意図をそのまま表す）。
+function correctionMagnitude(a, d, reversed) {
+  if (a === 0) return 0;
+  return reversed ? (a * (a + d)) / a : (a * a) / (a + d);
+}
+
+// 継続回復/継続ダメージ/継続割合回復/継続割合ダメージが共通して使う
+// カスケード：AD（reversed=trueの継続回復系はA×(A+D)/A、falseの継続
+// ダメージ系はA×A/(A+D)、切り上げ、Aが0なら0）はA/Dそのもの（ダイスを
+// 振らない実効値）から求める。H＝Δ(ADのぶんd6を振った成功数)（下限1、
+// これが持続ターン数）。h＝(H+bonus)d6合計（これが毎ターンの増減量の
+// 元になる、対象のHPを「h/難易度」だけ動かす -- 呼び出し側で行う）。
+function continuousCascade(actorValue, targetValue, reversed, bonus = 0) {
+  const ad = actorValue === 0 ? 0 : reversed ? (actorValue * (actorValue + targetValue)) / actorValue : (actorValue * actorValue) / (actorValue + targetValue);
+  const turns = triangular(rollJudgement(Math.max(0, Math.ceil(ad))).successCount);
+  const magnitude = rollSum(Math.max(0, turns + bonus));
+  return { turns, magnitude };
 }
 
 // 能力値補正の適用：同じ能力値に既存の補正があれば、強さ(n)を比較して
@@ -886,9 +961,9 @@ function applyCorrection(target, statKey, n, sign, turns) {
   return { applied: true, statKey, n, sign, turns };
 }
 
-// 継続回復/継続ダメージの適用：対象のHP継続効果は共有の単一枠なので、
-// 既存の効果（回復/ダメージ問わず）と強さ(n)を比較して同じルールで
-// 上書きするか不発にする。
+// 継続回復/継続ダメージ/継続割合回復/継続割合ダメージの適用：対象の
+// HP継続効果は共有の単一枠なので、既存の効果（種別を問わず）と強さ
+// (n)を比較して同じルールで上書きするか不発にする。
 function applyContinuousStatus(target, n, type, turns) {
   const existing = target.continuousHp;
   if (existing && n < existing.n) return { applied: false, n, type, turns, existingN: existing.n };
@@ -896,23 +971,27 @@ function applyContinuousStatus(target, n, type, turns) {
   return { applied: true, n, type, turns };
 }
 
-const CONTINUOUS_EFFECT_LABELS = { heal: "継続回復", damage: "継続ダメージ", ratioDamage: "継続割合ダメージ" };
+const CONTINUOUS_EFFECT_LABELS = {
+  heal: "継続回復",
+  ratioHeal: "継続割合回復",
+  damage: "継続ダメージ",
+  ratioDamage: "継続割合ダメージ",
+};
 function continuousEffectLabel(type) {
   return CONTINUOUS_EFFECT_LABELS[type];
 }
 
-// 能力値補正（強化魔法/弱体化魔法）を対象ステータスごとに生成する
-// ファクトリ。バフ/デバフの整理（属性ごとに対応する能力値が決まって
-// いる）に合わせて、5能力値×上昇/低下の計10種を用意する -- 将来の
-// スキル合成（属性攻撃など）は、この中から対応するモジュールを部品
-// として呼び出す想定。n（補正の強さ）は引数化してあるが、現状はまだ
-// スキル側が無くプレイヤーが直接選ぶ単体モジュールとして並んでいる
-// ため、既定値の1で固定して使う。judgeStatKey：継続ターン数(X)を出す
-// ダイスに使う、行動主体側の能力値の既定（強化魔法は使い手の協調性、
-// 弱体化魔法は使い手の賢さ）。params.aStatでスキル側が上書きできる
-// （例：ロリポップ・スパイラルの【完璧なサポート】は弱体化魔法の判定を
-// 協調性で行う）。
-function createCorrectionModule(id, label, statKey, sign, judgeStatKey, shortNotation) {
+// 上昇/低下（旧・強化魔法/弱体化魔法）を対象ステータスごとに生成する
+// ファクトリ。能動能力値(A)は常にその上昇/低下の対象と同じ能力値、
+// 受動能力値(D)は上昇なら対象の協調性、低下なら対象の賢さに固定（どち
+// らも必ずrawStat=補正なしを使う）。a=Δ(Ad6成功数)、d=Δ(Dd6成功数)、
+// 「AD＝上昇ならa×(a+d)/a、低下ならa×a/(a+d)（切り上げ・下限1）」
+// ターンの間、対象の能力値をN（既定1、ダイスは振らない）だけ上昇/
+// 低下させる。params.aStat/dStatでスキル側が判定に使う能力値を上書き
+// できる（例：ロリポップ・スパイラルの【安心のサポート】は判定を協調性
+// で行う）。
+function createCorrectionModule(id, label, statKey, sign, resistanceStatKey, shortNotation) {
+  const reversed = sign > 0;
   return {
     id,
     label,
@@ -920,9 +999,10 @@ function createCorrectionModule(id, label, statKey, sign, judgeStatKey, shortNot
     effect: "correction",
     shortNotation,
     apply: (actor, target, params = {}) => {
-      const { n = 1, aStat } = params;
-      const { successCount } = rollJudgement(rawStat(actor, aStat ?? judgeStatKey));
-      const turns = successCountToR(successCount);
+      const { n = 1, aStat, dStat } = params;
+      const a = triangular(rollJudgement(rawStat(actor, aStat ?? statKey)).successCount);
+      const d = triangular(rollJudgement(rawStat(target, dStat ?? resistanceStatKey)).successCount);
+      const turns = Math.max(1, Math.ceil(correctionMagnitude(a, d, reversed)));
       return applyCorrection(target, statKey, n, sign, turns);
     },
   };
@@ -938,48 +1018,67 @@ const CORRECTION_MODULE_DEFS = [
 
 const CORRECTION_MODULES = {};
 for (const { statKey, statLabel, shortStat, enhanceId, weakenId } of CORRECTION_MODULE_DEFS) {
-  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `強化魔法(${statLabel})`, statKey, 1, "sociality", `M/強化(${shortStat})`);
-  CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `弱体化魔法(${statLabel})`, statKey, -1, "wisdom", `M/弱体化(${shortStat})`);
+  CORRECTION_MODULES[enhanceId] = createCorrectionModule(enhanceId, `${statLabel}上昇`, statKey, 1, "sociality", `M/${shortStat}∧`);
+  CORRECTION_MODULES[weakenId] = createCorrectionModule(weakenId, `${statLabel}低下`, statKey, -1, "wisdom", `M/${shortStat}∨`);
 }
+// 【全能力値上昇】/【全能力値低下】：5種の上昇/低下を同じ対象へ順番に
+// 適用する複合モジュール。対象選択はこのスキル自身の1回だけ（内部の
+// 5ステップは対象未指定＝前と同じ対象を再利用する）。
+CORRECTION_MODULES.enhanceAllStats = {
+  id: "enhanceAllStats",
+  label: "全能力値上昇",
+  targetFaction: "own",
+  shortNotation: "M/全能力∧",
+  steps: CORRECTION_MODULE_DEFS.map(({ enhanceId }) => ({ actionId: enhanceId })),
+};
+CORRECTION_MODULES.weakenAllStats = {
+  id: "weakenAllStats",
+  label: "全能力値低下",
+  targetFaction: "opposing",
+  shortNotation: "M/全能力∨",
+  steps: CORRECTION_MODULE_DEFS.map(({ weakenId }) => ({ actionId: weakenId })),
+};
 
 // 属性攻撃が付与する状態異常（強さ・発動確率）：モンスターのレベルに
-// 応じて決まる（プレイヤーが直接選ぶ強化魔法/弱体化魔法とは別枠 -- あちら
-// はn=1固定・発動確率100%のプレイヤー操作、こちらはモンスターのレベル
-// 依存で毎回変わる）。強さ=レベル÷10切り上げ、発動確率=レベル×3%
-// （上限100%）。
+// 応じて決まる（プレイヤーが直接選ぶ上昇/低下とは別枠 -- あちらはN=1
+// 固定・発動確率100%のプレイヤー操作、こちらはモンスターのレベル依存
+// で毎回変わる）。強さ=レベル÷10切り上げ、発動確率=レベル×状態異常
+// 係数%（上限100%）。
 function attributeDebuffN(actor) {
   return Math.ceil(actor.character.level / 10);
 }
 function attributeProcChance(actor) {
-  return Math.min(1, actor.character.level * 0.03);
+  return Math.min(1, (actor.character.level * STATUS_AILMENT_COEFFICIENT) / 100);
 }
 
-// 5能力値の属性攻撃デバフ（浸水～高温）：弱体化魔法と同じ仕組み
-// （applyCorrection、判定にはactorの賢さ）を使うが、強さ(n)は固定1では
-// なくattributeDebuffNから取る専用の葉モジュール。MAIN_MODULESには
-// 登録しない（プレイヤーが直接選べる項目ではなく、属性攻撃スキルの
-// 内部でだけ使うため）。
+// 5能力値の属性攻撃デバフ（浸水～高温）：低下（createCorrectionModule）
+// と全く同じ判定式（A=使用者自身の同名能力値、D=対象の賢さ、どちらも
+// 補正なし・a×a/(a+d)の通常形）を使うが、強さ(n)は固定1ではなく
+// attributeDebuffNから取る専用の葉モジュール。MAIN_MODULESには登録
+// しない（プレイヤーが直接選べる項目ではなく、属性攻撃スキルの内部
+// でだけ使うため）。
 const ATTRIBUTE_STAT_KEYS = { soak: "attack", humidity: "defence", cold: "power", dry: "wisdom", heat: "sociality" };
 function createAttributeStatDebuff(statKey) {
   return {
     effect: "correction",
     apply: (actor, target) => {
-      const { successCount } = rollJudgement(rawStat(actor, "wisdom"));
-      const turns = successCountToR(successCount);
+      const a = triangular(rollJudgement(rawStat(actor, statKey)).successCount);
+      const d = triangular(rollJudgement(rawStat(target, "wisdom")).successCount);
+      const turns = Math.max(1, Math.ceil(correctionMagnitude(a, d, false)));
       return applyCorrection(target, statKey, attributeDebuffN(actor), -1, turns);
     },
   };
 }
 
 // 時間(継続ダメージ)/腐敗(継続割合ダメージ)の属性攻撃デバフ。既存の
-// dot/continuousRatioDamageと同じ判定基準（actorの賢さの実効値）を
-// 使うが、強さ(n)はやはりattributeDebuffN。
+// dot/continuousRatioDamageと同じカスケード（continuousCascade、判定は
+// actorの賢さ×対象の賢さ）を使うが、毎ターンの量(n)は固定パラメータ
+// ではなくattributeDebuffNから取る。
 function createAttributeContinuousDebuff(type) {
   return {
     effect: "continuous",
     apply: (actor, target) => {
-      const { successCount } = rollJudgement(correctedStat(actor, "wisdom"));
-      const turns = successCountToR(successCount);
+      const turns = continuousCascade(correctedStat(actor, "wisdom"), correctedStat(target, "wisdom"), false);
       return applyContinuousStatus(target, attributeDebuffN(actor), type, turns);
     },
   };
@@ -1019,13 +1118,33 @@ const MAIN_MODULES = {
     effect: "hp",
     shortNotation: "M/攻撃",
     // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defence）。
-    // スキル側がstep.paramsで指定する（例：ティックの能動:賢さ、
-    // 受動:賢さ）。
+    // params.b：ボーナス（既定0）、Bd6合計として攻撃力にそのまま加算。
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
       const d = rollSum(correctedStat(target, params.dStat ?? "defence"));
+      const b = signedRollSum(params.b ?? 0);
       const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
-      const damage = Math.ceil(((a * a) / (a + d)) * c);
+      const damage = Math.ceil(((a * a) / (a + d)) * c + b);
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  ratioAttack: {
+    id: "ratioAttack",
+    label: "割合攻撃",
+    targetFaction: "opposing",
+    effect: "hp",
+    shortNotation: "M/割合攻撃",
+    // 攻撃と同じ式で求めた値iを、対象の実効最大HPに対する「i/割合系
+    // 難易度」%として減少させる（下限0）。
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "defence"));
+      const b = signedRollSum(params.b ?? 0);
+      const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
+      const i = ((a * a) / (a + d)) * c + b;
+      const percent = Math.ceil(i / RATIO_DIFFICULTY);
+      const damage = Math.ceil((computeEffectiveMaxHp(target.character) * percent) / 100);
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
     },
@@ -1036,11 +1155,35 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "hp",
     shortNotation: "M/貫通攻撃",
-    // params.aStat：能動能力値の上書き（既定attack）。attackと同じ考え方。
+    // params.aStat：能動能力値の上書き（既定attack）。params.dStat：
+    // 受動能力値の上書き（既定attack -- 攻撃と違い、対象の防御力では
+    // なく攻撃力に対して判定する）。受動側のダイス数は貫通係数で割る
+    // （切り捨てず割り算の結果をそのまま使う。攻撃と同じ丸めは最後の
+    // 切り上げでまとめて行う）。
     apply: (actor, target, params = {}) => {
       const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "attack"));
+      const b = signedRollSum(params.b ?? 0);
       const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
-      const damage = Math.ceil(a * c);
+      const damage = Math.ceil(((a * a) / (a + d / PENETRATION_COEFFICIENT)) * c + b);
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  ratioPierceAttack: {
+    id: "ratioPierceAttack",
+    label: "割合貫通攻撃",
+    targetFaction: "opposing",
+    effect: "hp",
+    shortNotation: "M/割合貫通攻撃",
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
+      const d = rollSum(correctedStat(target, params.dStat ?? "attack"));
+      const b = signedRollSum(params.b ?? 0);
+      const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
+      const i = ((a * a) / (a + d / PENETRATION_COEFFICIENT)) * c + b;
+      const percent = Math.ceil(i / RATIO_DIFFICULTY);
+      const damage = Math.ceil((computeEffectiveMaxHp(target.character) * percent) / 100);
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
     },
@@ -1051,15 +1194,34 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "hp",
     shortNotation: "M/回復",
-    // params.aStat：判定に使う能動能力値の上書き（既定sociality）。
-    // params.b：回復力への加算（既定0、負値も可）。【処方箋】のような
-    // 「回復力そのものを動的に増減させる」スキルのための拡張 -- 合計は
-    // 最低1に切り上げる（successCountToR自体も最低1だが、bがマイナスの
-    // 時はそれだけでは足りないため改めて保証する）。
+    // params.aStat：能動能力値の上書き（既定sociality）。params.dStat：
+    // 受動能力値の上書き（既定Mean=対象の5能力値平均）。params.b：
+    // ボーナス（既定0）、Bd6合計として回復力にそのまま加算 --【処方箋】
+    // のような「回復力そのものを動的に増減させる」スキルが使う。
+    // a×(a+d)/aは反転形なので、aが0（使用者の協調性が0）なら式全体を
+    // 0として扱う（0除算を避けつつ、設計意図をそのまま表す）。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "sociality"));
-      const healPower = Math.max(1, successCountToR(successCount) + (params.b ?? 0));
-      const healAmount = rollSum(healPower);
+      const a = rollSum(correctedStat(actor, params.aStat ?? "sociality"));
+      const d = rollSum(params.dStat ? correctedStat(target, params.dStat) : meanStat(target));
+      const b = signedRollSum(params.b ?? 0);
+      const healAmount = Math.max(0, Math.ceil((a === 0 ? 0 : (a * (a + d)) / a) + b));
+      applyHpHeal(target.character, healAmount);
+      return { magnitude: healAmount, label: "回復" };
+    },
+  },
+  ratioHeal: {
+    id: "ratioHeal",
+    label: "割合回復",
+    targetFaction: "own",
+    effect: "hp",
+    shortNotation: "M/割合回復",
+    apply: (actor, target, params = {}) => {
+      const a = rollSum(correctedStat(actor, params.aStat ?? "sociality"));
+      const d = rollSum(params.dStat ? correctedStat(target, params.dStat) : meanStat(target));
+      const b = signedRollSum(params.b ?? 0);
+      const h = a === 0 ? 0 : (a * (a + d)) / a + b;
+      const percent = Math.ceil(h / RATIO_DIFFICULTY);
+      const healAmount = Math.ceil((computeEffectiveMaxHp(target.character) * percent) / 100);
       applyHpHeal(target.character, healAmount);
       return { magnitude: healAmount, label: "回復" };
     },
@@ -1070,13 +1232,15 @@ const MAIN_MODULES = {
     targetFaction: "own",
     effect: "stamina",
     shortNotation: "M/プロテクト",
-    // params.aStat：能動能力値の上書き（既定defence）。戻り値の
-    // magnitudeは体幹の増加量（成功度合いそのもの）-- 【エコロジー】の
-    // ような「直前のステップの結果を次のステップのparamsが参照する」
-    // 構成のために持たせる（このapply自体は自分の戻り値を使わない）。
+    // params.aStat/dStat：能動/受動能力値の上書き（既定defence/defence）。
+    // params.nb：数値ボーナス（既定0、ダイスは振らず結果にそのまま
+    // 加算）。戻り値のmagnitudeは体幹の増加量（成功度合いそのもの）--
+    // 【エコロジー】のような「直前のステップの結果を次のステップの
+    // paramsが参照する」構成のために持たせる。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "defence"));
-      const x = successCountToR(successCount);
+      const a = triangular(rollJudgement(correctedStat(actor, params.aStat ?? "defence")).successCount);
+      const d = triangular(rollJudgement(correctedStat(target, params.dStat ?? "defence")).successCount);
+      const x = Math.ceil(correctionMagnitude(a, d, true) + (params.nb ?? 0));
       target.stamina = clampStamina(target.stamina + x);
       return { magnitude: x, label: "体幹上昇" };
     },
@@ -1087,29 +1251,54 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "stamina",
     shortNotation: "M/スマッシュ",
-    // params.aStat：能動能力値の上書き（既定power）。戻り値の
-    // magnitudeは体幹の減少量（プロテクトと同じ理由で持たせる）。
+    // params.aStat/dStat：能動/受動能力値の上書き（既定power/power）。
+    // params.nb：数値ボーナス（既定0、ダイスは振らず結果にそのまま
+    // 加算）。戻り値のmagnitudeは体幹の減少量（プロテクトと同じ理由で
+    // 持たせる）。
     apply: (actor, target, params = {}) => {
-      const { successCount } = rollJudgement(correctedStat(actor, params.aStat ?? "power"));
-      const x = successCountToR(successCount);
+      const a = triangular(rollJudgement(correctedStat(actor, params.aStat ?? "power")).successCount);
+      const d = triangular(rollJudgement(correctedStat(target, params.dStat ?? "power")).successCount);
+      const x = Math.ceil(correctionMagnitude(a, d, false) + (params.nb ?? 0));
       target.stamina = clampStamina(target.stamina - x);
       return { magnitude: x, label: "体幹低下" };
     },
   },
   ...CORRECTION_MODULES,
+  // 継続回復/継続ダメージ/継続割合回復/継続割合ダメージ共通：params.b
+  // はボーナス（既定0、Hに足してh=(H+b)d6合計のダイス数に使う）。旧
+  // 設計のparams.n（毎ターンの量を直接指定する固定値）を渡すスキルが
+  // まだ残っているため、bが無ければnをボーナスとして扱う後方互換を
+  // 残す（新規スキルはbだけを使えばよい）。
   regen: {
     id: "regen",
     label: "継続回復",
     targetFaction: "own",
     effect: "continuous",
     shortNotation: "M/継続回復",
-    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
-    // sociality）。
     apply: (actor, target, params = {}) => {
-      const { n = 1, aStat } = params;
-      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "sociality"));
-      const turns = successCountToR(successCount);
-      return applyContinuousStatus(target, n, "heal", turns);
+      const { turns, magnitude } = continuousCascade(
+        correctedStat(actor, params.aStat ?? "sociality"),
+        correctedStat(target, params.dStat ?? "sociality"),
+        true,
+        params.b ?? params.n ?? 0
+      );
+      return applyContinuousStatus(target, magnitude, "heal", turns);
+    },
+  },
+  ratioRegen: {
+    id: "ratioRegen",
+    label: "継続割合回復",
+    targetFaction: "own",
+    effect: "continuous",
+    shortNotation: "M/継続割合回復",
+    apply: (actor, target, params = {}) => {
+      const { turns, magnitude } = continuousCascade(
+        correctedStat(actor, params.aStat ?? "sociality"),
+        correctedStat(target, params.dStat ?? "sociality"),
+        true,
+        params.b ?? params.n ?? 0
+      );
+      return applyContinuousStatus(target, magnitude, "ratioHeal", turns);
     },
   },
   revive: {
@@ -1118,9 +1307,17 @@ const MAIN_MODULES = {
     targetFaction: "ownIncapacitated",
     effect: "revive",
     shortNotation: "M/蘇生",
-    apply: (actor, target) => {
+    // A={User,Wisdom}、D={Target,Mean}の回復と同じh＝a×(a+d)/a+b
+    // カスケード（aが0なら式全体を0）で求めた値の「h/蘇生難易度」%を
+    // 実効最大HP基準で回復させ、戦闘不能から復帰させる。
+    apply: (actor, target, params = {}) => {
       if (actor.faction === "enemy") return { applied: false };
-      const healedHp = Math.min(computeEffectiveMaxHp(target.character), correctedStat(actor, "sociality") * 2);
+      const a = rollSum(correctedStat(actor, params.aStat ?? "wisdom"));
+      const d = rollSum(params.dStat ? correctedStat(target, params.dStat) : meanStat(target));
+      const b = signedRollSum(params.b ?? 0);
+      const h = a === 0 ? 0 : (a * (a + d)) / a + b;
+      const percent = Math.ceil(h / REVIVE_DIFFICULTY);
+      const healedHp = Math.min(computeEffectiveMaxHp(target.character), Math.ceil((computeEffectiveMaxHp(target.character) * percent) / 100));
       target.character.currentHp = healedHp;
       return { applied: true, healedHp };
     },
@@ -1131,34 +1328,30 @@ const MAIN_MODULES = {
     targetFaction: "opposing",
     effect: "continuous",
     shortNotation: "M/継続ダメ",
-    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
-    // wisdom）。
     apply: (actor, target, params = {}) => {
-      const { n = 1, aStat } = params;
-      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "wisdom"));
-      const turns = successCountToR(successCount);
-      return applyContinuousStatus(target, n, "damage", turns);
+      const { turns, magnitude } = continuousCascade(
+        correctedStat(actor, params.aStat ?? "wisdom"),
+        correctedStat(target, params.dStat ?? "wisdom"),
+        false,
+        params.b ?? params.n ?? 0
+      );
+      return applyContinuousStatus(target, magnitude, "damage", turns);
     },
   },
-  // 腐敗属性のデバフの土台：継続ダメージが「nD6合計÷2切り上げ」の
-  // 固定量を毎Mainフェイズ終了時に削るのに対し、こちらは「変調減少後
-  // 最大HP×n÷10（切り上げ）」という割合ベースで削る（applyContinuousHpTicks
-  // 側でtype==="ratioDamage"のみ計算式を分けている）。continuousHpの
-  // 単一共有枠を、継続回復/継続ダメージと同じn基準の上書きルールで
-  // 奪い合う（applyContinuousStatusはtypeを問わず同じ比較をする）。
   continuousRatioDamage: {
     id: "continuousRatioDamage",
     label: "継続割合ダメージ",
     targetFaction: "opposing",
     effect: "continuous",
     shortNotation: "M/継続割合ダメ",
-    // params.aStat：継続ターン数の判定に使う能動能力値の上書き（既定
-    // wisdom）。dot/regenと同じ形に揃える。
     apply: (actor, target, params = {}) => {
-      const { n = 1, aStat } = params;
-      const { successCount } = rollJudgement(correctedStat(actor, aStat ?? "wisdom"));
-      const turns = successCountToR(successCount);
-      return applyContinuousStatus(target, n, "ratioDamage", turns);
+      const { turns, magnitude } = continuousCascade(
+        correctedStat(actor, params.aStat ?? "wisdom"),
+        correctedStat(target, params.dStat ?? "wisdom"),
+        false,
+        params.b ?? params.n ?? 0
+      );
+      return applyContinuousStatus(target, magnitude, "ratioDamage", turns);
     },
   },
 };
@@ -4156,10 +4349,17 @@ export function BattleScene(container, params, api) {
     for (const unit of [...allyUnits, ...enemyUnits]) {
       const c = unit.continuousHp;
       if (!c || isIncapacitated(unit)) continue;
-      const amount =
-        c.type === "ratioDamage" ? Math.ceil((computeEffectiveMaxHp(unit.character) * c.n) / 10) : Math.ceil(rollSum(c.n) / 2);
+      // c.nはモジュール適用時点で既に算出済みの「h」（(H+ボーナス)d6合計
+      // の結果）。毎ターン振り直すのではなく、その固定値を難易度で割った
+      // ものを繰り返し適用する。割合系（ratioDamage/ratioHeal）は
+      // 「h/継続割合系難易度」%を実効最大HP基準で、それ以外（heal/
+      // damage）は「h/継続系難易度」をそのまま量として使う。
+      const isRatio = c.type === "ratioDamage" || c.type === "ratioHeal";
+      const amount = isRatio
+        ? Math.ceil((computeEffectiveMaxHp(unit.character) * Math.ceil(c.n / CONTINUOUS_RATIO_DIFFICULTY)) / 100)
+        : Math.ceil(c.n / CONTINUOUS_DIFFICULTY);
       const before = unit.character.currentHp;
-      if (c.type === "heal") applyHpHeal(unit.character, amount);
+      if (c.type === "heal" || c.type === "ratioHeal") applyHpHeal(unit.character, amount);
       else applyHpDamage(unit.character, amount);
       const after = unit.character.currentHp;
       const effectLabel = continuousEffectLabel(c.type);

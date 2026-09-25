@@ -16,13 +16,13 @@ export function rollSum(count) {
   return Array.from({ length: count }, rollD6).reduce((total, die) => total + die, 0);
 }
 
-// 「[count]D6成功数Δ」の変換表: D6成功数(rollJudgementのsuccessCount)を
-// 0〜1→1, 2〜3→2, 4〜6→3, 7〜10→4, 11〜15→5, 16以上→6 に変換する。
-export function successCountToR(successCount) {
-  if (successCount <= 1) return 1;
-  if (successCount <= 3) return 2;
-  if (successCount <= 6) return 3;
-  if (successCount <= 10) return 4;
-  if (successCount <= 15) return 5;
-  return 6;
+// 「NΔ」（三角数変換）: k(k+1)/2 ≦ N ＜ (k+1)(k+2)/2 となる「k」を返す
+// （N=0はk=0だが、最低保証で1に変換する）。上限を設けない点に注意 --
+// 以前の実装は16以上を一律6に丸めていたが、正しくは際限なく増え続ける。
+// 浮動小数点の誤差を避けるため、平方根の閉形式ではなく整数の反復で
+// 求める（Nは常にダイス成功数程度の小さい値なのでコストは無視できる）。
+export function successCountToR(n) {
+  let k = 0;
+  while (((k + 1) * (k + 2)) / 2 <= n) k += 1;
+  return Math.max(1, k);
 }
