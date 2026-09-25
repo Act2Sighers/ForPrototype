@@ -68,10 +68,6 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding: clamp(12px, 4vw, 32px) 16px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -86,20 +82,16 @@ body {
    --------------------------------------------------------- */
 
 .console {
+  /* Fills the page itself rather than floating as a bounded window
+     within it — every screen still scrolls *internally* (see
+     .screen-frame) instead of the whole page scrolling. */
   width: 100%;
-  max-width: 860px;
-  /* Bounded to the viewport so the frame never exceeds it — every
-     screen scrolls *internally* (see .screen-frame) instead of being
-     silently clipped by this element's own overflow:hidden. */
-  height: min(760px, calc(100vh - 64px));
-  height: min(760px, calc(100dvh - 64px));
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   gap: 0;
   background: var(--panel);
-  border: 1px solid var(--panel-line-strong);
-  border-radius: var(--radius-md);
-  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.7);
   overflow: hidden;
 }
 
