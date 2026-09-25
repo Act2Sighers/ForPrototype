@@ -160,6 +160,24 @@ body {
   overflow-y: auto;
 }
 
+/* Fullscreen (see .console) widened every screen's usable width, but a
+   page-wide column of prose or a lone text box reads badly at that
+   width. Cap it back to a comfortable line length by default, centered
+   in the now-empty page margins; the map (SVG route graph) and battle
+   (3-column ally/enemy layout) opt back out below since they *do*
+   benefit from the extra room. */
+.screen-frame > * {
+  width: 100%;
+  max-width: 880px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.screen[data-scene="map"] .screen-frame > *,
+.screen[data-scene="battle"] .screen-frame > * {
+  max-width: none;
+}
+
 /* Themed, draggable scrollbars for the screen body and the map's
    horizontal scroller. */
 .screen-frame,
