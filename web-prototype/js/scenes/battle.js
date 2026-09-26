@@ -2904,8 +2904,8 @@ Object.assign(MAIN_MODULES, {
     },
   },
   // 【ブレンド】（ミキサー）：相手陣営1体を選んで使う（不発ありの方式
-  // --「選べるが不発」に統一するユーザー指示に従う）。C=対象のIN。
-  // C<0の時だけ、その負のIN分だけ「-8×C」の固定ダメージを与え体幹を
+  // --「選べるが不発」に統一するユーザー指示に従う）。C=対象の体幹。
+  // C<0の時だけ、その脆弱性ぶん「-8×C」の固定ダメージを与え体幹を
   // 0に戻す。C>=0の相手には何も起きない。単体のleafモジュールとして、
   // 自分自身がsteps無しでapplyを直接持つ（quickAttackなどと同じ形）。
   blend: {
@@ -2918,8 +2918,8 @@ Object.assign(MAIN_MODULES, {
     weaponOnly: true,
     shortNotation: "M/2/?[HP-消費脆弱×8]t",
     apply: (actor, target) => {
-      if (target.in >= 0) return { magnitude: 0, label: "ダメージ" };
-      const damage = -8 * target.in;
+      if (target.stamina >= 0) return { magnitude: 0, label: "ダメージ" };
+      const damage = -8 * target.stamina;
       target.stamina = 0;
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
@@ -2938,7 +2938,7 @@ Object.assign(MAIN_MODULES, {
     effect: "hp",
     weaponOnly: true,
     apply: (actor, target) => {
-      const damage = -16 * target.in;
+      const damage = -16 * target.stamina;
       target.stamina = 0;
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
@@ -4690,12 +4690,12 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
-  // 【ブレンド＋】専用の解決関数：C（対象のIN）が負ならダメージ枠
+  // 【ブレンド＋】専用の解決関数：C（対象の体幹）が負ならダメージ枠
   // （blendPlusDamage、effect:"hp"）、0以上なら体幹操作枠
   // （staminaShift、既存の【崇高】用の葉をそのまま流用）へ振り分ける
   // -- 効果種別が実行時の条件で変わるためbounceと同じ構造を取る。
   async function resolveBlendPlus(unit, targetUnit) {
-    if (targetUnit.in < 0) {
+    if (targetUnit.stamina < 0) {
       await applyLeafModule(unit, targetUnit, MAIN_MODULES.blendPlusDamage, {});
     } else {
       await applyLeafModule(unit, targetUnit, MAIN_MODULES.staminaShift, { n: -2 });
