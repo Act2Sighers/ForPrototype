@@ -6273,6 +6273,31 @@ export function BattleScene(container, params, api) {
           for (const el of elements) overlay.appendChild(el);
         }
       }
+
+      // (3.6) D6：対象選択の余地が無い陣営全体スキル（targetFaction:
+      // "none"のうち、declaredTargetsForで実際の対象が選択の時点で
+      // 既に確定するもの＝泥沼／チアーズ等のeach持ち、あべこべ／お姉
+      // ちゃん系のcustom分岐）も、選ばれた瞬間に対象全員へ矢印を出す --
+      // これらは選択の余地が無く（=対象確定に追加の操作を必要としない）、
+      // 3.5がスキップする側なので別枠で描く。可変回数・毎回ランダム
+      // 対象のcustom分岐（シェアカット等）はdeclaredTargetsForがnullを
+      // 返す＝実行時まで対象が決まらないため、引き続き対象外のまま。
+      for (const unit of allyUnits) {
+        if (!unit.action?.moduleId) continue;
+        const module = currentModules()[unit.action.moduleId];
+        if (module.targetFaction !== "none") continue;
+        const targets = declaredTargetsFor(unit, module);
+        if (!targets) continue;
+        const a = unitEdge(unit);
+        if (!a) continue;
+        for (const target of targets) {
+          const b = unitEdge(target);
+          if (!b) continue;
+          const elements =
+            unit.faction !== target.faction ? crossArrowElements(a, b, "pending") : loopArrowElements(a, b, unit.faction, unit === target, "pending");
+          for (const el of elements) overlay.appendChild(el);
+        }
+      }
     }
 
     // (4) 順次処理の一時的な矢印。上記3つより後に追加することで、常に
