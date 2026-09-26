@@ -3,6 +3,7 @@ import state, { grantResource, grantTieredResource, recordDefeatedMonsterLevels,
 import {
   computeStats,
   computeEffectiveMaxHp,
+  computeLevel,
   increaseCondition,
   MONSTER_DATA,
   createMonsterFromData,
@@ -723,6 +724,32 @@ Object.assign(PREP_MODULES, {
     shortNotation: "P/鼓舞2s+",
     steps: [{ actionId: "inspire", params: { n: 2 } }, { actionId: "optimize", params: { n: 4 } }],
   },
+  // 牽制2+威圧1+挑発：すっごく大きい声専用の内部合成アクション（プレイ
+  // ヤーが直接選ぶことはない -- CHARACTER_SKILL_LOADOUTSに登録しない）。
+  // 相手陣営1体につきこの3効果をまとめて適用する塊として、each側から
+  // 参照する。
+  loudVoiceCombo: {
+    id: "loudVoiceCombo",
+    label: "牽制+威圧+挑発",
+    steps: [
+      { actionId: "restrain", params: { n: 2 } },
+      { actionId: "intimidate", params: { n: 1 } },
+      { actionId: "provoke" },
+    ],
+  },
+  // 【すっごく大きい声】：相手陣営全員それぞれに牽制(2)、威圧(1)、挑発を
+  // 行う。既存のeach:"opposing"に、3効果の合成アクション（loudVoice
+  // Combo）を渡すことで実現する -- runSteps側のeach分岐は「対象1体に
+  // つきaction.stepsがあれば再帰的にrunSteps」を既にサポートしている
+  // ため、新規のエンジン変更は不要だった。
+  loudVoice: {
+    id: "loudVoice",
+    label: "すっごく大きい声",
+    targetFaction: "opposing",
+    allyOnly: true,
+    shortNotation: "P/牽制2t*+威圧c+挑発c",
+    steps: [{ actionId: "loudVoiceCombo", each: "opposing" }],
+  },
   // 【日陰者のセイギ】：隠密をそのままラップしただけ。
   shadowJustice: {
     id: "shadowJustice",
@@ -764,6 +791,20 @@ Object.assign(PREP_MODULES, {
     allyOnly: true,
     shortNotation: "P/鼓舞2*",
     custom: "sisterCheerUpgrade",
+  },
+  // 【撫でて撫でて】：C＝その戦闘中にこのユニット自身が【撫でて撫でて】
+  // を使用した回数×2（unit.skillUseCounts、本の虫と同じ仕組みを共有）。
+  // 自身以外の自陣営1体と自身、両方に最適化(C)を行う。
+  petPet: {
+    id: "petPet",
+    label: "撫でて撫でて",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/最適化[使用回数×2]es",
+    steps: [
+      { actionId: "optimize", params: (unit) => ({ n: (unit.skillUseCounts?.petPet ?? 0) * 2 }) },
+      { actionId: "optimize", target: "self", params: (unit) => ({ n: (unit.skillUseCounts?.petPet ?? 0) * 2 }) },
+    ],
   },
   // 【チェック】：相手陣営1体を威圧(1)し、同じ相手ではなく自身を対象に
   // 鼓舞(1)を行う（陰陽と同じtarget:"self"override）。
@@ -2338,6 +2379,68 @@ Object.assign(MAIN_MODULES, {
       { actionId: "enhanceDefence", params: { n: 4 }, target: "self" },
     ],
   },
+  // 体幹消費：シールドスマッシュ専用の葉。自身の体幹が正の値の時だけ
+  // それを0にリセットする（0以下の時は何もしない -- 負の体幹＝脆弱を
+  // 消してしまわないよう、シールドスマッシュのC<=0側は元々この葉自体を
+  // 使わない設計だが、念のため0以下では無条件に無視する）。
+  consumeOwnStamina: {
+    id: "consumeOwnStamina",
+    label: "体幹消費",
+    targetFaction: "self",
+    effect: "stamina",
+    apply: (actor, target) => {
+      if (target.stamina > 0) target.stamina = 0;
+      return { applied: true };
+    },
+  },
+  // 【シールドスマッシュ】：C=自身の体幹。C>0ならスマッシュのボーナス
+  // にCそのものを使い、その後自身の体幹を0に消費する。C<=0なら通常の
+  // （ボーナス無しの）スマッシュ。体幹はスマッシュ自体では変化しない
+  // （スマッシュは対象の体幹だけを操作する）ので、2ステップ目で改めて
+  // unit.staminaを読んでも1ステップ目時点のCと同じ値のまま。
+  shieldSmash: {
+    id: "shieldSmash",
+    label: "シールドスマッシュ",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/スマッシュ{[消費装甲],0}t",
+    steps: [
+      { actionId: "smash", params: (unit) => ({ nb: unit.stamina > 0 ? unit.stamina : 0 }) },
+      { actionId: "consumeOwnStamina", target: "self" },
+    ],
+  },
+  // 復活+HP半分回復：祈りの手専用の葉。蘇生モジュール（判定・確率あり）
+  // は使わず、戦闘不能かどうかに関わらず一律「現在HPを実効最大HP/2
+  // (切り上げ)未満なら引き上げる」だけの直接処理。戦闘不能（HP<=0）な
+  // 対象は必ずこの床を下回っているので、この一回の処理で蘇生も兼ねる
+  // （すでに半分以上のユニットは変化しない＝下げることはない）。
+  reviveAndHealHalf: {
+    id: "reviveAndHealHalf",
+    label: "復活+HP半分回復",
+    targetFaction: "own",
+    effect: "hp",
+    apply: (actor, target) => {
+      const floor = Math.ceil(computeEffectiveMaxHp(target.character) / 2);
+      const before = target.character.currentHp ?? computeEffectiveMaxHp(target.character);
+      target.character.currentHp = Math.max(before, floor);
+      return { magnitude: target.character.currentHp - before, label: "回復" };
+    },
+  },
+  // 【祈りの手】：戦闘ごとに1回のみ使用できる。自陣営全員（戦闘不能者も
+  // 含む）に復活+HP半分回復を行う。each:"ownAll"はownPoolFor（戦闘不能者
+  // を除外する）とは別に新設した、生存/戦闘不能を問わず自陣営全員を
+  // 対象にするための仕組み（runSteps参照）。
+  prayingHands: {
+    id: "prayingHands",
+    label: "祈りの手",
+    targetFaction: "self",
+    cost: 3,
+    allyOnly: true,
+    oncePerBattle: true,
+    shortNotation: "M/3/!![復活+HP半分回復]u*",
+    steps: [{ actionId: "reviveAndHealHalf", each: "ownAll" }],
+  },
   // 【攻めの手】：攻撃した後、対象が「釘付け」状態（target.pinnedByが
   // 立っている）なら追加で貫通攻撃を行う。固定のchance確率ではなく、
   // (unit,targetUnit)=>numberの関数chanceを使うことで、既存のchance
@@ -2462,6 +2565,21 @@ Object.assign(MAIN_MODULES, {
       { actionId: "attack" },
     ],
   },
+  // 【ロッカク・クリスタル】：自陣営全員（生存者のみ、ownPoolFor準拠）
+  // それぞれに対し、個別に1d6を振って対応する能力値上昇(3)をかける
+  // （6のみ全能力値上昇(3)）。対象ごとにダイス目も適用モジュールも変わる
+  // ため、汎用のsteps/eachエンジン（1ステップにつき1つの固定
+  // actionIdだけを扱う）では表現できず、専用のcustom解決関数
+  // （resolveRokkakuCrystal）を新設した。
+  rokkakuCrystal: {
+    id: "rokkakuCrystal",
+    label: "ロッカク・クリスタル",
+    targetFaction: "self",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/[ランダム能力値上昇]u*",
+    custom: "rokkakuCrystal",
+  },
   // 【ビターフィール】：相手陣営1体に継続ダメージ(5)を付与した後、
   // （前ステップの対象とは無関係に）自身に継続ダメージ(2)を付与する。
   bitterFeel: {
@@ -2517,6 +2635,47 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/3/継続ダメ12+",
     steps: [{ actionId: "dot", params: { n: 12 } }, { actionId: "dot", target: "self", params: { n: 6 } }],
+  },
+  // 【本の虫】：ターンに1回のみ使用できる。n＝その戦闘中にこのユニット
+  // 自身が【本の虫】を使用した回数×2（unit.skillUseCounts、resolveMain
+  // Action参照 -- 同名キャラを複数編成していても各自が自分の使用回数を
+  // 個別に数える、oncePerTurn/oncePerBattleの共有ロックとは別物）。
+  bookworm: {
+    id: "bookworm",
+    label: "本の虫",
+    targetFaction: "self",
+    cost: 1,
+    allyOnly: true,
+    oncePerTurn: true,
+    shortNotation: "M/1/!賢さ∧[使用回数×2]s",
+    steps: [{ actionId: "enhanceWisdom", params: (unit) => ({ n: (unit.skillUseCounts?.bookworm ?? 0) * 2 }) }],
+  },
+  // 対象PT2消費+割合回復20：ちゃんと休憩しなきゃ…専用の葉。PTを直接
+  // 減らす効果はここが初出（下限0で消費、対象の残りPTが2未満でも
+  // 持っている分だけ消費して0にするだけで、回復量には影響しない）。
+  needARestEffect: {
+    id: "needARestEffect",
+    label: "対象PT2消費+割合回復20",
+    targetFaction: "ownExcludingSelf",
+    effect: "hp",
+    apply: (actor, target) => {
+      target.pt.current = Math.max(0, target.pt.current - 2);
+      const healAmount = Math.ceil(computeEffectiveMaxHp(target.character) * 0.2);
+      applyHpHeal(target.character, healAmount);
+      return { magnitude: healAmount, label: "回復" };
+    },
+  },
+  // 【ちゃんと休憩しなきゃ…】：自身以外の自陣営1体を対象に取るため、
+  // 自身しかいない（自陣営が使用者だけの）場合はcandidateUnitsが空に
+  // なり、そもそも選択肢に出ない＝不発の仕様を自然に満たす。
+  needARest: {
+    id: "needARest",
+    label: "ちゃんと休憩しなきゃ…",
+    targetFaction: "ownExcludingSelf",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/?[対象PT2消費+割合回復20]e",
+    steps: [{ actionId: "needARestEffect" }],
   },
   // 【安心のサポート】：完璧なサポートの弱化版（成長前の初期修得
   // スキル）。判定に使う能動能力値を協調性に上書きする点は同じ。
@@ -2647,6 +2806,36 @@ Object.assign(MAIN_MODULES, {
       { actionId: "attack" },
       { actionId: "attack" },
     ],
+  },
+  // レベル差判定即死：イージーゲーム専用の葉。G=[使用者のレベル-対象の
+  // レベル]がG>=20なら対象のHPを直接0に変更する（ダイスを介さない即死
+  // 処理）。G<20なら何も起きない（変化なしのログのみ、effect:"hp"の
+  // 汎用ロガーをそのまま使うための最小限の戻り値）。
+  levelGapKill: {
+    id: "levelGapKill",
+    label: "レベル差判定即死",
+    targetFaction: "opposing",
+    effect: "hp",
+    apply: (actor, target) => {
+      const g = computeLevel(actor.character.growth) - computeLevel(target.character.growth);
+      if (g < 20) return { magnitude: 0, label: "変化なし" };
+      const before = target.character.currentHp;
+      target.character.currentHp = 0;
+      return { magnitude: before, label: "撃破" };
+    },
+  },
+  // 【イージーゲーム】：戦闘ごとに1回のみ使用できる。攻撃(5)の後、
+  // レベル差が20以上なら対象のHPを0にする即死判定を行う（同じ対象を
+  // 継続して使うので2ステップ目にtarget指定は不要）。
+  easyGame: {
+    id: "easyGame",
+    label: "イージーゲーム",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    oncePerBattle: true,
+    shortNotation: "M/3/!!攻撃5t+?[Lv差20↑で即死]c",
+    steps: [{ actionId: "attack", params: { b: 5 } }, { actionId: "levelGapKill" }],
   },
   // 【処方箋】：残りPTを全額消費する代わりに、回復力へ「消費したPT-3」
   // を加算する（最低1）。cost:"all"はresolveMainAction側で「PTが足り
@@ -3414,12 +3603,12 @@ const MONSTER_SKILL_LOADOUTS = {
 // （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
 // 全モジュールを自由選択できる。
 const CHARACTER_SKILL_LOADOUTS = {
-  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand"],
+  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand", "shieldSmash", "prayingHands"],
   cubeSugar: ["easyAdapt", "retreatCall", "quickAttack", "firstAid", "attackingHand", "mourningHand", "roughStrike"],
-  honeyScrew: ["easyAdapt", "festivalHunch", "quickAttack", "firstAid", "honeyBeat", "playfulSwing"],
-  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel"],
-  lollipopSpiral: ["easyAdapt", "sisterCheer", "quickAttack", "firstAid", "supportComfort", "youngestSisterBusy", "scold"],
-  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort"],
+  honeyScrew: ["easyAdapt", "festivalHunch", "quickAttack", "firstAid", "honeyBeat", "playfulSwing", "loudVoice", "rokkakuCrystal"],
+  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel", "bookworm", "needARest"],
+  lollipopSpiral: ["easyAdapt", "sisterCheer", "quickAttack", "firstAid", "supportComfort", "youngestSisterBusy", "scold", "petPet"],
+  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort", "easyGame"],
   sunlightSaccharum: ["easyAdapt", "highPlot", "lowPlot", "quickAttack", "firstAid", "prescription", "decoy", "lifeSaving", "lostKnowledge"],
 };
 
@@ -3896,6 +4085,9 @@ export function BattleScene(container, params, api) {
     if (!each) return null;
     if (each === "own") return ownPoolFor(unit);
     if (each === "ownExcludingSelf") return ownPoolFor(unit).filter((u) => u !== unit);
+    // "ownAll"：祈りの手専用。ownPoolFor（戦闘不能者を除外）と違い、
+    // 戦闘不能な隊員も含めた自陣営全員を対象に取る。
+    if (each === "ownAll") return unit.faction === "ally" ? allyUnits : enemyUnits;
     return opposingPoolFor(unit);
   }
 
@@ -4439,6 +4631,12 @@ export function BattleScene(container, params, api) {
     if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
     render();
     await sleep(ACTION_DELAY_MS);
+    // 撫でて撫でてのような「そのユニット自身がこのスキルを何回使った
+    // か」カウンタ。Mainフェイズのresolveメインの同名処理と同じ役割
+    // （unit.skillUseCounts、コスト概念の無いPrepでは宣言確定＝使った
+    // タイミングでそのまま加算する）。
+    unit.skillUseCounts = unit.skillUseCounts ?? {};
+    unit.skillUseCounts[module.id] = (unit.skillUseCounts[module.id] ?? 0) + 1;
 
     if (module.custom === "tasteTest") {
       await resolveTasteTest(unit, targetUnit);
@@ -4641,7 +4839,11 @@ export function BattleScene(container, params, api) {
             ? ownPoolFor(unit)
             : step.each === "ownExcludingSelf"
               ? ownPoolFor(unit).filter((u) => u !== unit)
-              : opposingPoolFor(unit);
+              // "ownAll"：祈りの手専用。ownPoolFor（戦闘不能者を除外）とは
+              // 別に、戦闘不能な隊員も含めた自陣営全員を対象にする。
+              : step.each === "ownAll"
+                ? (unit.faction === "ally" ? allyUnits : enemyUnits)
+                : opposingPoolFor(unit);
         for (const t of pool) {
           usedTargets.push(t);
           if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets, leafIds);
@@ -4875,6 +5077,25 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【ロッカク・クリスタル】専用の解決関数：自陣営の生存者それぞれに
+  // 個別で1d6を振り、対応する能力値上昇(3)を適用する（6のみ5種類全部）。
+  // 対象ごとにダイス目も適用モジュールも変わるため、汎用のsteps/each
+  // エンジン（1ステップにつき固定の1 actionIdだけを扱う）では表現でき
+  // ない -- これがこのスキルのために新設したcustom解決関数。
+  async function resolveRokkakuCrystal(unit) {
+    for (const target of ownPoolFor(unit)) {
+      const d = rollD6();
+      if (d === 6) {
+        for (const { enhanceId } of CORRECTION_MODULE_DEFS) {
+          await applyLeafModule(unit, target, MAIN_MODULES[enhanceId], { n: 3 });
+        }
+      } else {
+        const { enhanceId } = CORRECTION_MODULE_DEFS[d - 1];
+        await applyLeafModule(unit, target, MAIN_MODULES[enhanceId], { n: 3 });
+      }
+    }
+  }
+
   // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
   // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
   // エンジン（固定回数・固定候補）では表現しづらいスキルを、
@@ -4889,6 +5110,7 @@ export function BattleScene(container, params, api) {
     blendPlus: resolveBlendPlus,
     hyperRush: resolveHyperRush,
     honeyBeastBeat: resolveHoneyBeastBeat,
+    rokkakuCrystal: resolveRokkakuCrystal,
   };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
@@ -4937,6 +5159,12 @@ export function BattleScene(container, params, api) {
     // 支払い完了＝実際に使った）で行う。
     if (module.oncePerTurn) onceThisTurnUsed.add(module.id);
     if (module.oncePerBattle) onceThisBattleUsed.add(module.id);
+    // 本の虫のような「そのユニット自身がこのスキルを何回使ったか」
+    // （unit単位・戦闘中ずっと保持）のカウンタ。「!!」のようなmodule.id
+    // 単位の戦闘全体共有ロックとは別物 -- 同名キャラを複数編成していても
+    // 各自の使用回数を個別に数える。
+    unit.skillUseCounts = unit.skillUseCounts ?? {};
+    unit.skillUseCounts[module.id] = (unit.skillUseCounts[module.id] ?? 0) + 1;
 
     // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
     // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
