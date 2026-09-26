@@ -1328,6 +1328,7 @@ body {
 }
 
 .battle-unit {
+  position: relative;
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
   background: var(--panel-raised);
@@ -1335,6 +1336,34 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* C1で枠から削った能力値/IN/体幹/変調を、仮にマウスオーバーで確認
+   できるようにする土台（battleUnitPopover参照）。装甲/脆弱性/バフ/
+   デバフを簡易アイコンへ差し替える段階までの暫定表示。開閉状態は
+   JS側で持たず、hoverだけで切り替える。枠の下に重ねて出すため、
+   スクロール枠（.battle-arena-scroll）の端に近い枠では見切れる場合が
+   ある点は今の段階では許容する。 */
+.battle-unit__popover {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 6px;
+  min-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  flex-direction: column;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.battle-unit:hover .battle-unit__popover {
+  display: flex;
 }
 
 /* 矢印表示中、行動主体は水色、行動対象は赤系でステータス枠をハイラ

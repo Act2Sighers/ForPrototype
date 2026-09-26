@@ -3854,15 +3854,25 @@ function unitAttribute(character) {
   return character.attribute ?? NO_ATTRIBUTE;
 }
 
+// C1で削った情報（能力値/IN/体幹＝装甲・脆弱性/変調）を、マウスオーバー
+// 時のポップアップとして仮に確認できるようにする土台（ユーザー指示）。
+// 将来的に装甲/脆弱性/バフ/デバフは簡易アイコンへ差し替わる想定だが、
+// それまでの間はここに文字情報のまま出しておく。変調は隊員限定。
+// CSSの.battle-unit:hover .battle-unit__popoverで表示を切り替える
+// （JS側で開閉状態を持たない、hoverだけの簡易実装）。
+function battleUnitPopover(unit) {
+  const children = [battleStatsRow(unit), staminaSpan(unit.stamina)];
+  if (unit.faction === "ally") children.push(conditionBadge(unit));
+  return h("div", { class: "battle-unit__popover" }, children);
+}
+
 // ステータス枠の表示項目は「名前・レベル・属性・HPゲージ・PT」のみに
 // 絞ってある（ユーザー指示）。変調/体幹/能力値/IN/戦闘不能バッジなど
-// それ以外の情報は、この枠自体には出さない（今後の段階でマウスオーバー
-// ポップアップやアイコン表示として別途出す想定 -- battleStatsRow/
-// staminaSpan/conditionBadgeはそちらで再利用するため、関数自体は削除
-// せず残してある）。戦闘不能の判別は、この枠に別途重ねる
-// .battle-unit--down（グレーアウト、statusCardClass参照）のみで行う。
-// 属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）の場合は、
-// 「属性：なし」等とは書かず、属性欄自体を表示しない。
+// それ以外の情報は、この枠自体には出さず、battleUnitPopover()の
+// マウスオーバーポップアップに回している。戦闘不能の判別は、この枠に
+// 別途重ねる.battle-unit--down（グレーアウト、statusCardClass参照）
+// のみで行う。属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）
+// の場合は、「属性：なし」等とは書かず、属性欄自体を表示しない。
 function battleUnitCard(unit, extraClass, onClick) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const character = unit.character;
@@ -3879,6 +3889,7 @@ function battleUnitCard(unit, extraClass, onClick) {
       h("span", { text: `PT: ${unit.pt.current} / ${unit.pt.max}` }),
       ptLamp(unit.pt.current, unit.pt.max),
     ]),
+    battleUnitPopover(unit),
   ]);
 }
 
