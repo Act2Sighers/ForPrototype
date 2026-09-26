@@ -1,5 +1,12 @@
 import { renderScreen, button, h } from "../dom.js";
-import state, { grantResource, grantTieredResource, recordDefeatedMonsterLevels, recordRescue, setBattleDoubleSpeed } from "../state.js";
+import state, {
+  grantResource,
+  grantTieredResource,
+  grantAmberSugarMineralInstances,
+  recordDefeatedMonsterLevels,
+  recordRescue,
+  setBattleDoubleSpeed,
+} from "../state.js";
 import {
   computeStats,
   computeEffectiveMaxHp,
@@ -8,11 +15,15 @@ import {
   MONSTER_DATA,
   createMonsterFromData,
   createBossMonsterFromData,
+  createAmberSugarMineralInstance,
+  naturalResourceTierName,
+  rigidResourceTierName,
   computeProgressLevel,
   applyHpDamage,
   applyHpHeal,
   CHARACTER_STAT_FULL_LABELS,
   computeBattleRewards,
+  computeMonsterReward,
   NATURAL_RESOURCES,
   RIGID_RESOURCES,
   NATURAL_QUALITY_LABELS,
@@ -21,6 +32,7 @@ import {
   WEAPON_TYPES,
 } from "../data/resourceCatalog.js";
 import { computeBossLevel } from "../data/testDungeon.js";
+import { computeGatherAbility, computeMineAbility, pickGatherReward, pickMineReward } from "../data/exploration.js";
 import { rollD6, rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -686,6 +698,37 @@ Object.assign(PREP_MODULES, {
     allyOnly: true,
     shortNotation: "P/最適化s",
     steps: [{ actionId: "optimize" }],
+  },
+  // 【シュガートーク・表】：自陣営に【シュガートーク・裏】を選んだ
+  // ユニットが1人でもいれば成立（resolveSugarTalk参照）、自身に
+  // 最適化(5)、鼓舞(3)。
+  sugarTalkFront: {
+    id: "sugarTalkFront",
+    label: "シュガートーク・表",
+    targetFaction: "self",
+    allyOnly: true,
+    shortNotation: "P/?最適化5s+鼓舞3c",
+    custom: "sugarTalkFront",
+  },
+  // 【シュガートーク・裏】：表と対になる側。自陣営に【シュガートーク・
+  // 表】を選んだユニットが1人でもいれば成立。効果自体は表と全く同じ。
+  sugarTalkBack: {
+    id: "sugarTalkBack",
+    label: "シュガートーク・裏",
+    targetFaction: "self",
+    allyOnly: true,
+    shortNotation: "P/?最適化5s+鼓舞3c",
+    custom: "sugarTalkBack",
+  },
+  // 【土いじり】：探索システムの採集/採掘判定を単発で1回だけ直接実行
+  // する（resolveDigAround参照。作業監督の呼び出しは介さない）。
+  digAround: {
+    id: "digAround",
+    label: "土いじり",
+    targetFaction: "self",
+    allyOnly: true,
+    shortNotation: "P/{[採集],[採掘]}s",
+    custom: "digAround",
   },
   // 【下がって！】：挑発をそのままラップしただけ。
   retreatCall: {
@@ -2837,6 +2880,21 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/!!攻撃5t+?[Lv差20↑で即死]c",
     steps: [{ actionId: "attack", params: { b: 5 } }, { actionId: "levelGapKill" }],
   },
+  // 【ジャックポット】：相手陣営1体に攻撃を行い、その攻撃で対象が戦闘
+  // 不能になった場合、その対象の固有報酬（勝利時のcomputeMonsterReward
+  // 分）が2倍になる（unit.jackpotKilledでマーク、実際の倍化処理は
+  // grantBattleRewards側）。既存の「攻撃」をそのまま使い、直後に不能化
+  // 判定だけを足す構成のためcustom解決関数（resolveJackpot）にした
+  // （マーキング自体はログを出さない、ログは攻撃のダメージ行のみ）。
+  jackpot: {
+    id: "jackpot",
+    label: "ジャックポット",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/攻撃t+[トドメで報酬倍化]c",
+    custom: "jackpot",
+  },
   // 【処方箋】：残りPTを全額消費する代わりに、回復力へ「消費したPT-3」
   // を加算する（最低1）。cost:"all"はresolveMainAction側で「PTが足り
   // ず不発」判定をスキップし、その時点の残りPT全額を支払う特別な値。
@@ -3603,12 +3661,12 @@ const MONSTER_SKILL_LOADOUTS = {
 // （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
 // 全モジュールを自由選択できる。
 const CHARACTER_SKILL_LOADOUTS = {
-  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand", "shieldSmash", "prayingHands"],
-  cubeSugar: ["easyAdapt", "retreatCall", "quickAttack", "firstAid", "attackingHand", "mourningHand", "roughStrike"],
+  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand", "shieldSmash", "prayingHands", "sugarTalkFront"],
+  cubeSugar: ["easyAdapt", "retreatCall", "quickAttack", "firstAid", "attackingHand", "mourningHand", "roughStrike", "sugarTalkBack"],
   honeyScrew: ["easyAdapt", "festivalHunch", "quickAttack", "firstAid", "honeyBeat", "playfulSwing", "loudVoice", "rokkakuCrystal"],
-  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel", "bookworm", "needARest"],
+  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel", "bookworm", "needARest", "digAround"],
   lollipopSpiral: ["easyAdapt", "sisterCheer", "quickAttack", "firstAid", "supportComfort", "youngestSisterBusy", "scold", "petPet"],
-  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort", "easyGame"],
+  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort", "easyGame", "jackpot"],
   sunlightSaccharum: ["easyAdapt", "highPlot", "lowPlot", "quickAttack", "firstAid", "prescription", "decoy", "lifeSaving", "lostKnowledge"],
 };
 
@@ -4434,6 +4492,19 @@ export function BattleScene(container, params, api) {
   // テキストログの表示だけで良いという指定のため）。
   function grantBattleRewards() {
     const rewards = computeBattleRewards(enemyUnits.map((u) => u.character));
+    // 【ジャックポット】：トドメを刺した対象(unit.jackpotKilled)の固有
+    // 報酬（computeMonsterReward分）だけをもう一度足し込んで2倍にする。
+    // 陣営全体のレベル合計から算出される共有のザラメ鉱石ボーナス
+    // （computeBattleRewards内で別途1回だけ加算される）はここでは触ら
+    // ない -- 「固有報酬」はモンスターごとの個別報酬だけを指すため。
+    for (const unit of enemyUnits) {
+      if (!unit.jackpotKilled) continue;
+      for (const bonus of computeMonsterReward(unit.character)) {
+        const existing = rewards.find((entry) => entry.category === bonus.category && entry.resourceId === bonus.resourceId && entry.tier === bonus.tier);
+        if (existing) existing.amount += bonus.amount;
+        else rewards.push({ ...bonus });
+      }
+    }
     for (const entry of rewards) {
       if (entry.tier === null) grantResource(entry.category, entry.resourceId, entry.amount);
       else grantTieredResource(entry.category, entry.resourceId, entry.tier, entry.amount);
@@ -4612,6 +4683,59 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
+  // 【シュガートーク・表/裏】共通の解決関数：自陣営に、このユニット以外
+  // で「相方」（partnerModuleIdを選んでいるユニット）が1人でもいれば
+  // 成立し、自身に最適化(5)・鼓舞(3)を行う。いなければ不発。
+  // Prepフェイズは全員の行動が実行前に全て確定済み（allAlliesReady）
+  // なので、宣言順に関わらずunit.action.moduleIdを見るだけで「相方が
+  // いるか」を判定できる -- 1:1のペア消費（片方が成立に使ったらもう
+  // 片方は使えない、等）は無く、複数の表が同じ1人の裏を相方にしても
+  // 構わない（各自が独立に「相方の存在」だけを見る）。
+  async function resolveSugarTalk(unit, partnerModuleId) {
+    const hasPartner = ownPoolFor(unit).some((u) => u !== unit && u.action?.moduleId === partnerModuleId);
+    if (!hasPartner) {
+      pushLog(`${unit.displayName}以外に相方がいないため、効果は不発に終わった。`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+      return;
+    }
+    await applyLeafPrepModule(unit, unit, PREP_MODULES.optimize, { n: 5 });
+    await applyLeafPrepModule(unit, unit, PREP_MODULES.inspire, { n: 3 });
+  }
+
+  // 【土いじり】専用の解決関数：戦闘とは別枠の探索システム
+  // （data/exploration.js）から採集/採掘の判定・報酬決定ロジックだけを
+  // そのまま流用し、作業監督呼び出し（call queue）は一切介さない単発の
+  // 1回判定として直接実行する。獲得資源はexplorationSim.jsのcommitHaul
+  // と同じ経路（grantTieredResource/grantAmberSugarMineralInstances）で
+  // そのまま実際の所持資源に加算する。
+  async function resolveDigAround(unit) {
+    const role = Math.random() < 0.5 ? "gather" : "mine";
+    const roleLabel = role === "gather" ? "採集" : "採掘";
+    const ability = role === "gather" ? computeGatherAbility(unit.character) : computeMineAbility(unit.character);
+    const { successCount } = rollJudgement(ability);
+    const reward = role === "gather" ? pickGatherReward(successCount) : pickMineReward(successCount);
+    if (!reward) {
+      pushLog(`${unit.displayName}が${roleLabel}判定に挑戦（成功数${successCount}）… 何も得られなかった。`, unit.faction);
+    } else {
+      const names = [];
+      for (const item of reward) {
+        if (item.category === "amber") {
+          const instances = Array.from({ length: item.count }, () => createAmberSugarMineralInstance(item.quality));
+          grantAmberSugarMineralInstances(instances);
+          names.push(...instances.map((instance) => instance.name));
+        } else {
+          grantTieredResource(item.category, item.speciesId, item.quality, item.count);
+          const name = item.category === "natural" ? naturalResourceTierName(item.speciesId, item.quality) : rigidResourceTierName(item.speciesId, item.quality);
+          names.push(`${name}×${item.count}`);
+        }
+      }
+      pushLog(`${unit.displayName}が${roleLabel}判定に挑戦（成功数${successCount}）… ${names.join("、")}を獲得！`, unit.faction);
+    }
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
   // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
   // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
   // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
@@ -4664,6 +4788,18 @@ export function BattleScene(container, params, api) {
     }
     if (module.custom === "escort") {
       await resolveEscort(unit, targetUnit);
+      return;
+    }
+    if (module.custom === "sugarTalkFront") {
+      await resolveSugarTalk(unit, "sugarTalkBack");
+      return;
+    }
+    if (module.custom === "sugarTalkBack") {
+      await resolveSugarTalk(unit, "sugarTalkFront");
+      return;
+    }
+    if (module.custom === "digAround") {
+      await resolveDigAround(unit);
       return;
     }
     await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
@@ -5096,6 +5232,17 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【ジャックポット】専用の解決関数：既存の「攻撃」をそのまま使い、
+  // その結果対象が戦闘不能になっていれば（この行動が始まった時点で
+  // 対象は必ず生存していたので、ここで不能ならこの攻撃が原因と確定
+  // できる）unit.jackpotKilledを立てる。ログは出さない（攻撃自体の
+  // ダメージ行だけで十分、というlostKnowledge等と同じ「主効果だけ
+  // ログに出す」方針）。実際の報酬倍化はgrantBattleRewards側で行う。
+  async function resolveJackpot(unit, targetUnit) {
+    await applyLeafModule(unit, targetUnit, MAIN_MODULES.attack, {});
+    if (isIncapacitated(targetUnit)) targetUnit.jackpotKilled = true;
+  }
+
   // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
   // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
   // エンジン（固定回数・固定候補）では表現しづらいスキルを、
@@ -5111,6 +5258,7 @@ export function BattleScene(container, params, api) {
     hyperRush: resolveHyperRush,
     honeyBeastBeat: resolveHoneyBeastBeat,
     rokkakuCrystal: resolveRokkakuCrystal,
+    jackpot: resolveJackpot,
   };
 
   // Mainフェイズの1ユニット分。葉モジュール・複合スキルのどちらも
