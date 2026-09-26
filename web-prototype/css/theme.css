@@ -1194,14 +1194,15 @@ body {
 }
 
 /* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横
-   スクロールを担う枠、.battle-arenaはその中身。各列に最低幅（minmax）
-   を持たせてあるので、表示幅がそれを下回ると（携帯モード廃止に伴い、
-   もう列を潰して逃げる先が無いため）.battle-arenaの実際のサイズが
+   スクロールを担う枠。中身の.battle-arenaは、行動選択列（旧来の
+   プルダウン方式のまま）と、味方・敵のステータス枠をbattleLayout.js
+   が算出した座標へ絶対配置する.battle-freeform-canvasの2つを横に
+   並べたもの。行動選択列はCSS上の最低幅（min-width）を、キャンバス
+   は自身のbounding boxから逆算した実ピクセルサイズを持つため、表示幅
+   がそれらの合計を下回ると.battle-arenaの実際のサイズが
    .battle-arena-scrollの表示領域からはみ出し、そちらのスクロールで
-   全容を見渡せるようになる（CSS Gridのtrack最小幅保証による意図的な
-   はみ出し -- 「グリッドの吹き出し」と呼ばれる挙動を利用している）。
-   縦方向も同様に、ユニット数が増えて列の内容が縦に伸びればスクロール
-   対象になる。座標を自由配置する形への置き換えは今後の段階で対応する。 */
+   全容を見渡せるようになる。縦方向も同様、キャンバスの高さがユニット
+   数に応じて伸びればスクロール対象になる。 */
 .battle-arena-scroll {
   overflow: auto;
   border-radius: var(--radius-sm);
@@ -1225,22 +1226,24 @@ body {
 }
 
 .battle-arena {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(200px, 0.9fr) minmax(240px, 1.3fr) minmax(140px, auto) minmax(240px, 1.3fr);
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
-  align-items: center;
   padding: 4px;
 }
 
+.battle-freeform-canvas {
+  flex: 0 0 auto;
+}
+
+/* 現在は行動選択列（.battle-column--action）専用。幅を固定（220px、
+   ステータス枠のCARD_WIDTHと合わせてある）することで、選択内容による
+   幅のガタつきを防ぐ。 */
 .battle-column {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* min-width:0が無いと、グリッドトラックが子要素（プルダウン等）の
-     コンテンツ幅に押し広げられ、選択内容によって列幅がfr比から
-     ずれてしまう。 */
-  min-width: 0;
+  flex: 0 0 220px;
 }
 
 .battle-center {

@@ -1,4 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
+import { computeBattleLayout, computeCanvasBounds, CARD_WIDTH, CARD_HEIGHT, CENTER_BLOCK_WIDTH, CENTER_BLOCK_HEIGHT } from "./battleLayout.js";
 import state, {
   grantResource,
   grantTieredResource,
@@ -5547,8 +5548,12 @@ export function BattleScene(container, params, api) {
     });
   }
 
-  function battleCenter() {
-    return h("div", { class: "battle-center" }, [
+  // キャンバス内の原点(originX, originY)の少し上（battleLayout.jsの
+  // CENTER_BLOCK_WIDTH/HEIGHTぶんの領域）に、中央のフェイズ表示を絶対
+  // 配置する。
+  function battleCenter(originX, originY) {
+    const style = `position:absolute; left:${originX - CENTER_BLOCK_WIDTH / 2}px; top:${originY - CENTER_BLOCK_HEIGHT}px; width:${CENTER_BLOCK_WIDTH}px;`;
+    return h("div", { class: "battle-center", style }, [
       h("p", { class: "battle-center__turn", text: `${turn}ターン目` }),
       h("p", { class: "battle-center__phase", text: phase === "prep" ? "オードブル！" : "メインディッシュ！" }),
       h("p", { class: "battle-center__vs", text: "vs" }),
@@ -5574,31 +5579,45 @@ export function BattleScene(container, params, api) {
     return classes.length ? classes.join(" ") : null;
   }
 
-  // 味方の行動選択列（左端）／味方ステータス列／中央情報／敵ステータス
-  // 列、の4列。矢印は各ステータス枠の中央側の辺を実測して描く1枚の
-  // オーバーレイSVG（アリーナ全体に重ねる）で、中央のフェイズ表示や
-  // 「vs」の上を横切ることもある。ステータス枠は行動対象選択中、直接
-  // クリックすることでも指定できる。
+  // 味方の行動選択列（左端、旧来のプルダウン方式のまま）と、その右側の
+  // 自由配置キャンバス（味方・敵のステータス枠と中央情報を、
+  // battleLayout.jsが算出した「ハの字」型の座標に絶対配置したもの）の
+  // 2つで構成する。キャンバスのピクセルサイズは、全ユニット枠が収まる
+  // bounding boxから逆算し、原点(0,0)がキャンバス内のどこに来るかを
+  // originX/originYとして各枠の平行移動に使う。矢印は各ステータス枠の
+  // 中央側の辺を実測して描く1枚のオーバーレイSVG（キャンバス全体に
+  // 重ねる）。ステータス枠は行動対象選択中、直接クリックすることでも
+  // 指定できる。
   // .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方の枠）が
-  // 縦横スクロールを担い、中身の.battle-arenaは各列のCSS上の最低幅を
-  // 表示幅が下回った時だけ実際にそこからはみ出す（詳細はtheme.cssの
-  // 該当コメント参照）。
+  // 縦横スクロールを担い、中身の.battle-arenaは行動選択列のCSS上の
+  // 最低幅を表示幅が下回った時、またはキャンバス自体が表示領域より
+  // 大きい時に、そこからはみ出す（詳細はtheme.cssの該当コメント参照）。
   function battleArena() {
+    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
+    const bounds = computeCanvasBounds(layout);
+    const originX = -bounds.minX;
+    const originY = -bounds.minY;
+
+    function placedCard(unit, point) {
+      const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
+      return h("div", { style }, [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit))]);
+    }
+
+    const canvas = h(
+      "div",
+      { class: "battle-freeform-canvas", style: `position:relative; width:${bounds.width}px; height:${bounds.height}px;` },
+      [
+        ...allyUnits.map((u, i) => placedCard(u, layout.ally[i])),
+        ...enemyUnits.map((u, i) => placedCard(u, layout.enemy[i])),
+        battleCenter(originX, originY),
+        svg("svg", { class: "battle-arrow-overlay" }),
+      ]
+    );
+
     return h("div", { class: "battle-arena-scroll" }, [
       h("div", { class: "battle-arena" }, [
         h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
-        h(
-          "div",
-          { class: "battle-column battle-column--ally" },
-          allyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
-        ),
-        battleCenter(),
-        h(
-          "div",
-          { class: "battle-column battle-column--enemy" },
-          enemyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
-        ),
-        svg("svg", { class: "battle-arrow-overlay" }),
+        canvas,
       ]),
     ]);
   }
@@ -5608,7 +5627,11 @@ export function BattleScene(container, params, api) {
   // (getBoundingClientRect)が必要なので、ここだけは仮想DOM的な組み立て
   // ではなく直接DOM操作している。
   function updateArrowOverlay() {
-    const arenaEl = container.querySelector(".battle-arena");
+    // .battle-arenaではなく.battle-freeform-canvas（味方・敵のステータス
+    // 枠とオーバーレイSVGだけを含む部分）を基準に測る -- .battle-arena
+    // には無関係な行動選択列（プルダウン）も含まれるため、そちらを基準
+    // にすると矢印の座標系がずれてしまう。
+    const arenaEl = container.querySelector(".battle-freeform-canvas");
     const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
     if (!overlay) return;
     while (overlay.firstChild) overlay.removeChild(overlay.firstChild);

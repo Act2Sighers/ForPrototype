@@ -18,17 +18,30 @@
 //
 // 各陣営の物理的な表示上限は12体（それを超える人数は想定しない）。
 
-// 1行あたりの縦方向の間隔。
-const ROW_HEIGHT = 90;
-// 原点から1行目までの縦方向のオフセット（原点ちょうどに乗せると
-// 窮屈なため、少し余白を持たせる）。
-const ROW_START_Y = 60;
+// ステータス枠1つぶんの想定サイズ（B2でDOM実測した値を丸めたもの、
+// 220px幅なら1行に収まって93px高になる）。行間・レーン間の間隔は
+// これに余白を足して逆算し、枠同士が重ならないようにしてある。
+export const CARD_WIDTH = 220;
+export const CARD_HEIGHT = 100;
+// 行間・レーン間それぞれに足す余白。
+const ROW_GAP = 30;
+const LANE_SPACING_GAP = 40;
+
+// 1行あたりの縦方向の間隔（枠の高さ＋余白）。
+const ROW_HEIGHT = CARD_HEIGHT + ROW_GAP;
+// 原点から1行目までの縦方向のオフセット。中央のフェイズ表示
+// （CENTER_BLOCK_HEIGHT参照）を原点の少し上に置くための余白を兼ねる。
+const ROW_START_Y = 90;
 // 行番号が1増えるごとに、帯の中心線（スパイン）が外側へ広がる量。
 const BAND_DX_PER_ROW = 70;
 // ジグザグモード（1列）での、中央寄り/外寄りの振れ幅。
 const ZIGZAG_OFFSET = 36;
-// 複数列モードでの、隣接するレーン同士の間隔。
-const LANE_GAP = 100;
+// 複数列モードでの、隣接するレーン同士の間隔（枠の幅＋余白）。
+const LANE_GAP = CARD_WIDTH + LANE_SPACING_GAP;
+// 原点からの帯の基本の開き幅（1行目でも味方・敵の枠が重ならないだけの
+// 間隔を保証する）。ジグザグの振れ幅ぶん互いに近づいても重ならない
+// 最小値（CARD_WIDTH/2 + ZIGZAG_OFFSET + 余白）を確保してある。
+const BASE_HALF_GAP = 170;
 // この人数を超えたら1列のジグザグから3列モードへ切り替える。
 const MULTI_COLUMN_THRESHOLD = 7;
 // 3列モードで使う列数。
@@ -37,6 +50,10 @@ const WIDE_COLUMN_COUNT = 3;
 // 人数を渡されても計算は続けるが、呼び出し側はこれを超える人数を
 // 生成しない前提）。
 export const MAX_UNITS_PER_FACTION = 12;
+// 原点付近に置く中央のフェイズ表示（ターン数／フェイズ名）の想定
+// サイズ。原点はこのぶんだけ上に余白を持たせてある。
+export const CENTER_BLOCK_WIDTH = 160;
+export const CENTER_BLOCK_HEIGHT = 70;
 
 // faction（"ally"|"enemy"）とその陣営の人数から、原点(0,0)を基準にした
 // 各ユニットの{x,y}座標を、渡された配列の並び順（0番目が最も原点に
@@ -51,11 +68,11 @@ export function computeUnitPositions(faction, count) {
   for (let i = 0; i < count; i++) {
     const row = Math.floor(i / columns);
     const laneInRow = i % columns;
-    // 最終行は列数に満たない場合があるので、その行に実際に並ぶレーン数
-    // を別途数え、中央揃えでレーンを配置する。
-    const lanesInThisRow = Math.min(columns, count - row * columns);
     const y = ROW_START_Y + row * ROW_HEIGHT;
-    const spineX = sideSign * BAND_DX_PER_ROW * row;
+    // BASE_HALF_GAPを基本の開き幅として、行が進むごとにさらに外側へ
+    // 広げる。BASE_HALF_GAPが無いと1行目で味方・敵の枠がほぼ重なって
+    // しまう（ジグザグの振れ幅だけでは220px幅の枠を離しきれない）。
+    const spineX = sideSign * (BASE_HALF_GAP + BAND_DX_PER_ROW * row);
 
     let x;
     if (columns === 1) {
@@ -65,11 +82,13 @@ export function computeUnitPositions(faction, count) {
       const phaseFlip = faction === "enemy" ? -1 : 1;
       x = spineX + zigzagSign * phaseFlip * ZIGZAG_OFFSET;
     } else {
-      // 複数列モード：その行のレーン数に応じて中央揃えで左右に開く。
-      // sideSignを掛けることで、ジグザグモードと同じく味方・敵が原点
-      // 対称になるようにする（laneInRow=0が外側、最後のレーンが中央側）。
-      const laneOffsetFromCenter = laneInRow - (lanesInThisRow - 1) / 2;
-      x = spineX + sideSign * laneOffsetFromCenter * LANE_GAP;
+      // 複数列モード：レーンを中央揃えにはせず、スパインから常に外側
+      // （中心から遠ざかる方向）へだけ積み増していく。中央揃えにする
+      // と、内側のレーンが中心線を越えて相手陣営側へはみ出しうる
+      // （BASE_HALF_GAPより複数レーン分の半幅の方が大きくなるため）。
+      // 外側だけに積むことで、スパイン自体が確保する中心からの間隔
+      // （BASE_HALF_GAP起点）を常に下回らないようにしている。
+      x = spineX + sideSign * laneInRow * LANE_GAP;
     }
     positions.push({ x, y });
   }
@@ -84,4 +103,25 @@ export function computeBattleLayout(allyCount, enemyCount) {
     ally: computeUnitPositions("ally", allyCount),
     enemy: computeUnitPositions("enemy", enemyCount),
   };
+}
+
+// computeBattleLayoutの結果全体を収める、原点(0,0)基準のbounding box。
+// 各ユニット枠の実サイズ（CARD_WIDTH/CARD_HEIGHT）と、原点の少し上に
+// 置く中央のフェイズ表示（CENTER_BLOCK_WIDTH/HEIGHT）ぶんの余白も
+// 含める。呼び出し側は、返り値のminX/minYの符号を反転させた量だけ
+// 全座標を平行移動すれば、そのままキャンバスの左上を原点にできる
+// （width/heightがキャンバス自体に必要なピクセルサイズになる）。
+export function computeCanvasBounds(layout) {
+  const points = [...layout.ally, ...layout.enemy];
+  const unitMinX = Math.min(...points.map((p) => p.x)) - CARD_WIDTH / 2;
+  const unitMaxX = Math.max(...points.map((p) => p.x)) + CARD_WIDTH / 2;
+  const unitMinY = Math.min(...points.map((p) => p.y)) - CARD_HEIGHT / 2;
+  const unitMaxY = Math.max(...points.map((p) => p.y)) + CARD_HEIGHT / 2;
+
+  const minX = Math.min(unitMinX, -CENTER_BLOCK_WIDTH / 2);
+  const maxX = Math.max(unitMaxX, CENTER_BLOCK_WIDTH / 2);
+  const minY = Math.min(unitMinY, -CENTER_BLOCK_HEIGHT);
+  const maxY = unitMaxY;
+
+  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
