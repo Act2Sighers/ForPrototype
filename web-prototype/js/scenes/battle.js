@@ -3880,12 +3880,12 @@ function battleUnitPopover(unit) {
 // 別途重ねる.battle-unit--down（グレーアウト、statusCardClass参照）
 // のみで行う。属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）
 // の場合は、「属性：なし」等とは書かず、属性欄自体を表示しない。
-function battleUnitCard(unit, extraClass, onClick) {
+function battleUnitCard(unit, extraClass, onClick, onPointerDown) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const character = unit.character;
   const attribute = unitAttribute(character);
   const attributeLabel = attribute === NO_ATTRIBUTE ? null : COATING_ATTRIBUTE_LABELS[attribute];
-  return h("div", { class: classes, "data-unit-id": character.id, onClick }, [
+  return h("div", { class: classes, "data-unit-id": character.id, onClick, onPointerdown: onPointerDown }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
       h("span", { class: "battle-unit__level", text: `Lv.${character.level}` }),
@@ -4019,6 +4019,19 @@ export function BattleScene(container, params, api) {
   // ことでこれをトグルする（handlePrepActorClick/handleMainActorClick
   // 参照）。同時に開けるのは1人分だけ。
   let actionPopupUnit = null;
+  // D4：ドラッグで対象を確定する処理の実行中状態。null＝ドラッグ中で
+  // ない。{ actor, origin, arenaEl, overlay, arenaRect, hoverEl }
+  // -- origin/arenaRectはpointerdown時に1度だけ実測してキャッシュし、
+  // pointermoveのたびにgetBoundingClientRectし直さないようにする
+  // （キャンバス自体は矢印追従中に動かない前提）。hoverElは今カーソルが
+  // 乗っているドロップ候補枠のDOM要素（無ければnull）、離した時どこに
+  // ドロップしたかの判定にはdocument.elementFromPointを別途使う。
+  // handleUnitPointerDown/handleDragPointerMove/handleDragPointerUp参照。
+  let dragState = null;
+  // D4：ドラッグ終了直後、ブラウザが続けて発火させる「ゴーストclick」
+  // （pointerupの直後に同じ要素へ飛ぶclickイベント）を1回だけ無視する
+  // ためのフラグ。handleStatusCardClick先頭でチェック・解除する。
+  let justDragged = false;
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -4388,6 +4401,13 @@ export function BattleScene(container, params, api) {
   // なので、その本人の枠クリックは行動ポップアップ、それ以外の枠
   // クリックは対象選択として扱う。
   function handleStatusCardClick(clickedUnit) {
+    // D4：ドラッグ操作の直後、ブラウザが同じ要素へ続けて発火させる
+    // ゴーストclickを1回だけ無視する（ドロップ処理は既に
+    // handleDragPointerUpで完了済みなので、ここで二重に処理しない）。
+    if (justDragged) {
+      justDragged = false;
+      return;
+    }
     if (!isInteractive()) return;
     if (phase === "prep") {
       if (prepTargetPickingActor) handlePrepTargetClick(clickedUnit);
@@ -4471,6 +4491,118 @@ export function BattleScene(container, params, api) {
       return unit.faction === "ally" && !isIncapacitated(unit) && viablePrepModuleIds(unit).length > 0;
     }
     return unit === mainOrder[mainCursor] && viableMainModuleIds(unit).length > 0;
+  }
+
+  // D4：このユニットが「今まさに行動対象を選んでいる主体」かどうか
+  // （＝自分の枠からドラッグを始められる状態）。statusCardClassの
+  // battle-unit--actorハイライトと全く同じ条件なので、そちらから
+  // 移設してここ1箇所にまとめた（D2で導入した判定をそのまま流用）。
+  function isDraggableActor(unit) {
+    if (!isInteractive()) return false;
+    if (phase === "prep") return unit === prepTargetPickingActor;
+    return phase === "main" && unit === mainOrder[mainCursor] && !!unit.action?.moduleId && !unit.action.targetUnit;
+  }
+
+  // D4：行動主体自身の枠からドラッグを始め、矢印をマウスポインタへ追従
+  // させ、離した場所で対象を確定する一連の処理。dom.jsのrender()は
+  // 毎回シーン全体を組み立て直す重い処理のため、pointermoveのたびに
+  // 呼ぶわけにはいかない -- ここだけはC2/updateArrowOverlayと同じく、
+  // オーバーレイSVGを直接DOM操作する（仮想DOM経由の再描画を挟まない）。
+  //
+  // 開始：isDraggableActor(unit)の枠でpointerdownした時だけドラッグを
+  // 始める（それ以外の枠のpointerdownは何もしない -- 通常のクリックが
+  // そのままonClickで処理される）。
+  function handleUnitPointerDown(unit, event) {
+    if (event.button !== 0 && event.button !== undefined) return; // 左クリック/主ポインタのみ
+    if (!isDraggableActor(unit)) return;
+    const arenaEl = container.querySelector(".battle-freeform-canvas");
+    const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
+    const cardEl = arenaEl?.querySelector(`[data-unit-id="${unit.character.id}"]`);
+    if (!arenaEl || !overlay || !cardEl) return;
+    const arenaRect = arenaEl.getBoundingClientRect();
+    const origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, unit.faction);
+    dragState = { actor: unit, origin, arenaEl, overlay, arenaRect, hoverEl: null };
+    event.preventDefault(); // ネイティブのテキスト選択・ドラッグゴースト画像を防ぐ
+    document.addEventListener("pointermove", handleDragPointerMove);
+    document.addEventListener("pointerup", handleDragPointerUp);
+    renderDragArrow(origin);
+  }
+
+  // ドラッグ中の矢印そのものを直接DOM操作で描く（既存のcrossArrowElements
+  // をそのまま再利用 -- 直線＋矢じりの見た目はexecution中の矢印と同じ、
+  // variant:"drag"だけ点線などで区別する）。オーバーレイ内に専用の<g>を
+  // 1つだけ持たせ、毎回その中身だけ差し替える（updateArrowOverlay側が
+  // 描く矢印群とは独立している）。
+  function renderDragArrow(pointerPoint) {
+    if (!dragState) return;
+    const { overlay, origin } = dragState;
+    let group = overlay.querySelector(".battle-drag-preview");
+    if (!group) {
+      group = svg("g", { class: "battle-drag-preview" });
+      overlay.appendChild(group);
+    }
+    while (group.firstChild) group.removeChild(group.firstChild);
+    for (const el of crossArrowElements(origin, pointerPoint, "drag")) group.appendChild(el);
+  }
+
+  function handleDragPointerMove(event) {
+    if (!dragState) return;
+    const { arenaRect } = dragState;
+    renderDragArrow({ x: event.clientX - arenaRect.left, y: event.clientY - arenaRect.top });
+
+    // ドロップ候補（isClickableAsTarget/自分自身）の真上にいる間だけ、
+    // その枠へ直接クラスを足して見た目のフィードバックを出す（D2の
+    // clickable-target点線ハイライトに、ドラッグ中限定でさらに強調を
+    // 重ねるだけなので、render()側の状態には一切触れない）。
+    const hoverEl = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit") ?? null;
+    if (dragState.hoverEl && dragState.hoverEl !== hoverEl) {
+      dragState.hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
+    }
+    if (hoverEl) {
+      const hoverUnitId = hoverEl.getAttribute("data-unit-id");
+      if (hoverUnitId === dragState.actor.character.id) hoverEl.classList.add("battle-unit--drop-cancel");
+      else if (hoverEl.classList.contains("battle-unit--clickable-target")) hoverEl.classList.add("battle-unit--drop-hover");
+    }
+    dragState.hoverEl = hoverEl;
+  }
+
+  // 離した位置の下にあるステータス枠を見て確定する：
+  // ・行動主体自身の枠＝行動全体をキャンセル（cancelActorAction）
+  // ・対象候補の枠＝そのまま既存のクリック確定処理（handlePrepTargetClick
+  //   /handleMainTargetClick、内部で改めて候補判定するので二重チェック
+  //   不要）に委ねる
+  // ・それ以外（枠の外や対象外の枠）＝不発、何もしない（対象選択モード
+  //   はそのまま維持され、選び直せる）
+  function handleDragPointerUp(event) {
+    if (!dragState) return;
+    const { actor, overlay, hoverEl } = dragState;
+    document.removeEventListener("pointermove", handleDragPointerMove);
+    document.removeEventListener("pointerup", handleDragPointerUp);
+    const group = overlay.querySelector(".battle-drag-preview");
+    if (group) overlay.removeChild(group);
+    if (hoverEl) hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
+    dragState = null;
+    justDragged = true;
+    setTimeout(() => { justDragged = false; }, 0); // ゴーストclickが来なかった場合の保険
+
+    const dropUnitId = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit")?.getAttribute("data-unit-id");
+    if (!dropUnitId) return;
+    if (dropUnitId === actor.character.id) {
+      cancelActorAction(actor);
+      return;
+    }
+    const droppedUnit = [...allyUnits, ...enemyUnits].find((u) => u.character.id === dropUnitId);
+    if (!droppedUnit) return;
+    if (phase === "prep") handlePrepTargetClick(droppedUnit);
+    else handleMainTargetClick(droppedUnit);
+  }
+
+  // D4：自分自身へドロップ＝対象選択中の行動そのものを取り消す（スキル
+  // 選択からやり直し）。Prepの対象選択モードも解除する。
+  function cancelActorAction(actor) {
+    actor.action = null;
+    if (phase === "prep" && prepTargetPickingActor === actor) prepTargetPickingActor = null;
+    render();
   }
 
   // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
@@ -5654,16 +5786,10 @@ export function BattleScene(container, params, api) {
       else if (activeArrow.targets ? activeArrow.targets.includes(unit) : unit === activeArrow.target) classes.push("battle-unit--target");
     } else {
       // D2：行動内容（スキル）は選んだが行動対象がまだ決まっていない間、
-      // その行動主体を矢印表示中と同じ見た目でハイライトする。Prepは
-      // prepTargetPickingActorで「今どの隊員の対象を選んでいるか」を
-      // 明示的に管理しているのでそれを使い、Mainは行動主体が常に今の
-      // 手番のユニット1人なので、moduleId確定・targetUnit未確定という
-      // 状態そのもので判定できる（targetUnitまで決まればmaybeAutoExecute
-      // Mainで即実行されるので、この状態は「対象待ち」の間だけ存在する）。
-      const isActorAwaitingTarget =
-        (phase === "prep" && unit === prepTargetPickingActor) ||
-        (phase === "main" && unit === mainOrder[mainCursor] && !!unit.action?.moduleId && !unit.action.targetUnit);
-      if (isActorAwaitingTarget) classes.push("battle-unit--actor");
+      // その行動主体を矢印表示中と同じ見た目でハイライトする（D4：この
+      // 状態＝isDraggableActorがtrueの間、自分の枠からドラッグも開始
+      // できる）。
+      if (isDraggableActor(unit)) classes.push("battle-unit--actor");
       else if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
       else if (isPickableActor(unit)) classes.push("battle-unit--pickable-actor");
     }
@@ -5725,7 +5851,7 @@ export function BattleScene(container, params, api) {
 
     function placedCard(unit, point) {
       const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
-      const children = [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit))];
+      const children = [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit), (e) => handleUnitPointerDown(unit, e))];
       if (actionPopupUnit === unit) children.push(battleActionPopup(unit));
       return h("div", { style }, children);
     }

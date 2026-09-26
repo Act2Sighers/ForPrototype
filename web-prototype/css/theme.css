@@ -1321,6 +1321,20 @@ body {
   opacity: 0.45;
 }
 
+/* D4：行動主体の枠からドラッグ中、マウスポインタまで追従する矢印。
+   確定済みの矢印（通常クラス）と見分けられるよう点線・半透明にする。 */
+.battle-arrow-line--drag {
+  stroke: var(--ink);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 5;
+  opacity: 0.7;
+}
+
+.battle-arrow-head--drag {
+  fill: var(--ink);
+  opacity: 0.7;
+}
+
 .battle-center__vs {
   margin: 0;
   font-size: 12px;
@@ -1394,6 +1408,22 @@ body {
   cursor: pointer;
   border-style: dashed;
   border-color: var(--frost);
+}
+
+/* D4：ドラッグ中、今まさにポインタが乗っている有効なドロップ先（対象
+   候補）を強調する。.battle-unit--clickable-targetの点線に、さらに
+   塗りつぶしを重ねて「ここに離せば確定」を分かりやすくする。 */
+.battle-unit--drop-hover {
+  background: rgba(255, 79, 163, 0.18);
+  box-shadow: 0 0 0 2px var(--ember) inset;
+}
+
+/* D4：ドラッグ中、行動主体自身の枠にポインタが乗っている状態（＝ここに
+   離すと行動全体をキャンセル）。誤って対象確定と混同しないよう、
+   対象候補の強調（drop-hover、ember系）とは別の配色にする。 */
+.battle-unit--drop-cancel {
+  background: rgba(176, 80, 63, 0.18);
+  box-shadow: 0 0 0 2px var(--danger) inset;
 }
 
 /* 戦闘不能：枠全体を薄くグレーアウトする。 */
