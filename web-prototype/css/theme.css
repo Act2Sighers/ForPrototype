@@ -1619,33 +1619,10 @@ body {
   gap: 4px;
 }
 
-.battle-action-select__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--ink-dim);
-}
-
-.battle-action-select__dropdown {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-body);
-  font-size: 11px;
-  color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
-  border-radius: 6px;
-  padding: 3px 4px;
-}
-
-.battle-action-select__dropdown:disabled {
-  opacity: 0.5;
-}
-
-/* D1で行動内容プルダウンを廃止した後、選択済みのスキル名（未選択なら
-   案内文）を読み取り専用で表示する行。実際の選択操作はキャンバス側の
-   ステータス枠クリック→.battle-action-popup（下記）で行う。 */
+/* D1で行動内容プルダウンを、D8で行動対象プルダウンをそれぞれ廃止した
+   後、選択済みのスキル名（未選択なら案内文）を読み取り専用で表示する
+   行。実際の選択操作はキャンバス側のステータス枠クリック→
+   .battle-action-popup（下記）／枠のクリック・ドラッグで行う。 */
 .battle-action-select__chosen {
   margin: 0;
   font-size: 11px;

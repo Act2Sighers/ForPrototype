@@ -4542,34 +4542,6 @@ export function BattleScene(container, params, api) {
     maybeAutoExecuteMain(unit);
   }
 
-  function handleTargetChange(unit, targetUnit) {
-    if (unit.action) {
-      unit.action.targetUnit = targetUnit;
-      // D5：主対象をやり直せば、複数対象スキルの追加対象は意味が変わり
-      // うるので一旦白紙に戻し、単一候補ぶんだけ自動で埋め直す。
-      unit.action.extraTargets = [];
-      const module = currentModules()[unit.action.moduleId];
-      fillExtraTargets(unit, unit.action, module, { random: false });
-    }
-    // 対象確定の経路は「候補の枠を直接クリック」（handlePrepTargetClick
-    // が先にprepTargetPickingActorをnullにしてから呼ぶ）だけでなく、
-    // D1のポップアップでスキルを選んだ後に行動対象プルダウンで確定する
-    // 経路もある。後者でprepTargetPickingActorがこのunitを指したまま
-    // 残ると、次に別の隊員の枠をクリックした時、handleStatusCardClickが
-    // 「(既に用済みの)このunitの対象を選ぶモード中」と誤認してしまう
-    // （次の隊員の行動ポップアップが開かなくなる）ため、ここでも
-    // 自分宛てのpickingモードなら解除しておく。D5：逆に、複数対象
-    // スキルでまだ追加対象が必要な場合は、プルダウンで主対象を確定
-    // しただけではpickingモードに入っていないことがある（クリック/
-    // ドラッグ経由と違い、popup選択を経ずに直接ここへ来る経路が
-    // あるため）ので、必要ならここで改めて入る。
-    if (phase === "prep" && unit.action) {
-      prepTargetPickingActor = isActionFullyResolved(unit) ? (prepTargetPickingActor === unit ? null : prepTargetPickingActor) : unit;
-    }
-    render();
-    maybeAutoExecuteMain(unit);
-  }
-
   // D1：行動ポップアップ内でスキルを選んだ時の確定処理。handleModuleChange
   // 自体はポップアップの有無を知らないので、ここでポップアップを閉じる
   // 後始末をまとめて行う。Prepで対象が自動確定しなかった場合（候補が
@@ -5989,38 +5961,16 @@ export function BattleScene(container, params, api) {
     await advanceMainPhase();
   }
 
-  function targetSelectFor(unit) {
-    const moduleId = unit.action?.moduleId ?? "";
-    const candidates = moduleId ? candidateUnits(unit, moduleId) : [];
-    const select = h(
-      "select",
-      {
-        class: "battle-action-select__dropdown",
-        disabled: !isInteractive() || !isActingNow(unit) || !moduleId,
-        onChange: (e) => {
-          const target = candidates.find((c) => c.character.id === e.target.value) ?? null;
-          handleTargetChange(unit, target);
-        },
-      },
-      [
-        h("option", { value: "", text: "－" }),
-        ...candidates.map((c) => h("option", { value: c.character.id, text: c === unit ? `${c.displayName}（自分）` : c.displayName })),
-      ]
-    );
-    select.value = unit.action?.targetUnit?.character.id ?? "";
-    return select;
-  }
-
   // 行動内容（スキル）の選択自体はD1でステータス枠クリック→行動
   // ポップアップに移った（moduleSelectFor廃止）。ここには選択済みの
   // 内容を読み取り専用で表示するだけにする -- 未選択なら、どうすれば
-  // 選べるかの案内文を出す。行動対象のプルダウンは変更無し（D-フェイズ
-  // 後半のドラッグ＆ドロップ化はまだ先の段階）。
+  // 選べるかの案内文を出す。D8：行動対象のプルダウン（targetSelectFor/
+  // handleTargetChange）も完全に撤去した -- 対象確定はキャンバス側の
+  // ステータス枠クリック／ドラッグ（D1〜D5で整備済み）だけに一本化する。
   function actionSelectFields(unit) {
     const module = unit.action?.moduleId ? currentModules()[unit.action.moduleId] : null;
     return h("div", { class: "battle-action-select__fields" }, [
       h("p", { class: "battle-action-select__chosen", text: module ? module.label : "（自分の枠をクリックして選択）" }),
-      h("div", { class: "battle-action-select__row" }, [targetSelectFor(unit)]),
     ]);
   }
 
