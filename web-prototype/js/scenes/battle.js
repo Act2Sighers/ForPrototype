@@ -141,22 +141,29 @@ function stealthMarkElements(edge, faction) {
 }
 
 // 自陣営（自分自身を含む）への矢印はUターン、実際にはコの字型。行動
-// 主体・対象それぞれの辺の中点(同じx座標のはず)を、味方陣営なら右側、
-// 敵陣営なら左側へ膨らませて繋ぐ。自分自身が対象の場合は幅の狭いコの
-// 字にする。矢じりは対象側の辺の中点に、内向きに付く。
-function loopArrowElements(x, yStart, yEnd, faction, isSelf, variant) {
+// 主体・対象それぞれの辺の中点を、味方陣営なら右側、敵陣営なら左側へ
+// 膨らませて繋ぐ。
+// D3：ハの字の自由配置では、旧来の2列グリッドと違い同陣営でも行・
+// レーンが異なれば主体・対象のx座標が一致しない（ジグザグや8人以上の
+// 3列モード）。そのため膨らませる位置（xOuter）は主体・対象それぞれの
+// xのうち、より外側（ally＝より右、enemy＝より左）を基準に取る -- 同じ
+// xの場合（従来の2列グリッドや、たまたま同じ行に並んだ場合）は結果的に
+// 旧実装と同じ見た目になる。自分自身が対象の場合は幅の狭いコの字にする
+// （a,bが同一点になるため、yだけ±10して縦に短く割る）。矢じりは対象側
+// の辺の中点に、xOuter側から見て水平に付く。
+function loopArrowElements(a, b, faction, isSelf, variant) {
   const outwardSign = faction === "ally" ? 1 : -1;
   const offset = isSelf ? 14 : 26;
-  const y0 = isSelf ? yStart - 10 : yStart;
-  const y1 = isSelf ? yStart + 10 : yEnd;
-  const xOuter = x + outwardSign * offset;
+  const start = isSelf ? { x: a.x, y: a.y - 10 } : a;
+  const end = isSelf ? { x: a.x, y: a.y + 10 } : b;
+  const xOuter = outwardSign > 0 ? Math.max(start.x, end.x) + offset : Math.min(start.x, end.x) - offset;
   const lineClass = variant ? `battle-arrow-line battle-arrow-line--${variant}` : "battle-arrow-line";
   const headClass = variant ? `battle-arrow-head battle-arrow-head--${variant}` : "battle-arrow-head";
-  const path = svg("path", { d: `M${x},${y0} L${xOuter},${y0} L${xOuter},${y1} L${x},${y1}`, class: lineClass, fill: "none" });
+  const path = svg("path", { d: `M${start.x},${start.y} L${xOuter},${start.y} L${xOuter},${end.y} L${end.x},${end.y}`, class: lineClass, fill: "none" });
   const headLen = 8;
   const headWidth = 6;
-  const baseX = xOuter > x ? x + headLen : x - headLen;
-  const head = svg("polygon", { points: `${x},${y1} ${baseX},${y1 - headWidth} ${baseX},${y1 + headWidth}`, class: headClass });
+  const baseX = xOuter > end.x ? end.x + headLen : end.x - headLen;
+  const head = svg("polygon", { points: `${end.x},${end.y} ${baseX},${end.y - headWidth} ${baseX},${end.y + headWidth}`, class: headClass });
   return [path, head];
 }
 
@@ -5799,7 +5806,7 @@ export function BattleScene(container, params, api) {
         const a = unitEdge(unit.guardedBy);
         const b = unitEdge(unit);
         if (!a || !b) continue;
-        for (const el of loopArrowElements(a.x, a.y, b.y, unit.faction, false, "guard")) overlay.appendChild(el);
+        for (const el of loopArrowElements(a, b, unit.faction, false, "guard")) overlay.appendChild(el);
       }
     }
 
@@ -5817,7 +5824,7 @@ export function BattleScene(container, params, api) {
           const elements =
             activeArrow.actor.faction !== target.faction
               ? crossArrowElements(a, b)
-              : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === target);
+              : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === target);
           for (const el of elements) overlay.appendChild(el);
         }
       }
@@ -5828,7 +5835,7 @@ export function BattleScene(container, params, api) {
         const elements =
           activeArrow.actor.faction !== activeArrow.target.faction
             ? crossArrowElements(a, b)
-            : loopArrowElements(a.x, a.y, b.y, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
+            : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
         for (const el of elements) overlay.appendChild(el);
       }
     }
