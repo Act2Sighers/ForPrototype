@@ -6281,6 +6281,39 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // E1：行動の実行中（activeArrowが立っている間）、主体と全対象の
+  // ステータス枠がちょうど収まるbounding boxの中心が、
+  // .battle-arena-scrollの表示領域の中心に来るよう自動でスクロールする
+  // （矢印と同じくDOM実測ベース -- battleLayoutの座標をここで二重に
+  // 計算し直さずに済む）。render()はrenderScreen経由でDOMを毎回丸ごと
+  // 組み直すため（.battle-arena-scroll自体も新しい要素に差し替わり、
+  // scrollLeft/scrollTopは0に戻ってしまう）、呼び出し側（resolvePrep/
+  // MainAction）で1度だけ呼んでも、同じ行動の解決中に挟まる後続の
+  // render()呼び出しで巻き戻されてしまう。updateArrowOverlay()と同じく
+  // render()の末尾から毎回呼ぶことで、その行動が解決し終わるまで
+  // 呼ばれるたびに正しい位置へ再スクロールし直され、最終的に安定する。
+  function scrollArenaToCenterOn(units) {
+    const scrollEl = container.querySelector(".battle-arena-scroll");
+    if (!scrollEl) return;
+    const rects = units
+      .map((u) => container.querySelector(`[data-unit-id="${u.character.id}"]`))
+      .filter(Boolean)
+      .map((el) => el.getBoundingClientRect());
+    if (!rects.length) return;
+    const minX = Math.min(...rects.map((r) => r.left));
+    const maxX = Math.max(...rects.map((r) => r.right));
+    const minY = Math.min(...rects.map((r) => r.top));
+    const maxY = Math.max(...rects.map((r) => r.bottom));
+    const viewportRect = scrollEl.getBoundingClientRect();
+    const dx = (minX + maxX) / 2 - (viewportRect.left + viewportRect.width / 2);
+    const dy = (minY + maxY) / 2 - (viewportRect.top + viewportRect.height / 2);
+    const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
+    const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
+    const left = Math.max(0, Math.min(maxScrollLeft, scrollEl.scrollLeft + dx));
+    const top = Math.max(0, Math.min(maxScrollTop, scrollEl.scrollTop + dy));
+    scrollEl.scrollTo({ left, top, behavior: FAST ? "auto" : "smooth" });
+  }
+
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
   // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
   function battleActions() {
@@ -6309,6 +6342,11 @@ export function BattleScene(container, params, api) {
     const logEl = container.querySelector(".battle-log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
     updateArrowOverlay();
+    // E1：行動実行中（activeArrow）は毎回ここで主体・全対象へ合わせて
+    // 自動スクロールする（このrender()自体が.battle-arena-scrollを
+    // 新しい要素に差し替えるため、一度だけ呼んでも後続のrender()で
+    // 巻き戻る -- scrollArenaToCenterOn自体のコメント参照）。
+    if (activeArrow) scrollArenaToCenterOn(activeArrow.targets ? [activeArrow.actor, ...activeArrow.targets] : [activeArrow.actor, activeArrow.target]);
   }
 
   render();
