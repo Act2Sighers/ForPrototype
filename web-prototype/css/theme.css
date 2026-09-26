@@ -1193,17 +1193,44 @@ body {
   width: 100%;
 }
 
-/* 視覚的な戦場スペース：味方の行動選択列（左端）／味方ステータス列／
-   中央のターン・フェイズ・矢印表示／敵ステータス列（右）、の4列。
-   携帯モードは廃止し、常時この表示に統一した（狭い表示幅では
-   .screen-frame自体の横スクロールで全体を見渡す想定 -- 縦横スクロール
-   可能な自由配置キャンバスへの置き換えは今後の段階で対応する）。 */
+/* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横
+   スクロールを担う枠、.battle-arenaはその中身。各列に最低幅（minmax）
+   を持たせてあるので、表示幅がそれを下回ると（携帯モード廃止に伴い、
+   もう列を潰して逃げる先が無いため）.battle-arenaの実際のサイズが
+   .battle-arena-scrollの表示領域からはみ出し、そちらのスクロールで
+   全容を見渡せるようになる（CSS Gridのtrack最小幅保証による意図的な
+   はみ出し -- 「グリッドの吹き出し」と呼ばれる挙動を利用している）。
+   縦方向も同様に、ユニット数が増えて列の内容が縦に伸びればスクロール
+   対象になる。座標を自由配置する形への置き換えは今後の段階で対応する。 */
+.battle-arena-scroll {
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  max-height: 60vh;
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-line-strong) transparent;
+}
+
+.battle-arena-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.battle-arena-scroll::-webkit-scrollbar-thumb {
+  background: var(--panel-line-strong);
+  border-radius: 999px;
+}
+
+.battle-arena-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ember);
+}
+
 .battle-arena {
   position: relative;
   display: grid;
-  grid-template-columns: 0.9fr 1.3fr auto 1.3fr;
+  grid-template-columns: minmax(200px, 0.9fr) minmax(240px, 1.3fr) minmax(140px, auto) minmax(240px, 1.3fr);
   gap: 8px;
   align-items: center;
+  padding: 4px;
 }
 
 .battle-column {

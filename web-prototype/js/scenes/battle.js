@@ -5579,21 +5579,27 @@ export function BattleScene(container, params, api) {
   // オーバーレイSVG（アリーナ全体に重ねる）で、中央のフェイズ表示や
   // 「vs」の上を横切ることもある。ステータス枠は行動対象選択中、直接
   // クリックすることでも指定できる。
+  // .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方の枠）が
+  // 縦横スクロールを担い、中身の.battle-arenaは各列のCSS上の最低幅を
+  // 表示幅が下回った時だけ実際にそこからはみ出す（詳細はtheme.cssの
+  // 該当コメント参照）。
   function battleArena() {
-    return h("div", { class: "battle-arena" }, [
-      h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
-      h(
-        "div",
-        { class: "battle-column battle-column--ally" },
-        allyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
-      ),
-      battleCenter(),
-      h(
-        "div",
-        { class: "battle-column battle-column--enemy" },
-        enemyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
-      ),
-      svg("svg", { class: "battle-arrow-overlay" }),
+    return h("div", { class: "battle-arena-scroll" }, [
+      h("div", { class: "battle-arena" }, [
+        h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
+        h(
+          "div",
+          { class: "battle-column battle-column--ally" },
+          allyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
+        ),
+        battleCenter(),
+        h(
+          "div",
+          { class: "battle-column battle-column--enemy" },
+          enemyUnits.map((u) => battleUnitCard(u, statusCardClass(u), () => handleStatusCardClick(u)))
+        ),
+        svg("svg", { class: "battle-arrow-overlay" }),
+      ]),
     ]);
   }
 
