@@ -12,6 +12,7 @@ import {
   autoAssignRoles,
 } from "../data/exploration.js";
 import { createExplorationGroups, runExploration } from "../explorationSim.js";
+import { maybeStartSkillEnhancement } from "../data/characterSkills.js";
 
 // Placeholder pacing per the user's own instruction (tune later). A
 // debug hook (window.__EXPLORATION_FAST__) lets tests speed this up
@@ -36,6 +37,12 @@ export function ExplorationScene(container, params, api) {
   let gatherGroup = null;
   let mineGroup = null;
   let resultData = null;
+  // 「探索を終える」後、能力値が成長した隊員（重複無し）を1人ずつ
+  // スキル強化画面に通すためのキュー。afterChildSceneはスキル強化画面
+  // が閉じて戻ってきた時にonResumeが呼ぶ「次にすべきこと」。
+  let enhanceQueue = [];
+  let enhanceCursor = 0;
+  let afterChildScene = null;
 
   function countInRole(role) {
     let count = 0;
@@ -270,8 +277,29 @@ export function ExplorationScene(container, params, api) {
       corner: resourceHud(state.run?.resources),
       onPause: () => api.callScene("pause"),
       body,
-      actions: [button("探索を終える", { variant: "primary", onClick: () => api.closeScene() })],
+      actions: [button("探索を終える", { variant: "primary", onClick: finishExploration })],
     });
+  }
+
+  // 「探索を終える」を押した時点で、能力値が成長した隊員（growthEntries
+  // は同一人物が複数エントリを持ちうるので重複を除く）を1人ずつスキル
+  // 強化画面に通すキューを組み立てて処理を始める。
+  function finishExploration() {
+    enhanceQueue = [...new Set(resultData.growthEntries.map((entry) => entry.character))];
+    enhanceCursor = 0;
+    processEnhanceQueueNext();
+  }
+
+  function processEnhanceQueueNext() {
+    while (enhanceCursor < enhanceQueue.length) {
+      const character = enhanceQueue[enhanceCursor];
+      enhanceCursor += 1;
+      if (maybeStartSkillEnhancement(api, character)) {
+        afterChildScene = processEnhanceQueueNext;
+        return;
+      }
+    }
+    api.closeScene();
   }
 
   function render() {
@@ -281,5 +309,15 @@ export function ExplorationScene(container, params, api) {
   }
 
   render();
-  return {};
+  return {
+    onResume: () => {
+      if (afterChildScene) {
+        const fn = afterChildScene;
+        afterChildScene = null;
+        fn();
+        return;
+      }
+      render();
+    },
+  };
 }

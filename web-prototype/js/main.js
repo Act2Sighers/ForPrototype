@@ -25,6 +25,7 @@ import { WeaponTradeScene } from "./scenes/weaponTrade.js";
 import { TailorShopScene } from "./scenes/tailorShop.js";
 import { TimeEatsScene } from "./scenes/timeEats.js";
 import { MaturationScene } from "./scenes/maturation.js";
+import { SkillEnhanceScene } from "./scenes/skillEnhance.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { PeddlerShopScene } from "./scenes/peddlerShop.js";
 import { ResourceTradeScene } from "./scenes/resourceTrade.js";
@@ -56,6 +57,7 @@ const registry = {
   tailorShop: TailorShopScene,
   timeEats: TimeEatsScene,
   maturation: MaturationScene,
+  skillEnhance: SkillEnhanceScene,
   hiring: HiringScene,
   peddlerShop: PeddlerShopScene,
   resourceTrade: ResourceTradeScene,

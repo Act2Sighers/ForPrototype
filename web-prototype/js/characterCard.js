@@ -109,11 +109,11 @@ export function characterWeaponLine(character) {
   ]);
 }
 
-// キャラクター固有スキル（CHARACTER_SKILL_LOADOUTSに定義のあるキャラ
-// のみ）。未実装分（定義の無いキャラ）は何も表示しない -- 固定の持ち
-// スキルという概念自体が無いため。
+// キャラクター固有スキル（character.skills、無ければCHARACTER_BASE_
+// SKILLSの初期修得セットにフォールバック -- describeCharacterSkills
+// 参照）。未実装分（どちらも無いキャラ）は何も表示しない。
 export function characterSkillLine(character) {
-  const text = describeCharacterSkills(character.dataId);
+  const text = describeCharacterSkills(character);
   if (!text) return null;
   return h("p", { class: "character-card__skills", text: `スキル：${text}` });
 }

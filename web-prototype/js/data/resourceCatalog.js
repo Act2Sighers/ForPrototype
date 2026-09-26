@@ -2,6 +2,7 @@
 // fixed data, plus the small factory functions needed to create
 // instances of them. state.js owns *where* instances live and how
 // they're granted.
+import { baseSkillIdsFor, computeSkillEnhancementTarget, randomizeSkillProgression } from "./characterSkills.js";
 
 // ---------------------------------------------------------------------
 // 隊員 (characters)
@@ -253,11 +254,12 @@ export const CHARACTER_DATA = {
 export function createCharacterFromData(dataId, bonusGrowth = {}) {
   const data = CHARACTER_DATA[dataId];
   const growth = mergeGrowth(data.growth, bonusGrowth);
-  return {
+  const level = computeLevel(growth);
+  const character = {
     id: `${dataId}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     dataId,
     name: data.name,
-    level: computeLevel(growth),
+    level,
     growth,
     currentHp: computeMaxHp(growth),
     condition: 0,
@@ -265,7 +267,16 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     // ず、時間食の変換処理（applyTimeEatsToCharacter）でのみ参照され
     // る。退役時に失われる（state.jsのsettleRunEnd参照）。
     positiveCondition: 0,
-    skills: [],
+    // 所持スキル（moduleIdの配列）。初期修得のみで開始し、レベルが
+    // 5刻みの閾値に達するたびのスキル強化画面（scenes/skillEnhance.js）
+    // で成長／新規修得が積み重なっていく。未実装キャラクターはnull
+    // （battle.js側のisModuleAvailableForが制限なしにフォールバック
+    // する）。
+    skills: baseSkillIdsFor(dataId),
+    // 何回スキル強化を実行済みか。レベル1超で生成される雇用候補
+    // （通常雇用）は、以下のrandomizeSkillProgressionでこの回数ぶんを
+    // 前倒しでランダム実行済みとして扱う。
+    skillEnhancementCount: 0,
     weapon: null,
     // 装備中の糖衣（頭/肩/腕/胴/脚の5部位、糖衣編集画面参照）。武器と
     // 違い、装備してもstate.warehouseItems/糖衣置き場からは取り除かれ
@@ -275,6 +286,8 @@ export function createCharacterFromData(dataId, bonusGrowth = {}) {
     equippedCoatings: { head: null, shoulder: null, arm: null, torso: null, leg: null },
     synergies: data.synergies,
   };
+  randomizeSkillProgression(character, computeSkillEnhancementTarget(level));
+  return character;
 }
 
 // モンスターの成長合計に対するレベルの付き方は隊員と同じ「base+growth」
@@ -587,22 +600,38 @@ export function applyHpHeal(character, amount) {
 // MAIN_MODULES/PREP_MODULESのid、weaponOnly:trueが立っているもの）。
 // まだ実装していない武器種はundefinedのまま（isModuleAvailableFor側は
 // 「一致するskillIdが無ければ常に選択不可」として扱うので安全）。
+// plusSkillId：性能値合計が閾値(WEAPON_SKILL_UPGRADE_THRESHOLD)以上に
+// なった時だけ有効になる改良後スキル（computeWeaponSkillId参照）。
 export const WEAPON_TYPES = {
-  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 }, skillId: "shellBreak" },
-  knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 }, skillId: "hornBreak" },
-  dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"], frame: { speciesId: "honeyCrystalOre", quantity: 1 }, skillId: "bounce" },
-  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "arrange" },
-  straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 }, skillId: "surprise" },
-  paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "ecology" },
-  timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"], frame: { speciesId: "sugarCaneFiber", quantity: 2 }, skillId: "alert" },
-  fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"], frame: { speciesId: "cacaoLayeredRock", quantity: 2 }, skillId: "sunnySideUp" },
-  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 }, skillId: "blend" },
-  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 }, skillId: "pickles" },
-  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 }, skillId: "shareCut" },
-  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "cheers" },
-  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "iceBreak" },
-  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 }, skillId: "peel" },
+  fork: { id: "fork", name: "フォーク", synergies: ["cut", "hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 3 }, skillId: "shellBreak", plusSkillId: "shellBreakPlus" },
+  knife: { id: "knife", name: "ナイフ", synergies: ["cut"], frame: { speciesId: "dropSpiralOre", quantity: 1 }, skillId: "hornBreak", plusSkillId: "hornBreakPlus" },
+  dipper: { id: "dipper", name: "ディッパー", synergies: ["grill"], frame: { speciesId: "honeyCrystalOre", quantity: 1 }, skillId: "bounce", plusSkillId: "bouncePlus" },
+  recipeBook: { id: "recipeBook", name: "レシピブック", synergies: ["hole", "kaikei"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "arrange", plusSkillId: "arrangePlus" },
+  straw: { id: "straw", name: "ストロー", synergies: ["fry"], frame: { speciesId: "cacaoLayeredRock", quantity: 1 }, skillId: "surprise", plusSkillId: "surprisePlus" },
+  paperPlate: { id: "paperPlate", name: "カミザラ", synergies: ["cut", "fry"], frame: { speciesId: "driedFructoseRock", quantity: 2 }, skillId: "ecology", plusSkillId: "ecologyPlus" },
+  timer: { id: "timer", name: "タイマー", synergies: ["fry", "kaikei"], frame: { speciesId: "sugarCaneFiber", quantity: 2 }, skillId: "alert", plusSkillId: "alertPlus" },
+  fryingPan: { id: "fryingPan", name: "フライパン", synergies: ["grill", "araimono"], frame: { speciesId: "cacaoLayeredRock", quantity: 2 }, skillId: "sunnySideUp", plusSkillId: "sunnySideUpPlus" },
+  mixer: { id: "mixer", name: "ミキサー", synergies: ["grill", "hole", "araimono"], frame: { speciesId: "honeyCrystalOre", quantity: 3 }, skillId: "blend", plusSkillId: "blendPlus" },
+  jarredBottle: { id: "jarredBottle", name: "ビンヅメ", synergies: ["kaikei", "araimono"], frame: { speciesId: "amberSugarMineral", quantity: 2 }, skillId: "pickles", plusSkillId: "picklesPlus" },
+  pizzaCutter: { id: "pizzaCutter", name: "ピザカッター", synergies: ["cut", "grill"], frame: { speciesId: "dropSpiralOre", quantity: 2 }, skillId: "shareCut", plusSkillId: "shareCutPlus" },
+  shaker: { id: "shaker", name: "シェイカー", synergies: ["hole", "araimono"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "cheers", plusSkillId: "cheersPlus" },
+  icePick: { id: "icePick", name: "アイスピック", synergies: ["grill", "hole"], frame: { speciesId: "sorbetEternalIce", quantity: 2 }, skillId: "iceBreak", plusSkillId: "iceBreakPlus" },
+  slicer: { id: "slicer", name: "スライサー", synergies: ["cut", "fry", "kaikei"], frame: { speciesId: "dropSpiralOre", quantity: 3 }, skillId: "peel", plusSkillId: "peelPlus" },
 };
+
+// 武器固有スキルの改良閾値：武器評価がB→Aに転ずる境界と同じ「14」。
+// 一方通行の「改良済みフラグ」は持たせず、常にその時点の性能値合計を
+// 都度参照して判断する（computeWeaponPrefixTier/refreshWeaponPrefixと
+// 同じ「保存しない・都度計算する」方針。性能値が閾値を下回れば改良後
+// スキルも自動的に改良前へ戻る）。
+export const WEAPON_SKILL_UPGRADE_THRESHOLD = 14;
+
+export function computeWeaponSkillId(weapon) {
+  const type = WEAPON_TYPES[weapon.baseTypeId];
+  if (!type) return null;
+  if (type.plusSkillId && sumStatValues(weapon.stats) >= WEAPON_SKILL_UPGRADE_THRESHOLD) return type.plusSkillId;
+  return type.skillId;
+}
 
 // A weapon's name is "<prefix><weapon type>" (e.g. "質素な" + "フライ
 // パン"). The prefix is picked from one of ten pools, chosen by the

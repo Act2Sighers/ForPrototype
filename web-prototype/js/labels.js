@@ -26,6 +26,7 @@ export const SCENE_LABELS = {
   tailorShop: "仕立画面",
   timeEats: "軽食画面",
   maturation: "熟成画面",
+  skillEnhance: "スキル強化画面",
   hiring: "雇用画面",
   peddlerShop: "行商画面",
   resourceTrade: "資源取引画面",

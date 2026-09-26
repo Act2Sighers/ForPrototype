@@ -29,10 +29,11 @@ import {
   NATURAL_QUALITY_LABELS,
   RIGID_QUALITY_LABELS,
   COATING_ATTRIBUTE_LABELS,
-  WEAPON_TYPES,
+  computeWeaponSkillId,
 } from "../data/resourceCatalog.js";
 import { computeBossLevel } from "../data/testDungeon.js";
 import { computeGatherAbility, computeMineAbility, pickGatherReward, pickMineReward } from "../data/exploration.js";
+import { CHARACTER_BASE_SKILLS } from "../data/characterSkills.js";
 import { rollD6, rollSum, rollJudgement, successCountToR } from "../dice.js";
 
 // Placeholder pacing per the user's own instruction (tune later), mirroring
@@ -944,10 +945,9 @@ Object.assign(PREP_MODULES, {
   },
 });
 
-// 武器固有スキル・Prepフェイズ。CHARACTER_SKILL_LOADOUTSによる所持
-// スキル制限とは別枠で、weaponOnly:trueがisModuleAvailableFor側の
-// 「装備中の武器のWEAPON_TYPES[...].skillIdと一致するか」判定を通す
-// （skillId自体はWEAPON_TYPES側に持たせる）。
+// 武器固有スキル・Prepフェイズ。隊員の所持スキル制限(character.skills)
+// とは別枠で、weaponOnly:trueがisModuleAvailableFor側の「装備中の武器の
+// 現在のスキルid（computeWeaponSkillId）と一致するか」判定を通す。
 Object.assign(PREP_MODULES, {
   // 【チアーズ】（シェイカー）：対象選択の必要なし（targetFaction:
   // "none"）、味方陣営全員に最適化(2)。既存の【静電気】と同型。
@@ -1043,15 +1043,16 @@ function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed
   if (module.mediocreOnly) return false;
   if (module.monsterOnly && unit.faction !== "enemy") return false;
   if (module.allyOnly && unit.faction !== "ally") return false;
-  // 武器固有スキル：module.weaponOnly=trueのモジュールは、CHARACTER_
-  // SKILL_LOADOUTSの所持スキル制限を経由せず（下の所持スキル制限は
-  // weaponOnlyには適用しない -- 武器技はどのキャラクターの固定
-  // ローダウト配列にも載らないので、経由させると誰も選べなくなって
-  // しまう）、装備中の武器のWEAPON_TYPES[...].skillIdと一致する時
-  // だけ選択可能になる（武器を外したり持ち替えたりすれば選べなくなる）。
+  // 武器固有スキル：module.weaponOnly=trueのモジュールは、隊員の所持
+  // スキル制限を経由せず（下の所持スキル制限はweaponOnlyには適用しない
+  // -- 武器技はどのキャラクターの所持スキル配列にも載らないので、経由
+  // させると誰も選べなくなってしまう）、装備中の武器の現在のスキルid
+  // （computeWeaponSkillId、性能値合計が閾値以上なら改良後スキルを都度
+  // 返す）と一致する時だけ選択可能になる（武器を外したり持ち替えたり、
+  // 性能値が閾値を割り込んだりすれば選べなくなる）。
   if (module.weaponOnly) {
-    const weaponTypeId = unit.character.weapon?.baseTypeId;
-    if (!weaponTypeId || WEAPON_TYPES[weaponTypeId]?.skillId !== module.id) return false;
+    const weapon = unit.character.weapon;
+    if (!weapon || computeWeaponSkillId(weapon) !== module.id) return false;
   }
   // 前提技制限：module.requiresPriorActionIdsを持つモジュール（例：
   // 【サニーサイドアップ】：スマッシュまたはプロテクトの使用直後にのみ
@@ -1066,15 +1067,17 @@ function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed
   // 方式とは違い、これだけは選択肢自体を隠す（ユーザー指示：技の性質上
   // 「この順番で使う」ことが前提のため）。
   if (module.requiresPriorActionIds && !module.requiresPriorActionIds.some((id) => (unit.lastLeafActionIds ?? []).includes(id))) return false;
-  // 所持スキル制限：CHARACTER_SKILL_LOADOUTSに定義があるキャラクター
-  // は、そのリストに載っているモジュールしか選べない（weaponOnlyの
-  // モジュールは上の武器チェックだけで判定済みなのでここは経由しない）。
-  // 未定義のキャラクター（今回未実装分）は、従来通り全モジュールを
-  // 自由選択できる（pickMonsterActionがMONSTER_SKILL_LOADOUTS未定義の
-  // モンスターをrandomEnemyActionにフォールバックするのと同じ考え方）。
+  // 所持スキル制限：unit.character.skills（個体ごとの所持スキルid配列、
+  // data/characterSkills.jsのbaseSkillIdsFor+スキル強化で決まる）が
+  // 設定されているキャラクターは、その配列に載っているモジュールしか
+  // 選べない（weaponOnlyのモジュールは上の武器チェックだけで判定済み
+  // なのでここは経由しない）。未実装キャラクター（character.skillsが
+  // null）は、従来通り全モジュールを自由選択できる（pickMonsterAction
+  // がMONSTER_SKILL_LOADOUTS未定義のモンスターをrandomEnemyActionへ
+  // フォールバックするのと同じ考え方）。
   if (unit.faction === "ally" && !module.weaponOnly) {
-    const loadout = CHARACTER_SKILL_LOADOUTS[unit.character.dataId];
-    if (loadout && !loadout.includes(module.id)) return false;
+    const skills = unit.character.skills;
+    if (skills && !skills.includes(module.id)) return false;
   }
   if (module.attribute) return unit.character.attribute === module.attribute;
   if (module.id === "attack" && unit.character.attribute) return false;
@@ -3652,95 +3655,12 @@ const MONSTER_SKILL_LOADOUTS = {
   },
 };
 
-// 隊員の所持スキル：CHARACTER_DATAのdataIdごとに、そのキャラクターが
-// 選択できるモジュールid（Prep/Main問わず1本のリストにまとめたもの、
-// isModuleAvailableForがフェイズ別レジストリから引いたmodule.idと
-// 突き合わせるだけなので、Prep用/Main用に分ける必要が無い）を持つ。
-// モンスターと違い、隊員側は「選ぶ・使う」のどちらもプレイヤー操作
-// なので確率(chance)の概念は無い。ここに定義の無いキャラクター
-// （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
-// 全モジュールを自由選択できる。
-const CHARACTER_SKILL_LOADOUTS = {
-  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand", "shieldSmash", "prayingHands", "sugarTalkFront"],
-  cubeSugar: ["easyAdapt", "retreatCall", "quickAttack", "firstAid", "attackingHand", "mourningHand", "roughStrike", "sugarTalkBack"],
-  honeyScrew: ["easyAdapt", "festivalHunch", "quickAttack", "firstAid", "honeyBeat", "playfulSwing", "loudVoice", "rokkakuCrystal"],
-  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel", "bookworm", "needARest", "digAround"],
-  lollipopSpiral: ["easyAdapt", "sisterCheer", "quickAttack", "firstAid", "supportComfort", "youngestSisterBusy", "scold", "petPet"],
-  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort", "easyGame", "jackpot"],
-  sunlightSaccharum: ["easyAdapt", "highPlot", "lowPlot", "quickAttack", "firstAid", "prescription", "decoy", "lifeSaving", "lostKnowledge"],
-};
-
-// 隊員のレベルアップに伴うスキル成長ツリー（データのみ）。所持スキルが
-// 一定のキリのいいレベルに達すると自動修得し、修得と同時に成長前の
-// スキルは失われる想定だが、その「いつ・どう修得させるか」という習得
-// システム自体はまだ実装しない（このデータを後から参照する形で別途
-// 組み込む）。各キャラクターの配列は{from, to}の連なりで、fromに
-// 挙げたモジュールidがtoへ丸ごと置き換わる（PREP_MODULES/MAIN_MODULES
-// どちらのidかは各モジュール定義側を参照すればよく、ここでは区別しない）。
-// ショコラ・ビターテイストのビターフィールだけは単一のtoではなくbranch
-// を持つ -- 修得時点のそのキャラクターの賢さ・協調性を比較し、
-// 条件に応じてカカオフィール系/ミルクフィール系のどちらか一方だけを
-// 修得する（比較条件そのものの評価はここでは行わない、習得システム側
-// の仕事）。
-// 即席攻撃・応急手当にはあえて成長後スキルを設けていない（現状は
-// 前者だけ・後者だけを持つ隊員がいるが、将来的に全員が両方を持つよう
-// 改修する予定で、その改修が済むまでは成長対象にしない）。
-export const CHARACTER_SKILL_GROWTH = {
-  flakeSugar: [
-    { from: "guardAlly", to: "noPassing" },
-    { from: "guardingHand", to: "protectiveCode" },
-    { from: "protectiveCode", to: "protectiveOrigin" },
-  ],
-  cubeSugar: [
-    { from: "retreatCall", to: "neverLetGo" },
-    { from: "attackingHand", to: "attackingArt" },
-    { from: "attackingArt", to: "attackingFrontier" },
-  ],
-  honeyScrew: [
-    { from: "festivalHunch", to: "festivalAdvice" },
-    // 【ハニービート】は今回新設した弱化版の初期修得スキル。既存の
-    // 【ハニービービート】（従来は初期修得スキルだった）はその成長後
-    // スキルへ格上げになった。
-    { from: "honeyBeat", to: "honeyBeeBeat" },
-    { from: "honeyBeeBeat", to: "honeyBeastBeat" },
-  ],
-  chocolatBitterTaste: [
-    { from: "shadowJustice", to: "shadowJusticeDuty" },
-    {
-      from: "bitterFeel",
-      branch: [
-        { to: "cacaoFeel", condition: "wisdomGteSociality" },
-        { to: "milkFeel", condition: "wisdomLtSociality" },
-      ],
-    },
-    { from: "cacaoFeel", to: "blackFeel" },
-    { from: "milkFeel", to: "whiteFeel" },
-  ],
-  lollipopSpiral: [
-    { from: "sisterCheer", to: "sisterCheerUpgrade" },
-    // 【安心のサポート】は今回新設した弱化版の初期修得スキル。既存の
-    // 【完璧なサポート】（従来は初期修得スキルだった）はその成長後
-    // スキルへ格上げになり、新設に伴って微強化もされている
-    // （n:3→4、MAIN_MODULES.perfectSupport参照）。
-    { from: "supportComfort", to: "perfectSupport" },
-    { from: "perfectSupport", to: "legendarySupport" },
-  ],
-  flawlessNoColor: [
-    { from: "check", to: "doubleCheck" },
-    // 【フラッシュ】は効果をナーフした上で初期修得スキルの名前を維持、
-    // 旧来の効果（相手陣営全員+自身）は【Ｓ・フラッシュ】（ストレート
-    // フラッシュ）として成長後スキルへ格上げになった。トランプ役の
-    // 読み方に合わせ、idはflush/straightFlush/royalStraightFlushで揃える。
-    { from: "flush", to: "straightFlush" },
-    { from: "straightFlush", to: "royalStraightFlush" },
-  ],
-  sunlightSaccharum: [
-    { from: "highPlot", to: "highBet" },
-    { from: "lowPlot", to: "lowBet" },
-    { from: "prescription", to: "prescriptionTheory" },
-    { from: "prescriptionTheory", to: "proof" },
-  ],
-};
+// 隊員の所持スキルは、以前はCHARACTER_DATAのdataIdごとの固定リスト
+// （CHARACTER_SKILL_LOADOUTS）だったが、スキル成長／新規修得システム
+// の実装に伴い、隊員インスタンス自身が持つunit.character.skills
+// （dataIdではなく個体ごとの配列、null＝未実装キャラで無制限）に置き
+// 換えた。データそのもの（初期修得/成長ツリー/新規修得）は
+// data/characterSkills.jsへ移した -- isModuleAvailableFor参照。
 
 // 「【スキル名】最短表記」の組み立てと、隊員/武器情報表示専用の逆引き。
 // PREP_MODULES/MAIN_MODULESどちらのidも一意なので1つの辞書にまとめて
@@ -3761,15 +3681,24 @@ export function describeSkills(moduleIds) {
 // ければnull -- 現状は全武器種が必ず持つが、念のため）。武器置き場/
 // 武器取引画面や、隊員が装備している武器の表示から呼ぶ想定。
 export function describeWeaponSkill(weapon) {
-  const skillId = WEAPON_TYPES[weapon.baseTypeId]?.skillId;
+  const skillId = computeWeaponSkillId(weapon);
   return skillId ? describeSkill(skillId) : null;
 }
 
-// キャラクター固有スキルの表示用文字列（CHARACTER_SKILL_LOADOUTSに
-// エントリの無いキャラクターはnull -- 未実装分は固有スキルを持たない）。
-export function describeCharacterSkills(characterDataId) {
-  const loadout = CHARACTER_SKILL_LOADOUTS[characterDataId];
-  return loadout ? describeSkills(loadout) : null;
+// モジュールidから素のラベルだけを返す（describeSkillの「【ラベル】
+// 最短表記」からラベル部分だけが欲しい呼び出し元 -- スキル強化画面
+// 参照）。
+export function skillLabel(moduleId) {
+  return SKILL_MODULES[moduleId]?.label;
+}
+
+// キャラクター固有スキルの表示用文字列。character.skillsが無い（雇用
+// 候補プレビューのような軽量オブジェクト）場合は、CHARACTER_BASE_SKILLS
+// の初期修得セットにフォールバックする。未実装キャラクター（どちらも
+// 無い）はnull。
+export function describeCharacterSkills(character) {
+  const skills = character.skills ?? CHARACTER_BASE_SKILLS[character.dataId];
+  return skills && skills.length ? describeSkills(skills) : null;
 }
 
 const PREP_START_PT = 3;

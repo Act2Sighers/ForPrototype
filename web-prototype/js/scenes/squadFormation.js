@@ -10,6 +10,7 @@ import {
 } from "../characterCard.js";
 import state, { FORMATION_LIMIT, STANDBY_LIMIT, dischargeCharacter, equipStoredWeapon, consumeTimeEatsItem } from "../state.js";
 import { computeWeaponRating, canEquip, getWeaponDisplayName, applyTimeEatsToCharacter } from "../data/resourceCatalog.js";
+import { maybeStartSkillEnhancement } from "../data/characterSkills.js";
 
 const EMPTY_FORMATION_MESSAGE = "編成スロットには隊員が1人以上必要です。";
 
@@ -70,6 +71,22 @@ export function SquadFormationScene(container, params, api) {
   // 配列そのものは同じ参照のまま保たれる）。
   const feedAllCharacters = mode === "feedAll" ? [...state.formationSlots, ...state.standbySlots] : [];
   let feedAllCursor = 0;
+  // 熟成画面／スキル強化画面のどちらが閉じて戻ってきた時も、次に何を
+  // すべきかをここに積んでおく（onResume参照）。「熟成→スキル強化
+  // （必要な回数ぶん連続）→次の処理」という流れを、呼び出す画面の
+  // 種類を問わない同じ仕組みで表現できる。
+  let afterChildScene = null;
+
+  // 隊員の能力値成長（熟成画面が閉じた直後）ごとに呼ぶ：その隊員が
+  // まだ実行すべきスキル強化を残していれば連続でスキル強化画面を挟み、
+  // 無くなったらthenFnへ進む。
+  function afterGrowth(character, thenFn) {
+    if (maybeStartSkillEnhancement(api, character)) {
+      afterChildScene = () => afterGrowth(character, thenFn);
+      return;
+    }
+    thenFn();
+  }
 
   let editing = false;
   let draftFormation = [];
@@ -200,6 +217,7 @@ export function SquadFormationScene(container, params, api) {
         levelBefore: result.levelBefore,
         levelAfter: result.levelAfter,
       });
+      afterChildScene = () => afterGrowth(character, () => api.closeScene());
     } else {
       api.closeScene();
     }
@@ -263,6 +281,7 @@ export function SquadFormationScene(container, params, api) {
           levelBefore: result.levelBefore,
           levelAfter: result.levelAfter,
         });
+        afterChildScene = () => afterGrowth(character, processFeedAllNext);
         return;
       }
     }
@@ -522,16 +541,15 @@ export function SquadFormationScene(container, params, api) {
 
   render();
   return {
+    // 熟成画面／スキル強化画面のどちらが閉じて戻ってきた時も、
+    // afterChildSceneに積んである「次にすべきこと」をそのまま実行する
+    // （confirmFeed/processFeedAllNextがそこにafterGrowthを積んでいる
+    // -- 積んでいなければ通常の再描画で良い）。
     onResume: () => {
-      // 熟成画面が閉じて戻ってきた時の処理。feedは1人で完結する
-      // モードなので、そのまま自分自身も閉じて呼び出し元（荷物置き場）
-      // へ戻る。feedAllは次の隊員からカーソルの続きを再開する。
-      if (mode === "feed") {
-        api.closeScene();
-        return;
-      }
-      if (mode === "feedAll") {
-        processFeedAllNext();
+      if (afterChildScene) {
+        const fn = afterChildScene;
+        afterChildScene = null;
+        fn();
         return;
       }
       render();
