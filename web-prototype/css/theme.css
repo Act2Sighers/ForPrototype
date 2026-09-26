@@ -1335,6 +1335,21 @@ body {
   opacity: 0.7;
 }
 
+/* D5：まだ実行していない、選択済み（対象確定済み）の矢印。ドラッグで
+   掴んでやり直せることを示すため、確定済みの実線（ember系）としつつ、
+   D4のドラッグ中プレビュー（点線・ink色）とはひと目で見分けられる
+   ようにしておく。 */
+.battle-arrow-line--pending {
+  stroke: var(--ember);
+  stroke-width: 2;
+  opacity: 0.55;
+}
+
+.battle-arrow-head--pending {
+  fill: var(--ember);
+  opacity: 0.55;
+}
+
 .battle-center__vs {
   margin: 0;
   font-size: 12px;
@@ -1408,6 +1423,16 @@ body {
   cursor: pointer;
   border-style: dashed;
   border-color: var(--frost);
+}
+
+/* D5：既に誰か（味方）の対象として確定済みの枠。この枠自体からドラッグ
+   を始めれば、その対象選択だけを個別にやり直せる（findRedoableSelection
+   参照）。同時に何人分も出うるので、対象選択中の点線
+   （.battle-unit--clickable-target、破線）より控えめな点線にしておく。 */
+.battle-unit--redoable-target {
+  cursor: pointer;
+  border-style: dotted;
+  border-color: var(--ember);
 }
 
 /* D4：ドラッグ中、今まさにポインタが乗っている有効なドロップ先（対象

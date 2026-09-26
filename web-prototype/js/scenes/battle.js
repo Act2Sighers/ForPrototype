@@ -4032,6 +4032,14 @@ export function BattleScene(container, params, api) {
   // （pointerupの直後に同じ要素へ飛ぶclickイベント）を1回だけ無視する
   // ためのフラグ。handleStatusCardClick先頭でチェック・解除する。
   let justDragged = false;
+  // D5：pointerdown直後、実際にこの距離以上動くまでは「ドラッグ」として
+  // 扱わない（＝ただのクリック）。特に「既に確定した対象のやり直し」は
+  // 他人の行動対象になっている枠から始まるため、その枠が同時に「自分
+  // 自身の行動を選ぶための枠」でもある場合、動きの無いクリックまで
+  // ドラッグ確定処理（handleRedoDrop等）に奪われると、自分の行動ポップ
+  // アップが二度と開けなくなってしまう。閾値未満ならjustDraggedも立てず
+  // 通常のclickイベント（handleStatusCardClick）にそのまま委ねる。
+  const DRAG_MOVE_THRESHOLD = 4;
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -4197,14 +4205,24 @@ export function BattleScene(container, params, api) {
   // randomEnemyActionの後継：所持スキルが定義されているモンスターは
   // chooseMonsterSkillEntryで選び、未定義（将来追加分の保険）は旧来通り
   // ランダムに倒す。Mainフェイズで「もう使えるスキルが無い」場合は
-  // nullを返す（連続使用ループの終了合図）。
+  // nullを返す（連続使用ループの終了合図）。D5：複数対象スキル
+  // （通さない！／漁火等）の追加対象は、隊員側は手動選択に変えたが
+  // モンスター側は従来通りランダムに全スロットを埋め切る
+  // （fillExtraTargetsのrandom:true -- 旧来resolveStepTarget側にあった
+  // pickRandomを、選択の時点へそのまま前倒ししたもの）。
   function pickMonsterAction(unit, phase) {
     const loadout = MONSTER_SKILL_LOADOUTS[unit.character.dataId];
-    if (!loadout) return randomEnemyAction(unit);
-    const entry = chooseMonsterSkillEntry(unit, phase, loadout[phase] ?? []);
-    if (!entry) return null;
+    const action = loadout ? null : randomEnemyAction(unit);
+    let resolved = action;
     const registry = phase === "prep" ? PREP_MODULES : MAIN_MODULES;
-    return { moduleId: entry.moduleId, targetUnit: pickMonsterSkillTarget(unit, entry.moduleId, registry) };
+    if (!resolved) {
+      const entry = chooseMonsterSkillEntry(unit, phase, loadout[phase] ?? []);
+      if (!entry) return null;
+      resolved = { moduleId: entry.moduleId, targetUnit: pickMonsterSkillTarget(unit, entry.moduleId, registry) };
+    }
+    resolved.extraTargets = [];
+    fillExtraTargets(unit, resolved, registry[resolved.moduleId], { random: true });
+    return resolved;
   }
 
   // モンスターのMainフェイズの手番：PTが支払える限り、使えるスキルが
@@ -4276,14 +4294,14 @@ export function BattleScene(container, params, api) {
   function allAlliesReady() {
     return allyUnits
       .filter((u) => !isIncapacitated(u) && viablePrepModuleIds(u).length > 0)
-      .every((u) => u.action && u.action.targetUnit);
+      .every((u) => isActionFullyResolved(u));
   }
 
   // Mainフェイズは逐次処理のため、今まさに選択待ちの1ユニット（必ず
   // mainOrder[mainCursor]、味方）だけが選択済みかどうかを見る。
   function mainActorReady() {
     const unit = mainOrder[mainCursor];
-    return !!(unit && unit.action && unit.action.targetUnit);
+    return !!unit && isActionFullyResolved(unit);
   }
 
   // このユニットが「今、選択操作の対象」かどうか。Prepフェイズは全員
@@ -4311,13 +4329,164 @@ export function BattleScene(container, params, api) {
     return phase === "main" ? viableMainModuleIds(unit) : viablePrepModuleIds(unit);
   }
 
+  // D5：複数対象スキル（steps内にopposingExcludingUsed/ownExcludingUsed/
+  // ownExcludingSelfAndUsedを持つもの）が、主対象の他に何個・どの陣営の
+  // 追加対象を必要とするかを、steps出現順のまま列挙する。以前はこれら
+  // 2人目以降の対象をresolveStepTarget側でランダムに決めていたが、D5で
+  // プレイヤーが1人ずつ手動で選ぶ方式に変えたため、実行前（選択段階）に
+  // 「あと何人・どちらの陣営を選ぶ必要があるか」を知る必要がある。each
+  // 持ちステップ（陣営全体を自動処理）は対象外。action.steps持ちの
+  // ネストしたスキル参照はrunSteps自身の再帰と同じ経路で辿る。
+  function extraTargetSlotsFor(module, registry) {
+    if (!module?.steps) return [];
+    const slots = [];
+    for (const step of module.steps) {
+      if (step.each) continue;
+      if (step.target === "opposingExcludingUsed") slots.push({ pool: "opposing", excludeSelf: false });
+      else if (step.target === "ownExcludingUsed") slots.push({ pool: "own", excludeSelf: false });
+      else if (step.target === "ownExcludingSelfAndUsed") slots.push({ pool: "own", excludeSelf: true });
+      const nested = registry[step.actionId];
+      if (nested?.steps) slots.push(...extraTargetSlotsFor(nested, registry));
+    }
+    return slots;
+  }
+
+  // D5：{targetUnit, extraTargets}という「actionっぽい」形（実際の
+  // unit.actionでも、やり直し計算用の仮の形でもどちらでも受け取れる）と
+  // スロット番号から、そのスロットで選べる候補一覧を返す（それ以前の
+  // 対象は除外する。excludeSelf指定があれば行動主体自身も除外）。
+  function extraTargetCandidatesForAction(actor, action, module, slotIndex) {
+    const slots = extraTargetSlotsFor(module, currentModules());
+    const spec = slots[slotIndex];
+    if (!spec) return [];
+    const used = [action.targetUnit, ...action.extraTargets];
+    const pool = spec.pool === "own" ? ownPoolFor(actor) : opposingPoolFor(actor);
+    return pool.filter((u) => !used.includes(u) && !(spec.excludeSelf && u === actor));
+  }
+
+  // D5：unit.actionそのものを対象にした薄いラッパー（UI側の大半はこちら
+  // だけで足りる）。
+  function extraTargetCandidates(actor, slotIndex) {
+    const module = currentModules()[actor.action.moduleId];
+    return extraTargetCandidatesForAction(actor, actor.action, module, slotIndex);
+  }
+
+  // D5：残りスロットのうち「候補が1つしかない」ものだけを自動で埋める
+  // （プレイヤー操作向け、既存の単一対象オートフィルと同じ設計判断 --
+  // 選びようが無い選択をプレイヤーに強いない）。random:trueを渡すと
+  // モンスター/CPU向けに残り全スロットを問答無用でランダムに埋め切る
+  // （旧来resolveStepTarget側にあったpickRandomを、選択の時点へそのまま
+  // 前倒ししたもの）。
+  function fillExtraTargets(actor, action, module, { random }) {
+    const slots = extraTargetSlotsFor(module, currentModules());
+    while (action.extraTargets.length < slots.length) {
+      const candidates = extraTargetCandidatesForAction(actor, action, module, action.extraTargets.length);
+      if (candidates.length === 0) break;
+      if (!random && candidates.length > 1) break;
+      action.extraTargets.push(random ? pickRandom(candidates) : candidates[0]);
+    }
+  }
+
+  // D5：選択段階で既に決まっているextraTargetsを、runSteps/
+  // resolveStepTarget側が消費する陣営別キューに組み替える（スロットの
+  // 並び順＝extraTargetSlotsForの列挙順のまま、pool種別ごとに振り分ける
+  // だけ）。実行の入口（resolvePrepAction/resolveMainAction）でだけ呼ぶ。
+  function buildExtraTargetQueues(unit, module) {
+    const slots = extraTargetSlotsFor(module, currentModules());
+    const queues = { opposing: [], own: [] };
+    const chosen = unit.action.extraTargets;
+    slots.forEach((slot, i) => {
+      if (chosen[i] !== undefined) queues[slot.pool].push(chosen[i]);
+    });
+    return queues;
+  }
+
+  // D5：unit.actionの主対象・追加対象がすべて確定しているか（従来の
+  // 「unit.action.targetUnitがあるか」だけの判定を、複数対象スキールの
+  // 追加スロットも含めて拡張したもの）。
+  function isActionFullyResolved(unit) {
+    const action = unit.action;
+    if (!action?.targetUnit) return false;
+    const module = currentModules()[action.moduleId];
+    return action.extraTargets.length >= extraTargetSlotsFor(module, currentModules()).length;
+  }
+
+  // D5：今確定している対象一覧（主対象＋追加対象）を先頭からの配列で
+  // 返す。主対象が未確定なら空配列（＝矢印を出す対象がまだ無い）。
+  function confirmedTargetsOf(unit) {
+    return unit.action?.targetUnit ? [unit.action.targetUnit, ...unit.action.extraTargets] : [];
+  }
+
+  // D5：今まさに選ぶべき対象候補一覧（主対象がまだなら通常の候補、主
+  // 対象は決まっていて追加対象スロットが残っていればそちらの候補）。
+  function currentPickCandidates(actor) {
+    if (!actor.action?.moduleId) return [];
+    if (!actor.action.targetUnit) return candidateUnits(actor, actor.action.moduleId);
+    return extraTargetCandidates(actor, actor.action.extraTargets.length);
+  }
+
+  // D5：候補の枠を確定する共通処理（主対象／追加対象のどちらの手番かを
+  // 自動判定する）。確定後、単一候補で自動的に埋まる分があれば続けて
+  // 埋め、Prepの対象選択モードはまだ埋めるべきスロットが残っている間は
+  // 維持する（同じ主体のまま次の対象を選び続けられるようにする）。
+  function confirmPick(actor, candidateUnit) {
+    if (!actor.action.targetUnit) actor.action.targetUnit = candidateUnit;
+    else actor.action.extraTargets.push(candidateUnit);
+    const module = currentModules()[actor.action.moduleId];
+    fillExtraTargets(actor, actor.action, module, { random: false });
+    if (phase === "prep") prepTargetPickingActor = isActionFullyResolved(actor) ? null : actor;
+    render();
+    maybeAutoExecuteMain(actor);
+  }
+
+  // D5：やり直し用の絶対スロット番号（0＝主対象、1以降＝extraTargetsの
+  // index+1）から、そのスロットで選び直せる候補一覧を返す -- そのスロット
+  // より前の対象だけを「使用済み」として除外する（後ろのスロットは
+  // やり直しに伴ってどのみち巻き戻る -- truncateConfirmedTargetsAt参照）。
+  function candidatesForSlot(actor, slotIndex) {
+    if (slotIndex === 0) return candidateUnits(actor, actor.action.moduleId);
+    const module = currentModules()[actor.action.moduleId];
+    const priorExtras = actor.action.extraTargets.slice(0, slotIndex - 1);
+    return extraTargetCandidatesForAction(actor, { targetUnit: actor.action.targetUnit, extraTargets: priorExtras }, module, slotIndex - 1);
+  }
+
+  // D5：指定した絶対スロット番号以降の対象確定を巻き戻す（このスロット
+  // の意味が変われば、それより後ろのスロットの「使用済み」判定の前提も
+  // 崩れるため、まとめて選び直しにする）。主対象（index 0）を巻き戻す
+  // 場合はtargetUnit自体もnullに戻す -- 呼び出し側がその後
+  // 「unit.actionごと消すか」を判断する。
+  function truncateConfirmedTargetsAt(actor, slotIndex) {
+    if (slotIndex === 0) {
+      actor.action.targetUnit = null;
+      actor.action.extraTargets = [];
+    } else {
+      actor.action.extraTargets = actor.action.extraTargets.slice(0, slotIndex - 1);
+    }
+  }
+
+  // D5：このユニットが、いずれかの味方の「既に確定している対象」として
+  // 指されているかどうか（＝この枠からドラッグを始めれば、その対象
+  // 選択だけをやり直せる）。該当すれば{actor, index}（indexは絶対スロット
+  // 番号、0＝主対象）を返す。敵の行動はCPU任せで編集対象にならないため
+  // 味方のunit.actionだけを見る。
+  function findRedoableSelection(unit) {
+    if (!isInteractive()) return null;
+    for (const actor of allyUnits) {
+      const index = confirmedTargetsOf(actor).indexOf(unit);
+      if (index !== -1) return { actor, index };
+    }
+    return null;
+  }
+
   // 行動内容(module)が1つしか選べない場合は自動で選択し、行動対象も
   // その時点で選べる候補が1人しかない（targetFaction:"none"で常に自分
   // 自身、または候補が1人だけ）場合は自動で選択する。unit.actionが
   // 既に部分的に埋まっている場合（プレイヤーが行動内容だけ選んだ状態
   // など）は、そこから続きだけを埋める。viableIdsが空なら選べる行動が
   // 無いということなので、何もしない（呼び出し側がスキップを判断する
-  // -- resetForNewPrepPhase/advanceMainPhase参照）。
+  // -- resetForNewPrepPhase/advanceMainPhase参照）。D5：行動対象が複数
+  // 必要なスキルは、主対象確定後にfillExtraTargetsで単一候補ぶんだけ
+  // 追加で自動確定する（複数候補が残るスロットはプレイヤーの選択待ち）。
   function autoFillSelection(unit, viableIds) {
     let moduleId = unit.action?.moduleId;
     if (!moduleId && viableIds.length === 1) moduleId = viableIds[0];
@@ -4332,7 +4501,9 @@ export function BattleScene(container, params, api) {
         if (candidates.length === 1) targetUnit = candidates[0];
       }
     }
-    unit.action = { moduleId, targetUnit };
+    const extraTargets = unit.action?.extraTargets ?? [];
+    unit.action = { moduleId, targetUnit, extraTargets };
+    if (targetUnit) fillExtraTargets(unit, unit.action, module, { random: false });
   }
 
   // Mainフェイズで、今の手番ユニットの行動内容・行動対象がどちらも
@@ -4344,7 +4515,7 @@ export function BattleScene(container, params, api) {
   function maybeAutoExecuteMain(unit) {
     if (phase !== "main" || executing) return;
     if (mainOrder[mainCursor] !== unit) return;
-    if (!unit.action || !unit.action.targetUnit) return;
+    if (!unit.action || !isActionFullyResolved(unit)) return;
     runMainStep();
   }
 
@@ -4363,13 +4534,23 @@ export function BattleScene(container, params, api) {
     const module = currentModules()[moduleId];
     const candidates = candidateUnits(unit, moduleId);
     const targetUnit = module.targetFaction === "none" ? unit : candidates.length === 1 ? candidates[0] : null;
-    unit.action = { moduleId, targetUnit };
+    unit.action = { moduleId, targetUnit, extraTargets: [] };
+    // D5：主対象が単一候補で自動確定した場合は、続けて複数対象スキルの
+    // 追加スロットも（単一候補ぶんだけ）自動で埋める。
+    if (targetUnit) fillExtraTargets(unit, unit.action, module, { random: false });
     render();
     maybeAutoExecuteMain(unit);
   }
 
   function handleTargetChange(unit, targetUnit) {
-    if (unit.action) unit.action.targetUnit = targetUnit;
+    if (unit.action) {
+      unit.action.targetUnit = targetUnit;
+      // D5：主対象をやり直せば、複数対象スキルの追加対象は意味が変わり
+      // うるので一旦白紙に戻し、単一候補ぶんだけ自動で埋め直す。
+      unit.action.extraTargets = [];
+      const module = currentModules()[unit.action.moduleId];
+      fillExtraTargets(unit, unit.action, module, { random: false });
+    }
     // 対象確定の経路は「候補の枠を直接クリック」（handlePrepTargetClick
     // が先にprepTargetPickingActorをnullにしてから呼ぶ）だけでなく、
     // D1のポップアップでスキルを選んだ後に行動対象プルダウンで確定する
@@ -4377,8 +4558,14 @@ export function BattleScene(container, params, api) {
     // 残ると、次に別の隊員の枠をクリックした時、handleStatusCardClickが
     // 「(既に用済みの)このunitの対象を選ぶモード中」と誤認してしまう
     // （次の隊員の行動ポップアップが開かなくなる）ため、ここでも
-    // 自分宛てのpickingモードなら解除しておく。
-    if (prepTargetPickingActor === unit) prepTargetPickingActor = null;
+    // 自分宛てのpickingモードなら解除しておく。D5：逆に、複数対象
+    // スキルでまだ追加対象が必要な場合は、プルダウンで主対象を確定
+    // しただけではpickingモードに入っていないことがある（クリック/
+    // ドラッグ経由と違い、popup選択を経ずに直接ここへ来る経路が
+    // あるため）ので、必要ならここで改めて入る。
+    if (phase === "prep" && unit.action) {
+      prepTargetPickingActor = isActionFullyResolved(unit) ? (prepTargetPickingActor === unit ? null : prepTargetPickingActor) : unit;
+    }
     render();
     maybeAutoExecuteMain(unit);
   }
@@ -4386,12 +4573,13 @@ export function BattleScene(container, params, api) {
   // D1：行動ポップアップ内でスキルを選んだ時の確定処理。handleModuleChange
   // 自体はポップアップの有無を知らないので、ここでポップアップを閉じる
   // 後始末をまとめて行う。Prepで対象が自動確定しなかった場合（候補が
-  // 複数）は、そのまま続けて対象選択モードへ入る（旧来「モジュール
-  // 選択→自分の枠を再クリック」の2手だったものを1手に短縮）。
+  // 複数、あるいはD5の複数対象スキルで追加スロットが残っている場合）
+  // は、そのまま続けて対象選択モードへ入る（旧来「モジュール選択→自分
+  // の枠を再クリック」の2手だったものを1手に短縮）。
   function handlePopupSkillSelect(unit, moduleId) {
     handleModuleChange(unit, moduleId);
     actionPopupUnit = null;
-    if (phase === "prep" && unit.action && !unit.action.targetUnit) prepTargetPickingActor = unit;
+    if (phase === "prep" && unit.action && !isActionFullyResolved(unit)) prepTargetPickingActor = unit;
     render();
   }
 
@@ -4438,12 +4626,13 @@ export function BattleScene(container, params, api) {
   // Prepフェイズ第2段階：対象選択モード中に、候補のステータス枠を
   // クリックして「行動対象はこれ」と確定する。候補でなければ何もしない
   // （モードも維持する）。確定したらモードを解除する。
+  // D5：主対象／追加対象のどちらの手番かはcurrentPickCandidates/confirmPick
+  // 側が自動判定するので、ここは「今選ぶべき候補に含まれるか」だけ見る。
   function handlePrepTargetClick(candidateUnit) {
     const actor = prepTargetPickingActor;
-    const moduleId = actor.action?.moduleId;
-    if (!moduleId || !candidateUnits(actor, moduleId).includes(candidateUnit)) return;
-    prepTargetPickingActor = null;
-    handleTargetChange(actor, candidateUnit);
+    if (!actor?.action?.moduleId) return;
+    if (!currentPickCandidates(actor).includes(candidateUnit)) return;
+    confirmPick(actor, candidateUnit);
   }
 
   // Mainフェイズ：行動主体は常に今の手番のユニット1人なので、選択の
@@ -4452,21 +4641,22 @@ export function BattleScene(container, params, api) {
   // 経由で即座に実行される）。
   function handleMainTargetClick(candidateUnit) {
     const unit = mainOrder[mainCursor];
-    if (!unit || !unit.action?.moduleId) return;
-    if (!candidateUnits(unit, unit.action.moduleId).includes(candidateUnit)) return;
-    handleTargetChange(unit, candidateUnit);
+    if (!unit?.action?.moduleId) return;
+    if (!currentPickCandidates(unit).includes(candidateUnit)) return;
+    confirmPick(unit, candidateUnit);
   }
 
   // このステータス枠が「今クリックすると意味のある操作になるか」（見た
   // 目の点線表示用。実際の判定は各ハンドラ内でも改めて行う）。Prepは
   // 対象選択モード中の候補のみ、Mainは今の手番ユニットの行動内容が
-  // 確定していればその候補。
+  // 確定していればその候補。D5：currentPickCandidatesが主対象／追加
+  // 対象のどちらの候補かを自動判定するので、複数対象スキルでも同じ
+  // ロジックのまま正しく動く。
   function isClickableAsTarget(unit) {
     if (!isInteractive()) return false;
     if (phase === "prep") {
-      if (!prepTargetPickingActor) return false;
-      const moduleId = prepTargetPickingActor.action?.moduleId;
-      return !!moduleId && candidateUnits(prepTargetPickingActor, moduleId).includes(unit);
+      if (!prepTargetPickingActor?.action?.moduleId) return false;
+      return currentPickCandidates(prepTargetPickingActor).includes(unit);
     }
     const actor = mainOrder[mainCursor];
     if (!actor?.action?.moduleId) return false;
@@ -4475,7 +4665,7 @@ export function BattleScene(container, params, api) {
     // （handleMainActorClick）になる -- 対象確定にはならないので、自分
     // 自身を対象候補としてクリック可能扱いする点線ハイライトは出さない
     // （行動対象プルダウンからは引き続き自分自身を選べる）。
-    return unit !== actor && candidateUnits(actor, actor.action.moduleId).includes(unit);
+    return unit !== actor && currentPickCandidates(actor).includes(unit);
   }
 
   // D1：このステータス枠が「今クリックすると行動ポップアップが開くか」
@@ -4497,10 +4687,13 @@ export function BattleScene(container, params, api) {
   // （＝自分の枠からドラッグを始められる状態）。statusCardClassの
   // battle-unit--actorハイライトと全く同じ条件なので、そちらから
   // 移設してここ1箇所にまとめた（D2で導入した判定をそのまま流用）。
+  // D5：単一対象の判定（!targetUnit）を、複数対象スキルの追加スロットも
+  // 含めたisActionFullyResolvedに置き換えた -- まだ埋めるべき対象が
+  // 残っている間はずっとドラッグで選び続けられる。
   function isDraggableActor(unit) {
     if (!isInteractive()) return false;
     if (phase === "prep") return unit === prepTargetPickingActor;
-    return phase === "main" && unit === mainOrder[mainCursor] && !!unit.action?.moduleId && !unit.action.targetUnit;
+    return phase === "main" && unit === mainOrder[mainCursor] && !!unit.action?.moduleId && !isActionFullyResolved(unit);
   }
 
   // D4：行動主体自身の枠からドラッグを始め、矢印をマウスポインタへ追従
@@ -4509,23 +4702,42 @@ export function BattleScene(container, params, api) {
   // 呼ぶわけにはいかない -- ここだけはC2/updateArrowOverlayと同じく、
   // オーバーレイSVGを直接DOM操作する（仮想DOM経由の再描画を挟まない）。
   //
-  // 開始：isDraggableActor(unit)の枠でpointerdownした時だけドラッグを
-  // 始める（それ以外の枠のpointerdownは何もしない -- 通常のクリックが
-  // そのままonClickで処理される）。
+  // D5で「既に確定した対象のやり直し」を追加：isDraggableActor(unit)の
+  // 枠（新規ピック）だけでなく、findRedoableSelection(unit)（＝この枠が
+  // どこかの味方の既に確定済みの対象になっている）でもドラッグを開始
+  // できるようにした。どちらも矢印の起点は常に行動主体側なので、実際の
+  // ドラッグ処理（矢印追従・ホバー強調）はほぼ共通 -- dragState.redoSlot
+  // の有無で新規ピックかやり直しかを区別する。
   function handleUnitPointerDown(unit, event) {
     if (event.button !== 0 && event.button !== undefined) return; // 左クリック/主ポインタのみ
-    if (!isDraggableActor(unit)) return;
+    if (isDraggableActor(unit)) {
+      beginDrag(unit, event, undefined, undefined);
+      return;
+    }
+    const redo = findRedoableSelection(unit);
+    if (redo) beginDrag(redo.actor, event, redo.index, unit.character.id);
+  }
+
+  // D5：新規ピック／やり直しどちらも共通の開始処理。矢印の起点（actor
+  // 側の辺の実測点）を1度だけキャッシュし、以降はドラッグ終了まで
+  // 使い回す。実際に動き始めるまで（DRAG_MOVE_THRESHOLD参照）はrender()も
+  // 矢印描画も行わない -- ただのクリックだった場合にそのまま後続の
+  // clickイベントへ委ねるため（handleDragPointerMove/handleDragPointerUp
+  // 参照）。
+  function beginDrag(actor, event, redoSlotIndex, redoOriginalUnitId) {
     const arenaEl = container.querySelector(".battle-freeform-canvas");
     const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
-    const cardEl = arenaEl?.querySelector(`[data-unit-id="${unit.character.id}"]`);
+    const cardEl = arenaEl?.querySelector(`[data-unit-id="${actor.character.id}"]`);
     if (!arenaEl || !overlay || !cardEl) return;
     const arenaRect = arenaEl.getBoundingClientRect();
-    const origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, unit.faction);
-    dragState = { actor: unit, origin, arenaEl, overlay, arenaRect, hoverEl: null };
+    const origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, actor.faction);
+    dragState = {
+      actor, origin, arenaEl, overlay, arenaRect, hoverEl: null, redoSlotIndex, redoOriginalUnitId,
+      startClientX: event.clientX, startClientY: event.clientY, moved: false,
+    };
     event.preventDefault(); // ネイティブのテキスト選択・ドラッグゴースト画像を防ぐ
     document.addEventListener("pointermove", handleDragPointerMove);
     document.addEventListener("pointerup", handleDragPointerUp);
-    renderDragArrow(origin);
   }
 
   // ドラッグ中の矢印そのものを直接DOM操作で描く（既存のcrossArrowElements
@@ -4547,37 +4759,76 @@ export function BattleScene(container, params, api) {
 
   function handleDragPointerMove(event) {
     if (!dragState) return;
-    const { arenaRect } = dragState;
+    if (!dragState.moved) {
+      const dx = event.clientX - dragState.startClientX;
+      const dy = event.clientY - dragState.startClientY;
+      if (Math.hypot(dx, dy) < DRAG_MOVE_THRESHOLD) return; // まだ「クリック」と区別できない
+      dragState.moved = true;
+      if (dragState.redoSlotIndex !== undefined) {
+        // render()はシーン全体を組み直すため、それ以前にキャッシュした
+        // arenaEl/overlayは差し替え後のDOMでは無効（detached）になる --
+        // 直後に取り直してdragStateへ入れ直す。
+        render();
+        const arenaEl = container.querySelector(".battle-freeform-canvas");
+        const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
+        if (!dragState || !arenaEl || !overlay) { dragState = null; return; }
+        dragState.arenaEl = arenaEl;
+        dragState.overlay = overlay;
+        dragState.arenaRect = arenaEl.getBoundingClientRect();
+      }
+    }
+    const { arenaRect, actor, redoSlotIndex, redoOriginalUnitId } = dragState;
     renderDragArrow({ x: event.clientX - arenaRect.left, y: event.clientY - arenaRect.top });
 
-    // ドロップ候補（isClickableAsTarget/自分自身）の真上にいる間だけ、
-    // その枠へ直接クラスを足して見た目のフィードバックを出す（D2の
-    // clickable-target点線ハイライトに、ドラッグ中限定でさらに強調を
-    // 重ねるだけなので、render()側の状態には一切触れない）。
+    // ドロップ候補の真上にいる間だけ、その枠へ直接クラスを足して見た目
+    // のフィードバックを出す（render()側の状態には一切触れない）。
+    // D5：やり直しドラッグ中は候補の意味が「次に選ぶべきスロット」とは
+    // 限らない（途中のスロットをやり直している場合がある）ため、
+    // clickable-targetクラスに頼らずcandidatesForSlotで直接判定する。
     const hoverEl = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit") ?? null;
     if (dragState.hoverEl && dragState.hoverEl !== hoverEl) {
       dragState.hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
     }
     if (hoverEl) {
       const hoverUnitId = hoverEl.getAttribute("data-unit-id");
-      if (hoverUnitId === dragState.actor.character.id) hoverEl.classList.add("battle-unit--drop-cancel");
-      else if (hoverEl.classList.contains("battle-unit--clickable-target")) hoverEl.classList.add("battle-unit--drop-hover");
+      if (redoSlotIndex !== undefined) {
+        if (hoverUnitId === redoOriginalUnitId) hoverEl.classList.add("battle-unit--drop-hover");
+        else {
+          const hoverUnit = [...allyUnits, ...enemyUnits].find((u) => u.character.id === hoverUnitId);
+          if (hoverUnit && candidatesForSlot(actor, redoSlotIndex).includes(hoverUnit)) hoverEl.classList.add("battle-unit--drop-hover");
+        }
+      } else if (hoverUnitId === actor.character.id) {
+        hoverEl.classList.add("battle-unit--drop-cancel");
+      } else if (hoverEl.classList.contains("battle-unit--clickable-target")) {
+        hoverEl.classList.add("battle-unit--drop-hover");
+      }
     }
     dragState.hoverEl = hoverEl;
   }
 
-  // 離した位置の下にあるステータス枠を見て確定する：
+  // 離した位置の下にあるステータス枠を見て確定する。
+  // 新規ピック（redoSlotIndexが無い）：
   // ・行動主体自身の枠＝行動全体をキャンセル（cancelActorAction）
   // ・対象候補の枠＝そのまま既存のクリック確定処理（handlePrepTargetClick
   //   /handleMainTargetClick、内部で改めて候補判定するので二重チェック
   //   不要）に委ねる
   // ・それ以外（枠の外や対象外の枠）＝不発、何もしない（対象選択モード
   //   はそのまま維持され、選び直せる）
+  // やり直し（redoSlotIndexあり）：handleRedoDropに委ねる。
   function handleDragPointerUp(event) {
     if (!dragState) return;
-    const { actor, overlay, hoverEl } = dragState;
     document.removeEventListener("pointermove", handleDragPointerMove);
     document.removeEventListener("pointerup", handleDragPointerUp);
+    if (!dragState.moved) {
+      // 実際には動かなかった＝ただのクリック。ドラッグの確定処理は一切
+      // 行わず、justDraggedも立てない -- そのまま後続のclickイベント
+      // （handleStatusCardClick）に委ねる（例：他人の行動対象になって
+      // いる枠が同時に自分自身の行動選択枠でもある場合、それを普通に
+      // クリックするとポップアップが開く）。
+      dragState = null;
+      return;
+    }
+    const { actor, overlay, hoverEl, redoSlotIndex, redoOriginalUnitId } = dragState;
     const group = overlay.querySelector(".battle-drag-preview");
     if (group) overlay.removeChild(group);
     if (hoverEl) hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
@@ -4586,6 +4837,12 @@ export function BattleScene(container, params, api) {
     setTimeout(() => { justDragged = false; }, 0); // ゴーストclickが来なかった場合の保険
 
     const dropUnitId = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit")?.getAttribute("data-unit-id");
+
+    if (redoSlotIndex !== undefined) {
+      handleRedoDrop(actor, redoSlotIndex, redoOriginalUnitId, dropUnitId);
+      return;
+    }
+
     if (!dropUnitId) return;
     if (dropUnitId === actor.character.id) {
       cancelActorAction(actor);
@@ -4603,6 +4860,46 @@ export function BattleScene(container, params, api) {
     actor.action = null;
     if (phase === "prep" && prepTargetPickingActor === actor) prepTargetPickingActor = null;
     render();
+  }
+
+  // D5：既に確定している対象（絶対スロット番号slotIndex、0＝主対象）を
+  // やり直した結果を確定する。
+  // ・ドラッグ開始元と同じ枠へ戻す＝何も変えない（元の状態を復元）
+  // ・そのスロットで選べる別の候補へドロップ＝そのスロットを差し替える
+  //   （それより後ろのスロットは意味が変わりうるので巻き戻す）
+  // ・それ以外（不発、自分自身の枠を含む）＝そのスロット以降を巻き戻す
+  //   だけ。主対象（slotIndex 0）ごと外れて対象が1つも無くなった場合は
+  //   行動内容（moduleId）ごとやり直しにする（ユーザー指定の挙動）。
+  function handleRedoDrop(actor, slotIndex, originalUnitId, dropUnitId) {
+    if (!actor.action) {
+      render();
+      return;
+    }
+    if (dropUnitId === originalUnitId) {
+      render();
+      return;
+    }
+    const candidates = candidatesForSlot(actor, slotIndex);
+    const dropped = dropUnitId ? [...allyUnits, ...enemyUnits].find((u) => u.character.id === dropUnitId) : null;
+    if (dropped && candidates.includes(dropped)) {
+      if (slotIndex === 0) {
+        actor.action.targetUnit = dropped;
+        actor.action.extraTargets = [];
+      } else {
+        actor.action.extraTargets = [...actor.action.extraTargets.slice(0, slotIndex - 1), dropped];
+      }
+      const module = currentModules()[actor.action.moduleId];
+      fillExtraTargets(actor, actor.action, module, { random: false });
+    } else {
+      truncateConfirmedTargetsAt(actor, slotIndex);
+      if (!actor.action.targetUnit) actor.action = null;
+    }
+    if (phase === "prep") {
+      if (actor.action && !isActionFullyResolved(actor)) prepTargetPickingActor = actor;
+      else if (prepTargetPickingActor === actor) prepTargetPickingActor = null;
+    }
+    render();
+    if (actor.action) maybeAutoExecuteMain(actor);
   }
 
   // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
@@ -4899,10 +5196,16 @@ export function BattleScene(container, params, api) {
   // ユニットは何もしない。
   async function resolvePrepAction(unit) {
     if (!unit.action) return;
-    const { moduleId, targetUnit } = unit.action;
+    const { moduleId, targetUnit, extraTargets } = unit.action;
     const module = PREP_MODULES[moduleId];
     const declaredTargets = declaredTargetsFor(unit, module);
-    activeArrow = declaredTargets ? { actor: unit, targets: declaredTargets } : { actor: unit, target: targetUnit };
+    // D5：複数対象スキルは主対象1つだけでなく、選択済みの追加対象すべて
+    // へ向けた矢印を同時に出す（陣営全体対象スキルのtargets表示を流用）。
+    activeArrow = declaredTargets
+      ? { actor: unit, targets: declaredTargets }
+      : extraTargets.length > 0
+        ? { actor: unit, targets: [targetUnit, ...extraTargets] }
+        : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
@@ -4957,7 +5260,7 @@ export function BattleScene(container, params, api) {
       await resolveDigAround(unit);
       return;
     }
-    await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
+    await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }], [targetUnit], [], buildExtraTargetQueues(unit, module));
   }
 
   // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
@@ -5022,33 +5325,21 @@ export function BattleScene(container, params, api) {
   // "self"：行動主体自身に固定（【陰陽】の最適化、【衛星】の2回目の
   // 鼓舞のような「前のステップの対象とは無関係に自分を対象にする」構成
   // に使う）。
-  // "opposingExcludingUsed"：相手陣営から、このスキル内で既に対象に
-  // なったユニットを除いた中からランダムに1体（【漁火】の2回目の威圧の
-  // ような「もう1体、別の相手を巻き込む」構成に使う）。候補が残って
-  // いなければundefinedを返す（runSteps側で不発として扱う）。
-  function resolveStepTarget(unit, targetUnit, step, usedTargets) {
+  // "opposingExcludingUsed"/"ownExcludingUsed"/"ownExcludingSelfAndUsed"：
+  // D5より前はここでpickRandomしていたが、これらは「もう1体、別の対象を
+  // 巻き込む」複数対象スキルの2人目以降の対象なので、今は選択段階で
+  // プレイヤー（隊員）または選択時点のfillExtraTargets（モンスター、
+  // random:true）が事前に選び終えている。ここではその結果
+  // （extraTargetQueues、選択順に並んだ2つの陣営別キューでextraTargetSlots
+  // Forと同じ辿り方をする）から順番に取り出すだけ。空になっていれば
+  // undefinedを返す（runSteps側で不発として扱う -- chance判定で外れた
+  // 前段のステップぶんの取り違えは起きない。キューは陣営別で、同じ
+  // 陣営の枠同士は元々どれも交換可能な「もう1体」でしかないため）。
+  function resolveStepTarget(unit, targetUnit, step, usedTargets, extraTargetQueues) {
     if (!step.target) return targetUnit;
     if (step.target === "self") return unit;
-    if (step.target === "opposingExcludingUsed") {
-      const candidates = opposingPoolFor(unit).filter((u) => !usedTargets.includes(u));
-      return pickRandom(candidates);
-    }
-    // "ownExcludingUsed"：自陣営から、このスキル内で既に対象になった
-    // ユニットを除いた中からランダムに1体（opposingExcludingUsedの
-    // 自陣営版）。自分自身は既に使われていない限り候補に残る（【処方論】
-    // 【証明】のような「もう1人、別の味方に回復」構成向け -- 自分を
-    // 含めてよい）。
-    if (step.target === "ownExcludingUsed") {
-      const candidates = ownPoolFor(unit).filter((u) => !usedTargets.includes(u));
-      return pickRandom(candidates);
-    }
-    // "ownExcludingSelfAndUsed"：上と同じだが、自分自身は常に除外する
-    // （【通さない！】【守りの原点】のような、警護のように「対象は必ず
-    // 自分以外」を前提とする効果を2回以上使うスキル向け）。
-    if (step.target === "ownExcludingSelfAndUsed") {
-      const candidates = ownPoolFor(unit).filter((u) => !usedTargets.includes(u) && u !== unit);
-      return pickRandom(candidates);
-    }
+    if (step.target === "opposingExcludingUsed") return extraTargetQueues.opposing.shift();
+    if (step.target === "ownExcludingUsed" || step.target === "ownExcludingSelfAndUsed") return extraTargetQueues.own.shift();
     return targetUnit;
   }
 
@@ -5115,7 +5406,13 @@ export function BattleScene(container, params, api) {
   // 【サニーサイドアップ】のrequiresPriorActionIds判定のためだけに使う
   // （resolveMainAction側がunit.lastLeafActionIdsをそのまま渡し、この
   // 関数が中身を書き換える）。省略時は使い捨ての空配列。
-  async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit], leafIds = []) {
+  // extraTargetQueues：D5で選択段階（プレイヤーの手動選択、またはモン
+  // スターのfillExtraTargets random:true）で既に決まっている追加対象を、
+  // 陣営別（opposing/own）に並べた消費用キュー。resolveStepTargetが
+  // opposingExcludingUsed/ownExcludingUsed/ownExcludingSelfAndUsedの
+  // ステップに出会うたびにshift()で1つずつ取り出す。省略時（従来通り
+  // これらのtargetを持たないスキルではそもそも参照されない）は空扱い。
+  async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit], leafIds = [], extraTargetQueues = { opposing: [], own: [] }) {
     let lastResult;
     for (const step of steps) {
       if (step.chance !== undefined) {
@@ -5137,7 +5434,7 @@ export function BattleScene(container, params, api) {
                 : opposingPoolFor(unit);
         for (const t of pool) {
           usedTargets.push(t);
-          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets, leafIds);
+          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets, leafIds, extraTargetQueues);
           else {
             leafIds.push(action.id);
             lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, lastResult));
@@ -5146,7 +5443,7 @@ export function BattleScene(container, params, api) {
         continue;
       }
 
-      const stepTarget = resolveStepTarget(unit, targetUnit, step, usedTargets);
+      const stepTarget = resolveStepTarget(unit, targetUnit, step, usedTargets, extraTargetQueues);
       if (!stepTarget) {
         pushLog(`${unit.displayName}は他に対象がいないため、「${action.label}」は不発に終わった。`, unit.faction);
         render();
@@ -5154,7 +5451,7 @@ export function BattleScene(container, params, api) {
         continue;
       }
       usedTargets.push(stepTarget);
-      if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets, leafIds);
+      if (action.steps) await runSteps(registry, applyLeaf, unit, stepTarget, action.steps, usedTargets, leafIds, extraTargetQueues);
       else {
         leafIds.push(action.id);
         lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step, lastResult));
@@ -5422,10 +5719,16 @@ export function BattleScene(container, params, api) {
   // はカスタム解決）。葉モジュールは実質「自分自身1個だけのsteps」と
   // して扱う。
   async function resolveMainAction(unit) {
-    const { moduleId, targetUnit } = unit.action;
+    const { moduleId, targetUnit, extraTargets } = unit.action;
     const module = MAIN_MODULES[moduleId];
     const declaredTargets = declaredTargetsFor(unit, module);
-    activeArrow = declaredTargets ? { actor: unit, targets: declaredTargets } : { actor: unit, target: targetUnit };
+    // D5：複数対象スキルは主対象1つだけでなく、選択済みの追加対象すべて
+    // へ向けた矢印を同時に出す（陣営全体対象スキルのtargets表示を流用）。
+    activeArrow = declaredTargets
+      ? { actor: unit, targets: declaredTargets }
+      : extraTargets.length > 0
+        ? { actor: unit, targets: [targetUnit, ...extraTargets] }
+        : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
@@ -5492,7 +5795,7 @@ export function BattleScene(container, params, api) {
       return;
     }
 
-    await runSteps(MAIN_MODULES, applyLeafModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }], [targetUnit], unit.lastLeafActionIds);
+    await runSteps(MAIN_MODULES, applyLeafModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }], [targetUnit], unit.lastLeafActionIds, buildExtraTargetQueues(unit, module));
   }
 
   // 継続回復/継続ダメージ/継続割合ダメージを持つ全ユニットについて、
@@ -5618,7 +5921,7 @@ export function BattleScene(container, params, api) {
       // -- 続けて同じユニットにまだ使える行動があるかを再評価するため
       // mainCursorは進めず、whileループの先頭からやり直す。
       autoFillSelection(unit, viableMainModuleIds(unit));
-      if (unit.action && unit.action.targetUnit) {
+      if (unit.action && isActionFullyResolved(unit)) {
         if (await executeUnitAction(unit)) return;
         continue;
       }
@@ -5735,7 +6038,7 @@ export function BattleScene(container, params, api) {
       ]);
     }
     const inactive = executing || !isActingNow(unit) || viableModuleIdsFor(unit).length === 0;
-    const modifier = inactive ? " battle-action-select--disabled" : !(unit.action && unit.action.targetUnit) ? " battle-action-select--pending" : "";
+    const modifier = inactive ? " battle-action-select--disabled" : !isActionFullyResolved(unit) ? " battle-action-select--pending" : "";
     return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: firstName(unit.displayName) }), actionSelectFields(unit)]);
   }
 
@@ -5792,6 +6095,10 @@ export function BattleScene(container, params, api) {
       if (isDraggableActor(unit)) classes.push("battle-unit--actor");
       else if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
       else if (isPickableActor(unit)) classes.push("battle-unit--pickable-actor");
+      // D5：他のどれにも該当しない（今クリックしても何も起きない）枠が、
+      // 実は誰かの既に確定した対象になっている場合は、そこからドラッグ
+      // すれば個別にやり直せることを示す控えめな点線を出す。
+      else if (findRedoableSelection(unit)) classes.push("battle-unit--redoable-target");
     }
     return classes.length ? classes.join(" ") : null;
   }
@@ -5933,6 +6240,38 @@ export function BattleScene(container, params, api) {
         const b = unitEdge(unit);
         if (!a || !b) continue;
         for (const el of loopArrowElements(a, b, unit.faction, false, "guard")) overlay.appendChild(el);
+      }
+    }
+
+    // (3.5) D5：まだ実行していない、選択済みの対象への矢印。行動対象
+    // 選択フェーズ中、既に確定している対象1つ1つに矢印を出しておく
+    // （既に確定した対象をドラッグしてやり直せるようにするための起点
+    // ＝findRedoableSelection参照。Mainフェイズは今の手番ユニットだけが
+    // unit.actionを持つので自然に1人分だけになる）。targetFaction:
+    // "none"（対象候補の選択自体が無いダミー値）と、陣営全体を自動で
+    // 対象に取るスキル（declaredTargetsFor持ち＝プレイヤーが個別に
+    // 選んだものではない）はここでは出さない -- findRedoableSelectionも
+    // これらは対象にしないので、表示と実際にやり直せる範囲を一致させて
+    // いる。activeArrow表示中（実際の実行アニメーション中）とは時間的に
+    // 排他。ドラッグでやり直し中のスロットだけは、一時的にこの固定矢印
+    // を隠す（beginDrag側のrender()呼び出しで、この判定に必要な
+    // dragStateが既に立った状態で1度だけ描き直させている）。
+    if (!activeArrow) {
+      for (const unit of allyUnits) {
+        if (!unit.action?.targetUnit) continue;
+        const module = currentModules()[unit.action.moduleId];
+        if (module.targetFaction === "none" || declaredTargetsFor(unit, module)) continue;
+        const confirmed = confirmedTargetsOf(unit);
+        for (let i = 0; i < confirmed.length; i++) {
+          if (dragState?.actor === unit && dragState.redoSlotIndex === i) continue;
+          const target = confirmed[i];
+          const a = unitEdge(unit);
+          const b = unitEdge(target);
+          if (!a || !b) continue;
+          const elements =
+            unit.faction !== target.faction ? crossArrowElements(a, b, "pending") : loopArrowElements(a, b, unit.faction, unit === target, "pending");
+          for (const el of elements) overlay.appendChild(el);
+        }
       }
     }
 
