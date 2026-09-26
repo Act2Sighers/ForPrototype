@@ -1387,6 +1387,15 @@ body {
   border-color: var(--ember);
 }
 
+/* D1：クリックすると行動ポップアップが開くステータス枠（Prepは行動
+   可能な味方全員、Mainは今の手番ユニットのみ）。対象選択のオレンジ系
+   点線（.battle-unit--clickable-target）とは配色を変え、混同を防ぐ。 */
+.battle-unit--pickable-actor {
+  cursor: pointer;
+  border-style: dashed;
+  border-color: var(--frost);
+}
+
 /* 戦闘不能：枠全体を薄くグレーアウトする。 */
 .battle-unit--down {
   opacity: 0.45;
@@ -1577,4 +1586,69 @@ body {
 
 .battle-action-select__dropdown:disabled {
   opacity: 0.5;
+}
+
+/* D1で行動内容プルダウンを廃止した後、選択済みのスキル名（未選択なら
+   案内文）を読み取り専用で表示する行。実際の選択操作はキャンバス側の
+   ステータス枠クリック→.battle-action-popup（下記）で行う。 */
+.battle-action-select__chosen {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* D1：ステータス枠クリックで開く、選べるスキル一覧のポップアップ。
+   枠の上（bottom:100%）に出す案も検討したが、1行目付近の枠は原点の
+   少し上（CENTER_BLOCK_HEIGHT分）にしか余白が無く、所持スキル数が
+   多いユニットだと上方向にビューポート外まではみ出してクリック不能に
+   なってしまう（実測で確認済み）。キャンバスは下方向へは行がいくらでも
+   続く（＝スクロール領域が既に十分にある）ため、枠の下（top:100%、
+   C2の.battle-unit__popover と同じ側）に出す。同じ位置に重なりうるが、
+   z-indexで前面に出し、かつこちらの上にマウスが乗った時点で
+   .battle-unit:hoverの対象から外れる（このポップアップは.battle-unit
+   の子ではなく兄弟要素のため）ので、実際に触っている間はポップオーバー
+   は隠れる。選択肢が多いユニット向けに、ここ自体にも上限高さと縦
+   スクロールを持たせておく。 */
+.battle-action-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  margin-top: 6px;
+  min-width: 100%;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--panel-line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-raised);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+.battle-action-popup__title {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.battle-action-popup__option {
+  appearance: none;
+  border: 1px solid var(--panel-line-strong);
+  background: var(--panel);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.battle-action-popup__option:hover {
+  border-color: var(--ember);
 }

@@ -348,8 +348,8 @@ Object.assign(PREP_MODULES, {
 });
 
 // モンスタースキル・Prepフェイズ。既存のPrepスキル同様、monsterOnly:true
-// を付けてプレイヤーの行動選択肢（moduleSelectFor）には出さない
-// （isModuleAvailableFor参照）。
+// を付けてプレイヤーの行動選択肢（viableModuleIdsFor経由の行動
+// ポップアップ）には出さない（isModuleAvailableFor参照）。
 Object.assign(PREP_MODULES, {
   excitement: {
     id: "excitement",
@@ -1024,9 +1024,9 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 }
 
 // monsterOnly:true（モンスタースキル）は隊員側の行動選択肢
-// （moduleSelectFor）には出さない -- 隊員がスキルを持つようになるのは
-// 将来の対応で、それまでは体当たり/鳴き声のような明確にモンスター向け
-// の技を人間の隊員が選べてしまうのを防ぐ。
+// （viableModuleIdsFor経由の行動ポップアップ）には出さない -- 隊員が
+// スキルを持つようになるのは将来の対応で、それまでは体当たり/鳴き声
+// のような明確にモンスター向けの技を人間の隊員が選べてしまうのを防ぐ。
 // 属性攻撃(module.attribute持ち)は、行動主体のモンスター自身がその属性を
 // 持っている時しか選べない（隊員はattributeを持たないので常に対象外）。
 // 逆に、属性を持つモンスターは無属性の素の「攻撃」を選べない -- 属性を
@@ -4007,6 +4007,11 @@ export function BattleScene(container, params, api) {
   // （＝次のクリックは「対象を選ぶ主体」の指定として扱う）。
   // handlePrepActorClick/handlePrepTargetClick参照。
   let prepTargetPickingActor = null;
+  // D1：行動内容（スキル）選択ポップアップを、今どのユニットぶん
+  // 開いているか。null＝どれも開いていない。自分の枠をクリックする
+  // ことでこれをトグルする（handlePrepActorClick/handleMainActorClick
+  // 参照）。同時に開けるのは1人分だけ。
+  let actionPopupUnit = null;
   const logLines = []; // { text, kind: "ally" | "enemy" | "phase" }
 
   function pushLog(text, kind = "phase") {
@@ -4218,6 +4223,7 @@ export function BattleScene(container, params, api) {
     }
     for (const unit of enemyUnits) unit.action = isIncapacitated(unit) ? null : pickMonsterAction(unit, "prep");
     prepTargetPickingActor = null;
+    actionPopupUnit = null;
   }
 
   for (const unit of allyUnits) autoFillSelection(unit, viablePrepModuleIds(unit));
@@ -4344,14 +4350,36 @@ export function BattleScene(container, params, api) {
 
   function handleTargetChange(unit, targetUnit) {
     if (unit.action) unit.action.targetUnit = targetUnit;
+    // 対象確定の経路は「候補の枠を直接クリック」（handlePrepTargetClick
+    // が先にprepTargetPickingActorをnullにしてから呼ぶ）だけでなく、
+    // D1のポップアップでスキルを選んだ後に行動対象プルダウンで確定する
+    // 経路もある。後者でprepTargetPickingActorがこのunitを指したまま
+    // 残ると、次に別の隊員の枠をクリックした時、handleStatusCardClickが
+    // 「(既に用済みの)このunitの対象を選ぶモード中」と誤認してしまう
+    // （次の隊員の行動ポップアップが開かなくなる）ため、ここでも
+    // 自分宛てのpickingモードなら解除しておく。
+    if (prepTargetPickingActor === unit) prepTargetPickingActor = null;
     render();
     maybeAutoExecuteMain(unit);
   }
 
-  // ステータス枠を直接クリックした時の行動対象指定。
-  // Prepフェイズは「誰の対象を選ぶか」→「その対象は誰か」の2段階
-  // （交互に行う、混同しない）。Mainフェイズは行動主体が常に1人（今の
-  // 手番のユニット）なので、対象選択の1段階のみ。
+  // D1：行動ポップアップ内でスキルを選んだ時の確定処理。handleModuleChange
+  // 自体はポップアップの有無を知らないので、ここでポップアップを閉じる
+  // 後始末をまとめて行う。Prepで対象が自動確定しなかった場合（候補が
+  // 複数）は、そのまま続けて対象選択モードへ入る（旧来「モジュール
+  // 選択→自分の枠を再クリック」の2手だったものを1手に短縮）。
+  function handlePopupSkillSelect(unit, moduleId) {
+    handleModuleChange(unit, moduleId);
+    actionPopupUnit = null;
+    if (phase === "prep" && unit.action && !unit.action.targetUnit) prepTargetPickingActor = unit;
+    render();
+  }
+
+  // ステータス枠を直接クリックした時の処理。Prepフェイズは「誰の行動
+  // ポップアップを開くか／誰の対象を選ぶか」の2段階（交互に行う、混同
+  // しない）。Mainフェイズは行動主体が常に1人（今の手番のユニット）
+  // なので、その本人の枠クリックは行動ポップアップ、それ以外の枠
+  // クリックは対象選択として扱う。
   function handleStatusCardClick(clickedUnit) {
     if (!isInteractive()) return;
     if (phase === "prep") {
@@ -4359,15 +4387,24 @@ export function BattleScene(container, params, api) {
       else handlePrepActorClick(clickedUnit);
       return;
     }
-    handleMainTargetClick(clickedUnit);
+    if (clickedUnit === mainOrder[mainCursor]) handleMainActorClick(clickedUnit);
+    else handleMainTargetClick(clickedUnit);
   }
 
-  // Prepフェイズ第1段階：隊員のステータス枠をクリックして「この隊員の
-  // 行動対象をこれから選ぶ」と指定する。行動内容が未確定のうちは対象
-  // 候補を計算できないので何もしない。
+  // D1：隊員のステータス枠をクリックして、その隊員の行動ポップアップ
+  // （選べるスキル一覧）を開閉する。同じ枠をもう一度クリックすると
+  // 閉じる（トグル）。今選べる行動が1つも無いユニットは開かない。
   function handlePrepActorClick(unit) {
-    if (unit.faction !== "ally" || isIncapacitated(unit) || !unit.action?.moduleId) return;
-    prepTargetPickingActor = unit;
+    if (unit.faction !== "ally" || isIncapacitated(unit) || viablePrepModuleIds(unit).length === 0) return;
+    actionPopupUnit = actionPopupUnit === unit ? null : unit;
+    render();
+  }
+
+  // D1：Mainフェイズ版のhandlePrepActorClick。今の手番ユニット自身の
+  // 枠をクリックした時だけ呼ばれる（handleStatusCardClick参照）。
+  function handleMainActorClick(unit) {
+    if (viableMainModuleIds(unit).length === 0) return;
+    actionPopupUnit = actionPopupUnit === unit ? null : unit;
     render();
   }
 
@@ -4406,7 +4443,27 @@ export function BattleScene(container, params, api) {
     }
     const actor = mainOrder[mainCursor];
     if (!actor?.action?.moduleId) return false;
-    return candidateUnits(actor, actor.action.moduleId).includes(unit);
+    // 自分自身の枠は「アレンジ」等targetFaction:"any"スキルの候補には
+    // 入りうるが、Mainではクリックすると常に行動ポップアップの開閉
+    // （handleMainActorClick）になる -- 対象確定にはならないので、自分
+    // 自身を対象候補としてクリック可能扱いする点線ハイライトは出さない
+    // （行動対象プルダウンからは引き続き自分自身を選べる）。
+    return unit !== actor && candidateUnits(actor, actor.action.moduleId).includes(unit);
+  }
+
+  // D1：このステータス枠が「今クリックすると行動ポップアップが開くか」
+  // （見た目のハイライト用。実際の判定はhandlePrepActorClick/
+  // handleMainActorClick内でも改めて行う）。対象選択モード中
+  // （prepTargetPickingActorが自分以外を指している間）はクリックしても
+  // ポップアップは開かない（isClickableAsTarget側の判定が優先される）
+  // ので、そちらと同時に真になることは無い。
+  function isPickableActor(unit) {
+    if (!isInteractive()) return false;
+    if (phase === "prep") {
+      if (prepTargetPickingActor) return false;
+      return unit.faction === "ally" && !isIncapacitated(unit) && viablePrepModuleIds(unit).length > 0;
+    }
+    return unit === mainOrder[mainCursor] && viableMainModuleIds(unit).length > 0;
   }
 
   // Prepフェイズは常に「味方①→敵①→味方②→敵②→…」の固定順（この順序
@@ -5362,6 +5419,7 @@ export function BattleScene(container, params, api) {
     mainCursor = 0;
     for (const unit of [...allyUnits, ...enemyUnits]) unit.action = null;
     prepTargetPickingActor = null;
+    actionPopupUnit = null;
     pushPhaseHeader("メインディッシュ！");
   }
 
@@ -5489,25 +5547,6 @@ export function BattleScene(container, params, api) {
     await advanceMainPhase();
   }
 
-  // Prep/Mainどちらも「今選べる行動」（viableModuleIdsFor）だけを表示
-  // する -- 選んでも不発になるだけの選択肢（対象無し、Mainならさらに
-  // PT不足も）は最初から出さない。選べる行動が1つも無ければドロップ
-  // ダウン自体をグレーアウトする。
-  function moduleSelectFor(unit) {
-    const options = viableModuleIdsFor(unit).map((id) => currentModules()[id]);
-    const select = h(
-      "select",
-      {
-        class: "battle-action-select__dropdown",
-        disabled: !isInteractive() || !isActingNow(unit) || options.length === 0,
-        onChange: (e) => handleModuleChange(unit, e.target.value),
-      },
-      [h("option", { value: "", text: "－" }), ...options.map((m) => h("option", { value: m.id, text: m.label }))]
-    );
-    select.value = unit.action?.moduleId ?? "";
-    return select;
-  }
-
   function targetSelectFor(unit) {
     const moduleId = unit.action?.moduleId ?? "";
     const candidates = moduleId ? candidateUnits(unit, moduleId) : [];
@@ -5530,9 +5569,15 @@ export function BattleScene(container, params, api) {
     return select;
   }
 
+  // 行動内容（スキル）の選択自体はD1でステータス枠クリック→行動
+  // ポップアップに移った（moduleSelectFor廃止）。ここには選択済みの
+  // 内容を読み取り専用で表示するだけにする -- 未選択なら、どうすれば
+  // 選べるかの案内文を出す。行動対象のプルダウンは変更無し（D-フェイズ
+  // 後半のドラッグ＆ドロップ化はまだ先の段階）。
   function actionSelectFields(unit) {
+    const module = unit.action?.moduleId ? currentModules()[unit.action.moduleId] : null;
     return h("div", { class: "battle-action-select__fields" }, [
-      h("div", { class: "battle-action-select__row" }, [moduleSelectFor(unit)]),
+      h("p", { class: "battle-action-select__chosen", text: module ? module.label : "（自分の枠をクリックして選択）" }),
       h("div", { class: "battle-action-select__row" }, [targetSelectFor(unit)]),
     ]);
   }
@@ -5605,12 +5650,47 @@ export function BattleScene(container, params, api) {
       // 自身も、矢印表示中の行動主体と同じ見た目でハイライトする。
       if (phase === "prep" && unit === prepTargetPickingActor) classes.push("battle-unit--actor");
       if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
+      else if (isPickableActor(unit)) classes.push("battle-unit--pickable-actor");
     }
     return classes.length ? classes.join(" ") : null;
   }
 
-  // 味方の行動選択列（左端、旧来のプルダウン方式のまま）と、その右側の
-  // 自由配置キャンバス（味方・敵のステータス枠と中央情報を、
+  // D1：行動主体自身の枠をクリックした時に開く、選べるスキル一覧の
+  // ポップアップ（旧来の行動内容プルダウンの置き換え）。ボタンを押すと
+  // handlePopupSkillSelect経由でそのスキルを選択し、ポップアップを
+  // 閉じる。枠の上（bottom:100%）に出す案は、1行目付近の枠だと上の
+  // 余白が少なくビューポート外にはみ出してクリック不能になる実害を
+  // 確認したため、枠の下（top:100%、C2の.battle-unit__popoverと同じ側
+  // -- キャンバスは下方向にはいくらでも続くので余白の心配が無い）に
+  // 出す。CSS側にmax-height+overflow-yを持たせてあるので、選択肢が
+  // 多いユニットでも中でスクロールする（詳細はtheme.cssのコメント
+  // 参照）。ボタンのクリックは親である.battle-unitのonClick
+  // （handleStatusCardClick）まで伝播させない -- 伝播すると同じ
+  // クリックでポップアップの開閉トグルが二重に走ってしまう。
+  function battleActionPopup(unit) {
+    const options = viableModuleIdsFor(unit).map((id) => currentModules()[id]);
+    return h(
+      "div",
+      { class: "battle-action-popup" },
+      [
+        h("p", { class: "battle-action-popup__title", text: "行動を選ぶ" }),
+        ...options.map((m) =>
+          h("button", {
+            class: "battle-action-popup__option",
+            onClick: (e) => {
+              e.stopPropagation();
+              handlePopupSkillSelect(unit, m.id);
+            },
+            text: m.label,
+          })
+        ),
+      ]
+    );
+  }
+
+  // 味方の行動選択列（左端、対象選択プルダウンのみ残存 -- 行動内容の
+  // 選択はD1でステータス枠クリック→行動ポップアップに置き換わった）と、
+  // その右側の自由配置キャンバス（味方・敵のステータス枠と中央情報を、
   // battleLayout.jsが算出した「ハの字」型の座標に絶対配置したもの）の
   // 2つで構成する。キャンバスのピクセルサイズは、全ユニット枠が収まる
   // bounding boxから逆算し、原点(0,0)がキャンバス内のどこに来るかを
@@ -5630,7 +5710,9 @@ export function BattleScene(container, params, api) {
 
     function placedCard(unit, point) {
       const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
-      return h("div", { style }, [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit))]);
+      const children = [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit))];
+      if (actionPopupUnit === unit) children.push(battleActionPopup(unit));
+      return h("div", { style }, children);
     }
 
     const canvas = h(
