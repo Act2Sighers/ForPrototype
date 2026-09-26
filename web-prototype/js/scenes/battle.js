@@ -349,7 +349,7 @@ Object.assign(PREP_MODULES, {
     label: "邪魔",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制",
+    shortNotation: "P/牽制t",
     steps: [{ actionId: "restrain" }],
   },
   staticCling: {
@@ -357,7 +357,7 @@ Object.assign(PREP_MODULES, {
     label: "静電気",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/最適化*",
+    shortNotation: "P/最適化u*",
     steps: [{ actionId: "optimize", each: "own" }],
   },
   elegance: {
@@ -380,17 +380,17 @@ Object.assign(PREP_MODULES, {
     label: "食べ比べ",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/特殊D",
+    shortNotation: "P/{鼓舞1,威圧1,威圧2}t",
     custom: "tasteTest",
   },
   // 【噛み合わせ】：牽制した後、（前ステップの対象とは無関係に）自身を
-  // 対象に最適化を行う -- 構造は既存の陰陽と同一。
+  // 対象に最適化を行う -- 構造は誘導と同一（誘導(1)そのもの）。
   biteMesh: {
     id: "biteMesh",
     label: "噛み合わせ",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制+",
+    shortNotation: "P/誘導t",
     steps: [{ actionId: "restrain" }, { actionId: "optimize", target: "self" }],
   },
   // 【団結】：自身を最適化する強さ(n)が固定値ではなく「自陣営の行動可能
@@ -445,7 +445,7 @@ Object.assign(PREP_MODULES, {
     label: "威嚇",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制2",
+    shortNotation: "P/牽制2t",
     steps: [{ actionId: "restrain", params: { n: 2 } }],
   },
   glare: {
@@ -453,7 +453,7 @@ Object.assign(PREP_MODULES, {
     label: "凝視",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制3",
+    shortNotation: "P/牽制3t",
     steps: [{ actionId: "restrain", params: { n: 3 } }],
   },
   // 【従順】：土台の葉アクション【警護】(guard)をそのまま1ステップ流用
@@ -464,7 +464,7 @@ Object.assign(PREP_MODULES, {
     label: "従順",
     targetFaction: "ownExcludingSelf",
     monsterOnly: true,
-    shortNotation: "P/警護",
+    shortNotation: "P/警護e",
     steps: [{ actionId: "guard" }],
   },
   // 【一途】：警護した後、（前ステップの対象と）同じ対象に鼓舞(1)を行う。
@@ -473,7 +473,7 @@ Object.assign(PREP_MODULES, {
     label: "一途",
     targetFaction: "ownExcludingSelf",
     monsterOnly: true,
-    shortNotation: "P/警護+",
+    shortNotation: "P/警護e+鼓舞c",
     steps: [{ actionId: "guard" }, { actionId: "inspire" }],
   },
   // メレンゲ猫系統の上位個体用スキル。【優雅】(鼓舞(1)自身)の発展形：
@@ -484,7 +484,7 @@ Object.assign(PREP_MODULES, {
     label: "高雅",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/威圧+",
+    shortNotation: "P/威圧t+鼓舞2s",
     steps: [
       { actionId: "intimidate" },
       { actionId: "inspire", params: { n: 2 }, target: "self" },
@@ -495,7 +495,7 @@ Object.assign(PREP_MODULES, {
     label: "閑雅",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/威圧2+",
+    shortNotation: "P/威圧2t+鼓舞3s",
     steps: [
       { actionId: "intimidate", params: { n: 2 } },
       { actionId: "inspire", params: { n: 3 }, target: "self" },
@@ -508,7 +508,7 @@ Object.assign(PREP_MODULES, {
     label: "渋滞",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制2",
+    shortNotation: "P/牽制t(2)",
     steps: [{ actionId: "restrain" }, { actionId: "restrain", target: "opposingExcludingUsed" }],
   },
   gridlock: {
@@ -516,7 +516,7 @@ Object.assign(PREP_MODULES, {
     label: "大渋滞",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/牽制*",
+    shortNotation: "P/牽制t*",
     steps: [{ actionId: "restrain", each: "opposing" }],
   },
   // ユキドケイ系統の上位個体用スキル。【クロックアップ】(最適化(5)自身)
@@ -537,7 +537,7 @@ Object.assign(PREP_MODULES, {
     label: "軍歌",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/最適化3*",
+    shortNotation: "P/最適化3u*",
     steps: [{ actionId: "optimize", each: "own", params: { n: 3 } }],
   },
   // フルーツリー系統の上位個体用スキル。全個体がサイコロ判定持ちという
@@ -551,7 +551,7 @@ Object.assign(PREP_MODULES, {
     label: "摘み食い",
     targetFaction: "ownExcludingSelf",
     monsterOnly: true,
-    shortNotation: "P/特殊D",
+    shortNotation: "P/鼓舞{3,2,1}e+[HP減少]?c",
     custom: "nibble",
   },
   pluck: {
@@ -559,7 +559,7 @@ Object.assign(PREP_MODULES, {
     label: "摘み採り",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/特殊D",
+    shortNotation: "P/威圧{3,2,1}t+[HP減少]?c",
     custom: "pluck",
   },
   // 【あべこべ】：相手陣営全員へ、対象ごとに独立した1D6判定で牽制(1~3)/
@@ -571,7 +571,7 @@ Object.assign(PREP_MODULES, {
     label: "あべこべ",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/特殊D*",
+    shortNotation: "P/{牽制{1,2,3},威圧{1,2,3}}t*",
     custom: "topsyTurvy",
   },
   // チューイング・マシン系統の上位個体用スキル。【噛み合わせ】(牽制(1)
@@ -581,7 +581,7 @@ Object.assign(PREP_MODULES, {
     label: "組み合わせ",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制3+",
+    shortNotation: "P/誘導3t+奪取c",
     steps: [
       { actionId: "restrain", params: { n: 3 } },
       { actionId: "intimidate", params: { n: 1 } },
@@ -594,7 +594,7 @@ Object.assign(PREP_MODULES, {
     label: "編み合わせ",
     targetFaction: "opposing",
     monsterOnly: true,
-    shortNotation: "P/牽制10+",
+    shortNotation: "P/誘導10t+奪取3c",
     steps: [
       { actionId: "restrain", params: { n: 10 } },
       { actionId: "intimidate", params: { n: 3 } },
@@ -609,7 +609,7 @@ Object.assign(PREP_MODULES, {
     label: "火の粉",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/牽制*",
+    shortNotation: "P/牽制t*",
     steps: [{ actionId: "restrain", each: "opposing" }],
   },
   mirage: {
@@ -617,7 +617,7 @@ Object.assign(PREP_MODULES, {
     label: "蜃気楼",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/鼓舞*",
+    shortNotation: "P/鼓舞u*",
     steps: [{ actionId: "inspire", each: "own" }],
   },
   sandThrow: {
@@ -625,7 +625,7 @@ Object.assign(PREP_MODULES, {
     label: "砂かけ",
     targetFaction: "none",
     monsterOnly: true,
-    shortNotation: "P/威圧*",
+    shortNotation: "P/威圧t*",
     steps: [{ actionId: "intimidate", each: "opposing" }],
   },
   // タケニニテイル系統（ボス）の上位個体用スキル。【要塞】(鼓舞(3)自身)
@@ -1388,7 +1388,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃",
+    shortNotation: "M/2/攻撃t",
     steps: [{ actionId: "attack" }],
   },
   cry: {
@@ -1397,7 +1397,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(攻)",
+    shortNotation: "M/1/攻撃∨1t",
     steps: [{ actionId: "weakenAttack" }],
   },
   harden: {
@@ -1406,7 +1406,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "self",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/強化(防)s",
+    shortNotation: "M/1/防御∧1s",
     steps: [{ actionId: "enhanceDefence" }],
   },
   scratch: {
@@ -1415,7 +1415,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/貫通攻撃",
+    shortNotation: "M/2/貫通攻撃t",
     steps: [{ actionId: "pierceAttack" }],
   },
   electrocute: {
@@ -1424,7 +1424,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+",
+    shortNotation: "M/3/攻撃t+スマッシュc+破壊∨2c",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenPower", params: { n: 2 } }],
   },
   discharge: {
@@ -1433,7 +1433,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(破)",
+    shortNotation: "M/1/破壊∨1t",
     steps: [{ actionId: "weakenPower" }],
   },
   // 【甘い果実】：healTarget:trueが、CPU側の対象選択で「候補からランダム
@@ -1447,16 +1447,19 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     monsterOnly: true,
     healTarget: true,
-    shortNotation: "M/2/継続回復2",
+    shortNotation: "M/2/継続回復2wu",
     steps: [{ actionId: "regen", params: { n: 2 } }],
   },
+  // 【酸っぱい果実】：残りHPが最少の相手陣営1体を対象にする（甘い果実と
+  // 同じhealTargetフラグを相手陣営側で使う -- 酸っぱい結実と同じ考え方）。
   sourFruit: {
     id: "sourFruit",
     label: "酸っぱい果実",
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/継続ダメ2",
+    healTarget: true,
+    shortNotation: "M/2/継続ダメ2wt",
     steps: [{ actionId: "dot", params: { n: 2 } }],
   },
   tick: {
@@ -1465,7 +1468,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/攻撃/賢",
+    shortNotation: "M/1/攻撃t/賢/賢",
     steps: [{ actionId: "attack", params: { aStat: "wisdom", dStat: "wisdom" } }],
   },
   charge: {
@@ -1474,7 +1477,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/スマッシュ+",
+    shortNotation: "M/2/スマッシュt+攻撃c",
     steps: [{ actionId: "smash" }, { actionId: "attack" }],
   },
   guard: {
@@ -1492,7 +1495,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/特殊*",
+    shortNotation: "M/3/スマッシュt*",
     steps: [{ actionId: "smash", each: "opposing" }],
   },
   slam: {
@@ -1501,7 +1504,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+",
+    shortNotation: "M/3/攻撃t+スマッシュc",
     steps: [{ actionId: "attack" }, { actionId: "smash" }],
   },
   // 【ラッシュ】：選択した1体に攻撃した後、（1回目とは別の）もう1体の
@@ -1512,7 +1515,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃2",
+    shortNotation: "M/3/攻撃t(2)",
     steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
   },
   // カルメヤ犬系統の上位個体用スキル。
@@ -1523,7 +1526,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃2",
+    shortNotation: "M/2/攻撃t#1",
     steps: [{ actionId: "attack" }, { actionId: "attack" }],
   },
   // 【見回り】：ラッシュと同じ構造（別対象へ2連続攻撃）だがコスト2。
@@ -1533,7 +1536,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃+",
+    shortNotation: "M/2/攻撃t(2)",
     steps: [{ actionId: "attack" }, { actionId: "attack", target: "opposingExcludingUsed" }],
   },
   // 【大回り】：見回りをさらに1体分延長し、計3体に順番に攻撃する。
@@ -1543,41 +1546,41 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃3",
+    shortNotation: "M/2/攻撃t(3)",
     steps: [
       { actionId: "attack" },
       { actionId: "attack", target: "opposingExcludingUsed" },
       { actionId: "attack", target: "opposingExcludingUsed" },
     ],
   },
-  // 【泣き声】：【鳴き声】(弱体化魔法(攻撃力)(1))の強さ違い。
+  // 【泣き声】：【鳴き声】(攻撃力低下(1))の強さ違い。
   whimper: {
     id: "whimper",
     label: "泣き声",
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(攻)2",
+    shortNotation: "M/1/攻撃∨2t",
     steps: [{ actionId: "weakenAttack", params: { n: 2 } }],
   },
-  // 【懐き声】：相手陣営1体に弱体化魔法(防御力)(2)をかける。
+  // 【懐き声】：相手陣営1体に防御力低下(2)をかける。
   fawn: {
     id: "fawn",
     label: "懐き声",
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(防)2",
+    shortNotation: "M/1/防御∨2t",
     steps: [{ actionId: "weakenDefence", params: { n: 2 } }],
   },
-  // 【遠吠え】：自陣営1体に強化魔法(攻撃力)(2)をかける。
+  // 【遠吠え】：自陣営1体に攻撃力上昇(2)をかける。
   howl: {
     id: "howl",
     label: "遠吠え",
     targetFaction: "own",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/強化(攻)2",
+    shortNotation: "M/1/攻撃∧2u",
     steps: [{ actionId: "enhanceAttack", params: { n: 2 } }],
   },
   // メレンゲ猫系統の上位個体用スキル。相手から奪い、自分に与える一貫
@@ -1589,18 +1592,18 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/貫通攻撃2",
+    shortNotation: "M/2/貫通攻撃t(2)",
     steps: [{ actionId: "pierceAttack" }, { actionId: "pierceAttack", target: "opposingExcludingUsed" }],
   },
-  // 【歌い声】/【招き声】：弱体化魔法(攻撃力)をかけた後、自身に強化
-  // 魔法(攻撃力)をかける。
+  // 【歌い声】/【招き声】：攻撃力低下をかけた後、自身に攻撃力上昇を
+  // かける。
   serenade: {
     id: "serenade",
     label: "歌い声",
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(攻)2+",
+    shortNotation: "M/1/攻撃∨2t+攻撃∧1s",
     steps: [
       { actionId: "weakenAttack", params: { n: 2 } },
       { actionId: "enhanceAttack", params: { n: 1 }, target: "self" },
@@ -1612,7 +1615,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/弱体化(攻)3+",
+    shortNotation: "M/2/攻撃∨3t+攻撃∧2s",
     steps: [
       { actionId: "weakenAttack", params: { n: 3 } },
       { actionId: "enhanceAttack", params: { n: 2 }, target: "self" },
@@ -1625,7 +1628,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/スマッシュ",
+    shortNotation: "M/1/スマッシュt",
     steps: [{ actionId: "smash" }],
   },
   // 体幹を判定無しで固定量だけ増減させる土台の葉アクション（スマッシュ/
@@ -1652,7 +1655,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/体幹操作+",
+    shortNotation: "M/1/[体幹-2]t+[体幹+2]s",
     steps: [
       { actionId: "staminaShift", params: { n: -2 } },
       { actionId: "staminaShift", params: { n: 2 }, target: "self" },
@@ -1665,7 +1668,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃+",
+    shortNotation: "M/2/攻撃t+スマッシュc",
     steps: [{ actionId: "attack" }, { actionId: "smash" }],
   },
   headOnCollision: {
@@ -1674,7 +1677,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/攻撃++",
+    shortNotation: "M/2/攻撃t+スマッシュc#1",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }],
   },
   fortify: {
@@ -1683,19 +1686,23 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "ownExcludingSelf",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/強化(防)2+",
+    shortNotation: "M/1/防御∧2es",
     steps: [
       { actionId: "enhanceDefence", params: { n: 2 } },
       { actionId: "enhanceDefence", params: { n: 2 }, target: "self" },
     ],
   },
+  // 【固め連ねる】：自陣営全員に防御力上昇(3)。スプレッドシートの最短
+  // 表記は「M/2/防御∧3u」（末尾の全員マーカー*が抜けている）だが、詳細
+  // 文が明確に「自陣営全員」としているため、他の全員対象スキルと同じ
+  // *付きの表記に揃えている（ユーザーへの確認事項）。
   fortifyAll: {
     id: "fortifyAll",
     label: "固め連ねる",
     targetFaction: "none",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/強化(防)3*",
+    shortNotation: "M/2/防御∧3u*",
     steps: [{ actionId: "enhanceDefence", params: { n: 3 }, each: "own" }],
   },
   // ユキドケイ系統の上位個体用スキル。
@@ -1705,7 +1712,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/スマッシュ*",
+    shortNotation: "M/2/スマッシュt*",
     steps: [{ actionId: "smash", each: "opposing" }],
   },
   // 【カウントダウン】/【カウントアップ】：アラート(タイマー)と同じ
@@ -1717,7 +1724,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/継続ダメ?*",
+    shortNotation: "M/1/継続ダメ?t*",
     steps: [{ actionId: "dot", each: "opposing", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
   },
   countUp: {
@@ -1726,7 +1733,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/継続回復?*",
+    shortNotation: "M/1/継続回復?u*",
     steps: [{ actionId: "regen", each: "own", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 3) }) }],
   },
   // 飴アーミー系統の上位個体用スキル。それぞれの兵科が担う仕事を1つだけ
@@ -1742,18 +1749,18 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+2",
+    shortNotation: "M/3/スマッシュt(2)+攻撃c",
     steps: [{ actionId: "charge" }, { actionId: "charge", target: "opposingExcludingUsed" }],
   },
-  // 【呪詛】：相手陣営1体に弱体化魔法(賢さ)(3)、弱体化魔法(協調性)(3)を
-  // 順にかける（同一対象）。
+  // 【呪詛】：相手陣営1体に賢さ低下(3)、協調性低下(3)を順にかける
+  // （同一対象）。
   curse: {
     id: "curse",
     label: "呪詛",
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/弱体化(賢)3+",
+    shortNotation: "M/3/賢さ∨3t+協調∨3c",
     steps: [
       { actionId: "weakenWisdom", params: { n: 3 } },
       { actionId: "weakenSociality", params: { n: 3 } },
@@ -1766,7 +1773,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/スマッシュ",
+    shortNotation: "M/1/スマッシュt",
     steps: [{ actionId: "smash" }],
   },
   // 【護身】：自身以外の自陣営1体にプロテクトをかけた後、自身にも
@@ -1777,7 +1784,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "ownExcludingSelf",
     cost: 2,
     monsterOnly: true,
-    shortNotation: "M/2/プロテクト+",
+    shortNotation: "M/2/プロテクトes",
     steps: [{ actionId: "protect" }, { actionId: "protect", target: "self" }],
   },
   // 【修復】：残りHPが最も少ない自陣営1体（healTarget、甘い果実と同じ
@@ -1789,7 +1796,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     monsterOnly: true,
     healTarget: true,
-    shortNotation: "M/2/回復2",
+    shortNotation: "M/2/回復wu#1",
     steps: [{ actionId: "heal" }, { actionId: "heal" }],
   },
   // 【補給】：自陣営全員に継続回復(3)を付与する。
@@ -1799,7 +1806,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/継続回復3*",
+    shortNotation: "M/1/継続回復3u*",
     steps: [{ actionId: "regen", each: "own", params: { n: 3 } }],
   },
   // 【司令】：自身以外の自陣営1体を選び、その対象自身の素の能力値の
@@ -1814,7 +1821,7 @@ Object.assign(MAIN_MODULES, {
     effect: "correction",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/特殊",
+    shortNotation: "M/3/[高い能力値を強化]5e",
     apply: (actor, target, params = {}) => {
       const { n = 5 } = params;
       const statKeys = ["attack", "defence", "power", "wisdom", "sociality"];
@@ -1840,7 +1847,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     healTarget: true,
-    shortNotation: "M/1/回復",
+    shortNotation: "M/1/回復wu",
     steps: [{ actionId: "heal" }],
   },
   sourFruition: {
@@ -1850,7 +1857,7 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     healTarget: true,
-    shortNotation: "M/1/攻撃",
+    shortNotation: "M/1/攻撃wt",
     steps: [{ actionId: "attack" }],
   },
   // 【熟れすぎた結末】：相手陣営1体に5能力値すべての弱体化魔法(3)を
@@ -1861,7 +1868,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/弱体化5種3",
+    shortNotation: "M/3/全能力∨3t",
     steps: [
       { actionId: "weakenAttack", params: { n: 3 } },
       { actionId: "weakenDefence", params: { n: 3 } },
@@ -1878,7 +1885,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/継続ダメ6+2",
+    shortNotation: "M/3/継続ダメ6t(3)",
     steps: [
       { actionId: "dot", params: { n: 6 } },
       { actionId: "dot", params: { n: 6 }, target: "opposingExcludingUsed" },
@@ -1895,7 +1902,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃*4",
+    shortNotation: "M/3/攻撃t#3",
     steps: [{ actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }, { actionId: "attack" }],
   },
   // チューイング・マシン系統の上位個体用スキル。【ティック】→【タック】
@@ -1915,8 +1922,8 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     requiresPriorActionIds: ["attack"],
-    shortNotation: "M/1/スマッシュ/賢",
-    steps: [{ actionId: "smash", params: { aStat: "wisdom" } }],
+    shortNotation: "M/1/?スマッシュt/賢/賢",
+    steps: [{ actionId: "smash", params: { aStat: "wisdom", dStat: "wisdom" } }],
   },
   toh: {
     id: "toh",
@@ -1925,10 +1932,10 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     monsterOnly: true,
     requiresPriorActionIds: ["smash"],
-    shortNotation: "M/1/貫通攻撃/賢+",
+    shortNotation: "M/1/?貫通攻撃t#1/賢/賢",
     steps: [
-      { actionId: "pierceAttack", params: { aStat: "wisdom" } },
-      { actionId: "pierceAttack", params: { aStat: "wisdom" } },
+      { actionId: "pierceAttack", params: { aStat: "wisdom", dStat: "wisdom" } },
+      { actionId: "pierceAttack", params: { aStat: "wisdom", dStat: "wisdom" } },
     ],
   },
   // 電気ゼリー系統の上位個体用スキル。【感電】(攻撃+スマッシュ+弱体化魔法
@@ -1939,7 +1946,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+",
+    shortNotation: "M/3/攻撃t+スマッシュc+協調∨2c",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenSociality", params: { n: 2 } }],
   },
   cumulus: {
@@ -1948,7 +1955,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+",
+    shortNotation: "M/3/攻撃t+スマッシュc+防御∨4c",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenDefence", params: { n: 4 } }],
   },
   sandstorm: {
@@ -1957,17 +1964,17 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃+",
+    shortNotation: "M/3/攻撃t+スマッシュc+賢さ∨4c",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "weakenWisdom", params: { n: 4 } }],
   },
-  // 【放電】(弱体化魔法(破壊力)(1))の弱体化対象違い。
+  // 【放電】(破壊力低下(1))の弱体化対象違い。
   residualHeat: {
     id: "residualHeat",
     label: "余熱",
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(協)",
+    shortNotation: "M/1/協調∨1t",
     steps: [{ actionId: "weakenSociality" }],
   },
   cottonCloud: {
@@ -1976,7 +1983,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(防)2",
+    shortNotation: "M/1/防御∨2t",
     steps: [{ actionId: "weakenDefence", params: { n: 2 } }],
   },
   sandDust: {
@@ -1985,7 +1992,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/弱体化(賢)2",
+    shortNotation: "M/1/賢さ∨2t",
     steps: [{ actionId: "weakenWisdom", params: { n: 2 } }],
   },
   // タケニニテイル系統（ボス）の上位個体用スキル。超純粋強化路線 --
@@ -1998,7 +2005,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     monsterOnly: true,
-    shortNotation: "M/3/攻撃++",
+    shortNotation: "M/3/攻撃t+スマッシュc#1",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }],
   },
   grandSlam: {
@@ -2007,7 +2014,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 4,
     monsterOnly: true,
-    shortNotation: "M/4/攻撃+++",
+    shortNotation: "M/4/攻撃t+スマッシュc#2",
     steps: [{ actionId: "attack" }, { actionId: "smash" }, { actionId: "smash" }, { actionId: "smash" }],
   },
   // 【スーパーラッシュ】：ラッシュ(攻撃を対象違いで2回)の対象数を4体に
@@ -2019,7 +2026,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 4,
     monsterOnly: true,
-    shortNotation: "M/4/攻撃4",
+    shortNotation: "M/4/攻撃t(4)",
     steps: [
       { actionId: "attack" },
       { actionId: "attack", target: "opposingExcludingUsed" },
@@ -2039,7 +2046,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: "all",
     monsterOnly: true,
-    shortNotation: "M/全/特殊*",
+    shortNotation: "M/r/攻撃1?(r)",
     custom: "hyperRush",
   },
 });
