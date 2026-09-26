@@ -676,6 +676,16 @@ Object.assign(PREP_MODULES, {
 // スキル自体の制限はCHARACTER_SKILL_LOADOUTS/isModuleAvailableForが
 // 別途行う。
 Object.assign(PREP_MODULES, {
+  // 【簡易適応】：全ての隊員が共通で初期修得しているスキル。最適化を
+  // そのままラップしただけ（既存の【興奮】と同型）。
+  easyAdapt: {
+    id: "easyAdapt",
+    label: "簡易適応",
+    targetFaction: "self",
+    allyOnly: true,
+    shortNotation: "P/最適化s",
+    steps: [{ actionId: "optimize" }],
+  },
   // 【下がって！】：挑発をそのままラップしただけ。
   retreatCall: {
     id: "retreatCall",
@@ -779,6 +789,19 @@ Object.assign(PREP_MODULES, {
       { actionId: "inspire", target: "self", params: { n: 2 } },
     ],
   },
+  // 【エスコート】：自身以外の自陣営1体のIN/PTを、自身の現在値でそのまま
+  // 上書きする。Prepの行動確定タイミング（発生順序）によって結果が
+  // 変わる、初めてのケース -- 単純に「解決時点」の自身の現在値を読んで
+  // 直接代入するだけで表現できる。PTはオブジェクトなので参照を共有し
+  // ないよう複製してから代入する。
+  escort: {
+    id: "escort",
+    label: "エスコート",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/[IN&PT同値化]e",
+    custom: "escort",
+  },
   // 【ハイ・プロット】/【ロー・プロット】：どちらも自身にのみ作用する
   // （targetFaction:"self"のため、各stepのtargetは何も指定しなくても
   // 既にactor自身を指す）。鼓舞・威圧・最適化・牽制のapply()自体は
@@ -824,6 +847,16 @@ Object.assign(PREP_MODULES, {
       { actionId: "restrain", each: "own", params: { n: 3 } },
       { actionId: "inspire", each: "own", params: { n: 1 } },
     ],
+  },
+  // 【デコイ】：隠密をそのまま自身以外の自陣営1体に使わせるだけ
+  // （日陰者のツトメの前半ステップと同じ構造）。
+  decoy: {
+    id: "decoy",
+    label: "デコイ",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    shortNotation: "P/隠密e",
+    steps: [{ actionId: "stealth" }],
   },
 });
 
@@ -913,7 +946,12 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 // 持っている時しか選べない（隊員はattributeを持たないので常に対象外）。
 // 逆に、属性を持つモンスターは無属性の素の「攻撃」を選べない -- 属性を
 // 持つ以上、その攻撃は必ず属性攻撃として現れる、という整理。
-function isModuleAvailableFor(unit, module) {
+// onceThisTurnUsed/onceThisBattleUsed：module.oncePerTurn/oncePerBattleを
+// 持つスキル（最短表記の「!」「!!」）の使用済み判定用。BattleScene内で
+// 生成されるSetをそのまま渡す（呼び出し元でmodule.idを追加する）。
+function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed) {
+  if (module.oncePerTurn && onceThisTurnUsed?.has(module.id)) return false;
+  if (module.oncePerBattle && onceThisBattleUsed?.has(module.id)) return false;
   // 平凡スキル：平凡個体自体がまだ未実装（MONSTER_DATA/CHARACTER_DATAの
   // どちらにも「平凡個体」というdataIdは存在しない）ため、通常の行動
   // 選択肢には常に出さない。データ登録のみが目的で、実際の使用は平凡
@@ -2343,6 +2381,35 @@ Object.assign(MAIN_MODULES, {
     shortNotation: "M/3/攻撃++*2",
     steps: [{ actionId: "attackingArt" }, { actionId: "attackingArt", target: "opposingExcludingUsed" }],
   },
+  // 【弔いの手】：戦闘ごとに1回のみ使用できる。自身に全能力値上昇
+  // （両陣営の戦闘不能者数+3）をかける。既存の全能力値上昇（enhance
+  // AllStats）と同じ5ステップ構成に、動的なn（両陣営の戦闘不能者数を
+  // 都度数え直す関数params）を持たせただけ。カウントはallyUnits/
+  // enemyUnitsの生の配列（戦闘不能者を除外しないpools経由）を使う。
+  mourningHand: {
+    id: "mourningHand",
+    label: "弔いの手",
+    targetFaction: "self",
+    cost: 3,
+    allyOnly: true,
+    oncePerBattle: true,
+    shortNotation: "M/3/!!全能力∧[戦闘不能者数+3]s",
+    steps: CORRECTION_MODULE_DEFS.map(({ enhanceId }) => ({
+      actionId: enhanceId,
+      params: (unit, targetUnit, pools) => ({ n: [...pools.allyUnits, ...pools.enemyUnits].filter(isIncapacitated).length + 3 }),
+    })),
+  },
+  // 【ラフ・ストライク】：C=自身の体幹。C<0（脆弱性）ならその2倍を貫通
+  // 攻撃のボーナス（b、ダイス数）にし、C>=0なら固定でb=2。
+  roughStrike: {
+    id: "roughStrike",
+    label: "ラフ・ストライク",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/貫通攻撃{[脆弱×2],2}t",
+    steps: [{ actionId: "pierceAttack", params: (unit) => ({ b: unit.stamina < 0 ? -2 * unit.stamina : 2 }) }],
+  },
   // 【ハニービート】：相手陣営1体にスマッシュ、攻撃を順に行う（ハニー
   // ビービートの弱化版、成長前の初期修得スキル）。
   honeyBeat: {
@@ -2379,6 +2446,21 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/r/スマッシュ*r+攻撃",
     custom: "honeyBeastBeat",
+  },
+  // 【プレイフルスイング】：スマッシュのnb（数値ボーナス）に、自身と
+  // 対象のIN差の絶対値を使う。IN差0なら通常のボーナス無しスマッシュ
+  // になる。
+  playfulSwing: {
+    id: "playfulSwing",
+    label: "プレイフルスイング",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    shortNotation: "M/2/スマッシュ[IN差]t+攻撃c",
+    steps: [
+      { actionId: "smash", params: (unit, targetUnit) => ({ nb: Math.abs(unit.in - targetUnit.in) }) },
+      { actionId: "attack" },
+    ],
   },
   // 【ビターフィール】：相手陣営1体に継続ダメージ(5)を付与した後、
   // （前ステップの対象とは無関係に）自身に継続ダメージ(2)を付与する。
@@ -2444,7 +2526,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 2,
     allyOnly: true,
-    shortNotation: "M/2/弱体化(攻防)2/協",
+    shortNotation: "M/2/攻撃∨2t+防御∨2c/協",
     steps: [
       { actionId: "weakenAttack", params: { n: 2, aStat: "sociality" } },
       { actionId: "weakenDefence", params: { n: 2, aStat: "sociality" } },
@@ -2463,7 +2545,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 3,
     allyOnly: true,
-    shortNotation: "M/3/弱体化(攻防)4/協",
+    shortNotation: "M/3/攻撃∨4t+防御∨4c/協",
     steps: [
       { actionId: "weakenAttack", params: { n: 4, aStat: "sociality" } },
       { actionId: "weakenDefence", params: { n: 4, aStat: "sociality" } },
@@ -2476,10 +2558,43 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: 4,
     allyOnly: true,
-    shortNotation: "M/4/弱体化(攻防)7/協",
+    shortNotation: "M/4/攻撃∨7t+防御∨7c/協",
     steps: [
       { actionId: "weakenAttack", params: { n: 7, aStat: "sociality" } },
       { actionId: "weakenDefence", params: { n: 7, aStat: "sociality" } },
+    ],
+  },
+  // 【末妹は今日も大忙し】：自陣営1体に協調性上昇(自陣営の人数+2)。
+  // 人数は戦闘不能かどうかを問わない（allyUnits/enemyUnitsの生の配列を
+  // 使う）ため、たとえ部隊が使用者1人だけでも不発にはならない（お姉
+  // ちゃん頑張れ〜系のisSoleSurvivor判定とは対照的）。
+  youngestSisterBusy: {
+    id: "youngestSisterBusy",
+    label: "末妹は今日も大忙し",
+    targetFaction: "self",
+    cost: 1,
+    allyOnly: true,
+    shortNotation: "M/1/協調∧[自陣営人数+2]s",
+    steps: [{ actionId: "enhanceSociality", params: (unit, targetUnit, pools) => ({ n: pools.allyUnits.length + 2 }) }],
+  },
+  // 【こらっ！】：G=自身の協調性-対象の攻撃力（下限1、どちらも補正なし
+  // -- 補正込みだと「弱体化した対象に再度使って更に弱体化する」という
+  // 負のフィードバックループが生まれてしまうため）。攻撃力低下・攻撃力
+  // 上昇の両方に同じGを使う。
+  scold: {
+    id: "scold",
+    label: "こらっ！",
+    targetFaction: "opposing",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/攻撃∨?t+攻撃∧?s",
+    // 2ステップ目はtarget:"self"で対象が自身に変わるため、targetUnit
+    // からは元の相手の攻撃力を読めなくなる -- 代わりに1ステップ目の
+    // 戻り値（lastResult.n、弱体化に実際使ったG）をそのまま再利用する
+    // ことで、同じGを両ステップで一貫して使う。
+    steps: [
+      { actionId: "weakenAttack", params: (unit, targetUnit) => ({ n: Math.max(1, rawStat(unit, "sociality") - rawStat(targetUnit, "attack")) }) },
+      { actionId: "enhanceAttack", target: "self", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult.n }) },
     ],
   },
   // 【フラッシュ】：相手陣営1体に攻撃を行った後、他の相手陣営2体に
@@ -2573,6 +2688,34 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     shortNotation: "M/r/回復r*",
     steps: [{ actionId: "heal", each: "own", params: (unit) => ({ b: unit.lastActionCost - 3 }) }],
+  },
+  // 【救命救急】：既存の蘇生モジュールにボーナスb=5を渡すだけ。
+  lifeSaving: {
+    id: "lifeSaving",
+    label: "救命救急",
+    targetFaction: "ownIncapacitated",
+    cost: 3,
+    allyOnly: true,
+    shortNotation: "M/3/蘇生5u",
+    steps: [{ actionId: "revive", params: { b: 5 } }],
+  },
+  // 【失われた知識】：【危険な教唆】の置き換えとして新設。自陣営1体の
+  // 変調を10減少（下限0）させ、HPを10回復（実効最大HP上限）させる。
+  // 変調の減少とHP回復という2つの効果を1つのleafで行うが、ログには
+  // 既存のpeelHit/ブレンドと同じく主効果（HP）だけを出す。
+  lostKnowledge: {
+    id: "lostKnowledge",
+    label: "失われた知識",
+    targetFaction: "own",
+    effect: "hp",
+    cost: 1,
+    allyOnly: true,
+    shortNotation: "M/1/[変調10減少+HP10回復]u",
+    apply: (actor, target) => {
+      target.character.condition = Math.max(0, (target.character.condition ?? 0) - 10);
+      applyHpHeal(target.character, 10);
+      return { magnitude: 10, label: "回復" };
+    },
   },
 });
 
@@ -3271,13 +3414,13 @@ const MONSTER_SKILL_LOADOUTS = {
 // （今回未実装分）はisModuleAvailableForが制限をかけず、従来通り
 // 全モジュールを自由選択できる。
 const CHARACTER_SKILL_LOADOUTS = {
-  flakeSugar: ["guardAlly", "quickAttack", "firstAid", "guardingHand"],
-  cubeSugar: ["retreatCall", "quickAttack", "firstAid", "attackingHand"],
-  honeyScrew: ["festivalHunch", "quickAttack", "firstAid", "honeyBeat"],
-  chocolatBitterTaste: ["shadowJustice", "quickAttack", "firstAid", "bitterFeel"],
-  lollipopSpiral: ["sisterCheer", "quickAttack", "firstAid", "supportComfort"],
-  flawlessNoColor: ["check", "quickAttack", "firstAid", "flush"],
-  sunlightSaccharum: ["highPlot", "lowPlot", "quickAttack", "firstAid", "prescription"],
+  flakeSugar: ["easyAdapt", "guardAlly", "quickAttack", "firstAid", "guardingHand"],
+  cubeSugar: ["easyAdapt", "retreatCall", "quickAttack", "firstAid", "attackingHand", "mourningHand", "roughStrike"],
+  honeyScrew: ["easyAdapt", "festivalHunch", "quickAttack", "firstAid", "honeyBeat", "playfulSwing"],
+  chocolatBitterTaste: ["easyAdapt", "shadowJustice", "quickAttack", "firstAid", "bitterFeel"],
+  lollipopSpiral: ["easyAdapt", "sisterCheer", "quickAttack", "firstAid", "supportComfort", "youngestSisterBusy", "scold"],
+  flawlessNoColor: ["easyAdapt", "check", "quickAttack", "firstAid", "flush", "escort"],
+  sunlightSaccharum: ["easyAdapt", "highPlot", "lowPlot", "quickAttack", "firstAid", "prescription", "decoy", "lifeSaving", "lostKnowledge"],
 };
 
 // 隊員のレベルアップに伴うスキル成長ツリー（データのみ）。所持スキルが
@@ -3636,6 +3779,13 @@ export function BattleScene(container, params, api) {
   assignDisplayNames([...allyUnits, ...enemyUnits]);
 
   let turn = 1;
+  // 最短表記の「!」（ターンごとに1回のみ使用可）「!!」（戦闘ごとに1回
+  // のみ使用可）を実現する使用済み記録。キーはmodule.id -- 同じidを
+  // 参照するスキルは所持者が誰であっても（同名キャラを複数編成して
+  // いても）自動的に共有される。ターン側は毎ターン開始時にクリア、
+  // 戦闘側は戦闘中ずっと保持する。
+  const onceThisTurnUsed = new Set();
+  const onceThisBattleUsed = new Set();
   let phase = "prep"; // "prep" | "main"
   let executing = false; // true while resolving an action / auto-advancing (blocks input)
   let activeArrow = null; // { actor, target } | { actor, targets: [] } | null（後者は陣営全体を対象に取るスキル用）
@@ -3751,7 +3901,7 @@ export function BattleScene(container, params, api) {
 
   function randomEnemyAction(unit) {
     const modules = currentModules();
-    const viableModuleIds = Object.keys(modules).filter((id) => isModuleAvailableFor(unit, modules[id]) && candidateUnits(unit, id).length > 0);
+    const viableModuleIds = Object.keys(modules).filter((id) => isModuleAvailableFor(unit, modules[id], onceThisTurnUsed, onceThisBattleUsed) && candidateUnits(unit, id).length > 0);
     const moduleId = pickRandom(viableModuleIds);
     const targetUnit = pickRandom(candidateUnits(unit, moduleId));
     return { moduleId, targetUnit };
@@ -3879,7 +4029,7 @@ export function BattleScene(container, params, api) {
   function viablePrepModuleIds(unit) {
     return Object.keys(PREP_MODULES).filter((id) => {
       const module = PREP_MODULES[id];
-      if (!isModuleAvailableFor(unit, module)) return false;
+      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed)) return false;
       return candidateUnits(unit, id).length > 0;
     });
   }
@@ -3914,7 +4064,7 @@ export function BattleScene(container, params, api) {
   function viableMainModuleIds(unit) {
     return Object.keys(MAIN_MODULES).filter((id) => {
       const module = MAIN_MODULES[id];
-      if (!isModuleAvailableFor(unit, module)) return false;
+      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed)) return false;
       if (!isAffordable(unit, module)) return false;
       return candidateUnits(unit, id).length > 0;
     });
@@ -4255,6 +4405,21 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【エスコート】専用の解決関数：対象のIN/PTを、解決時点の自身の現在値
+  // でそのまま上書きする。IN/PTどちらも既存のstatSnapshotText/ログ書式
+  // をそのまま流用する（PTはオブジェクトなので複製してから代入し、
+  // 参照を共有しないようにする）。
+  async function resolveEscort(unit, targetUnit) {
+    const inBefore = statSnapshotText(targetUnit, "in");
+    targetUnit.in = unit.in;
+    pushLog(`${targetUnit.displayName}のIN：${inBefore} → ${statSnapshotText(targetUnit, "in")}`, unit.faction);
+    const ptBefore = statSnapshotText(targetUnit, "pt");
+    targetUnit.pt = { current: unit.pt.current, max: unit.pt.max };
+    pushLog(`${targetUnit.displayName}のPT：${ptBefore} → ${statSnapshotText(targetUnit, "pt")}`, unit.faction);
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
   // Prepフェイズの1ユニット分。葉モジュール・複合スキルのどちらも同じ
   // 入口を通る：宣言（矢印表示）→ウェイト→変調加算→steps実行。Prep
   // フェイズのスキルはコストを要さないため、Mainフェイズと違いPT確認は
@@ -4297,6 +4462,10 @@ export function BattleScene(container, params, api) {
     }
     if (module.custom === "sisterCheerUpgrade") {
       await resolveSisterCheer(unit, 2);
+      return;
+    }
+    if (module.custom === "escort") {
+      await resolveEscort(unit, targetUnit);
       return;
     }
     await runSteps(PREP_MODULES, applyLeafPrepModule, unit, targetUnit, module.steps ?? [{ actionId: module.id }]);
@@ -4426,8 +4595,12 @@ export function BattleScene(container, params, api) {
   // 省略時は{}（各モジュールのapply側の既定値がそのまま使われる）。
   function resolveStepParams(unit, targetUnit, step, lastResult) {
     if (!step.params) return {};
+    // allyUnits/enemyUnits：ownPoolFor/opposingPoolForと違い戦闘不能者も
+    // 含めた生の配列（【末妹は今日も大忙し】の自陣営人数、【弔いの手】の
+    // 両陣営の戦闘不能者数のように、生死を問わない人数カウントが必要な
+    // スキル用）。
     return typeof step.params === "function"
-      ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor, turn }, lastResult)
+      ? step.params(unit, targetUnit, { ownPoolFor, opposingPoolFor, turn, allyUnits, enemyUnits }, lastResult)
       : step.params;
   }
 
@@ -4760,6 +4933,10 @@ export function BattleScene(container, params, api) {
     // 素直な結果になる）。実際のsteps実行がある場合のみ、下のrunSteps
     // 呼び出しがこの配列に葉アクションのidを積んでいく。
     unit.lastLeafActionIds = [];
+    // 「!」「!!」持ちスキルの使用済み記録も、同じタイミング（コスト
+    // 支払い完了＝実際に使った）で行う。
+    if (module.oncePerTurn) onceThisTurnUsed.add(module.id);
+    if (module.oncePerBattle) onceThisBattleUsed.add(module.id);
 
     // 蘇生は戦闘不能のユニットを対象にすることが前提の効果なので、
     // 「対象が戦闘不能なら不発」という下の汎用ガードより先に判定する。
@@ -4937,6 +5114,7 @@ export function BattleScene(container, params, api) {
     // 変調：毎ターン終了時+1（全味方、戦闘不能かどうかは問わない）。
     for (const unit of allyUnits) increaseCondition(unit.character, 1);
     turn += 1;
+    onceThisTurnUsed.clear();
     phase = "prep";
     resetForNewPrepPhase();
     executing = false;
