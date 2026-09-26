@@ -3842,6 +3842,18 @@ function firstName(displayName) {
   return (sepIndex === -1 ? base : base.slice(0, sepIndex)) + suffix;
 }
 
+// 属性の「無し」を表す明示的な値。character.attributeが未設定
+// （隊員や、属性を持たないモンスター）の場合も、単なるundefinedとして
+// 扱うのではなく、内部的には常にこのNO_ATTRIBUTEとして判断する
+// （表示側はこれをただ表示しないだけ、というだけで、判定自体は明示的
+// な値との比較で行う）。
+const NO_ATTRIBUTE = "none";
+
+// characterの属性を常に決定的な値で返す（未設定ならNO_ATTRIBUTE）。
+function unitAttribute(character) {
+  return character.attribute ?? NO_ATTRIBUTE;
+}
+
 // ステータス枠の表示項目は「名前・レベル・属性・HPゲージ・PT」のみに
 // 絞ってある（ユーザー指示）。変調/体幹/能力値/IN/戦闘不能バッジなど
 // それ以外の情報は、この枠自体には出さない（今後の段階でマウスオーバー
@@ -3849,11 +3861,13 @@ function firstName(displayName) {
 // staminaSpan/conditionBadgeはそちらで再利用するため、関数自体は削除
 // せず残してある）。戦闘不能の判別は、この枠に別途重ねる
 // .battle-unit--down（グレーアウト、statusCardClass参照）のみで行う。
-// 属性は隊員には無く一部モンスターだけが持つため、無ければ表示しない。
+// 属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）の場合は、
+// 「属性：なし」等とは書かず、属性欄自体を表示しない。
 function battleUnitCard(unit, extraClass, onClick) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const character = unit.character;
-  const attributeLabel = character.attribute ? COATING_ATTRIBUTE_LABELS[character.attribute] : null;
+  const attribute = unitAttribute(character);
+  const attributeLabel = attribute === NO_ATTRIBUTE ? null : COATING_ATTRIBUTE_LABELS[attribute];
   return h("div", { class: classes, "data-unit-id": character.id, onClick }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
