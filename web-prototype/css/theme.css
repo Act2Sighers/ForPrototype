@@ -1382,6 +1382,20 @@ body {
   font-weight: 700;
 }
 
+.battle-unit__level {
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* 属性：一部モンスターだけが持つため、値が無い時は要素自体を出さない
+   （battleUnitCard参照）。 */
+.battle-unit__attribute {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
 /* 体幹: 0基準の正負整数。正は「装甲」で防御力と同じ青、負は「脆弱性」
    で破壊力と同じ黄色、0は無色のまま。 */
 .battle-unit__stamina {

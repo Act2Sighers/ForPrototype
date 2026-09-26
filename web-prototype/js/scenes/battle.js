@@ -3823,12 +3823,12 @@ function battleHpGauge(unit) {
   ]);
 }
 
-// 味方・敵どちらのステータス枠もこの1つを共有する。IN/PTは戦闘用ラッパ
-// (unit) から、HP/能力値は隊員本体(unit.character)から読む。
+// 味方・敵どちらのステータス枠もこの1つを共有する。PTは戦闘用ラッパ
+// (unit) から、レベル/属性/HPは隊員本体(unit.character)から読む。
 // extraClass: 矢印表示中の行動主体/行動対象、または行動対象選択中の
-// クリック可能表示を示す追加クラス、無い時はnull。onClickはワイド
-// モードでのステータス枠クリックによる行動対象指定用。data-unit-id は
-// 矢印オーバーレイがDOM実測で枠を探すためのキー。
+// クリック可能表示を示す追加クラス、無い時はnull。onClickはステータス
+// 枠クリックによる行動対象指定用。data-unit-id は矢印オーバーレイが
+// DOM実測で枠を探すためのキー。
 // 横幅対策：ステータス枠・行動選択枠の表示名だけファーストネームに
 // 短縮する（ログ本文のunit.displayNameはフルネームのまま変えない）。
 // 同種モンスターが複数いる時の判別用サフィックス「 (2)」（末尾の半角
@@ -3842,23 +3842,28 @@ function firstName(displayName) {
   return (sepIndex === -1 ? base : base.slice(0, sepIndex)) + suffix;
 }
 
+// ステータス枠の表示項目は「名前・レベル・属性・HPゲージ・PT」のみに
+// 絞ってある（ユーザー指示）。変調/体幹/能力値/IN/戦闘不能バッジなど
+// それ以外の情報は、この枠自体には出さない（今後の段階でマウスオーバー
+// ポップアップやアイコン表示として別途出す想定 -- battleStatsRow/
+// staminaSpan/conditionBadgeはそちらで再利用するため、関数自体は削除
+// せず残してある）。戦闘不能の判別は、この枠に別途重ねる
+// .battle-unit--down（グレーアウト、statusCardClass参照）のみで行う。
+// 属性は隊員には無く一部モンスターだけが持つため、無ければ表示しない。
 function battleUnitCard(unit, extraClass, onClick) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
-  const headRight = isIncapacitated(unit)
-    ? h("span", { class: "battle-unit__down-badge", text: "戦闘不能" })
-    : unit.faction === "ally"
-      ? conditionBadge(unit)
-      : null;
-  return h("div", { class: classes, "data-unit-id": unit.character.id, onClick }, [
-    h("div", { class: "battle-unit__head" }, [h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }), headRight]),
+  const character = unit.character;
+  const attributeLabel = character.attribute ? COATING_ATTRIBUTE_LABELS[character.attribute] : null;
+  return h("div", { class: classes, "data-unit-id": character.id, onClick }, [
+    h("div", { class: "battle-unit__head" }, [
+      h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
+      h("span", { class: "battle-unit__level", text: `Lv.${character.level}` }),
+    ]),
+    attributeLabel ? h("p", { class: "battle-unit__attribute", text: `属性: ${attributeLabel}` }) : null,
     battleHpGauge(unit),
-    battleStatsRow(unit),
-    h("div", { class: "battle-unit__footer" }, [
-      staminaSpan(unit.stamina),
-      h("div", { class: "battle-unit__pt" }, [
-        h("span", { text: `PT: ${unit.pt.current} / ${unit.pt.max}` }),
-        ptLamp(unit.pt.current, unit.pt.max),
-      ]),
+    h("div", { class: "battle-unit__pt" }, [
+      h("span", { text: `PT: ${unit.pt.current} / ${unit.pt.max}` }),
+      ptLamp(unit.pt.current, unit.pt.max),
     ]),
   ]);
 }
