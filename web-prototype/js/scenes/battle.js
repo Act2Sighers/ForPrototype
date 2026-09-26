@@ -5007,10 +5007,11 @@ export function BattleScene(container, params, api) {
   }
 
   // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
-  // へ適用し、効果種別ごとの結果ログを1行積む。Prep版のapplyLeafModule
-  // に相当（Mainと違いPTコスト・戦闘不能の判定はPrepフェイズには存在
-  // しないため、resolvePrepAction側にもここにも無い）。
-  async function applyLeafPrepModule(unit, targetUnit, module, params = {}) {
+  // へ適用し、効果種別ごとの結果ログを1行積む、計算部分のみの同期処理。
+  // render()/sleepは呼び出し側の責務（E2：同一効果を複数対象へ同時適用
+  // する際、対象ごとに個別のrender()/sleepを挟まず、まとめて1回だけ
+  // 演出するためにapplyLeafPrepModuleから分離した）。
+  function computeLeafPrepEffect(unit, targetUnit, module, params = {}) {
     if (module.statusLabel) {
       const result = module.apply(unit, targetUnit, allyUnits, enemyUnits);
       pushLog(
@@ -5025,6 +5026,13 @@ export function BattleScene(container, params, api) {
       const after = statSnapshotText(targetUnit, module.stat);
       pushLog(`${targetUnit.displayName}の${module.stat === "in" ? "IN" : "PT"}：${before} → ${after}`, unit.faction);
     }
+  }
+
+  // Prep版のapplyLeafModuleに相当（Mainと違いPTコスト・戦闘不能の判定は
+  // Prepフェイズには存在しないため、resolvePrepAction側にもここにも
+  // 無い）。単体対象向け：計算＋render()＋sleepまでを1回で行う。
+  async function applyLeafPrepModule(unit, targetUnit, module, params = {}) {
+    computeLeafPrepEffect(unit, targetUnit, module, params);
     render();
     await sleep(ACTION_DELAY_MS);
   }
@@ -5236,15 +5244,16 @@ export function BattleScene(container, params, api) {
   }
 
   // 1つの葉モジュール（apply()を持つ、これ以上分解されない効果）を対象
-  // へ適用し、効果種別ごとの結果ログを1行積む。戦闘不能/蘇生の判定は
-  // 呼び出し側（resolveMainAction）で行動全体につき1回だけ済ませてある
-  // 前提 -- 複合スキルの途中のステップでも改めてはチェックしない。
+  // へ適用し、効果種別ごとの結果ログを1行積む、計算部分のみの同期処理。
+  // 戦闘不能/蘇生の判定は呼び出し側（resolveMainAction）で行動全体に
+  // つき1回だけ済ませてある前提 -- 複合スキルの途中のステップでも改めて
+  // はチェックしない。render()/sleepは呼び出し側の責務（E2：同一効果を
+  // 複数対象へ同時適用する際、対象ごとに個別のrender()/sleepを挟まず、
+  // まとめて1回だけ演出するためにapplyLeafModuleから分離した）。
   // 戻り値：このleafのapply()結果をそのまま返す（【エコロジー】のような
   // 「直前のステップの結果を次のステップのparamsが参照する」構成の
-  // ためのフック -- runSteps側でlastResultとして次のstep.paramsに渡す。
-  // 従来この関数はvoidだったが、呼び出し側は戻り値の有無を気にしない
-  // ので影響は無い）。
-  async function applyLeafModule(unit, targetUnit, module, params = {}) {
+  // ためのフック -- runSteps側でlastResultとして次のstep.paramsに渡す）。
+  function computeLeafEffect(unit, targetUnit, module, params = {}) {
     let result;
     if (module.effect === "revive") {
       result = module.apply(unit, targetUnit);
@@ -5287,9 +5296,30 @@ export function BattleScene(container, params, api) {
       // なっていれば「今まさに」なったということ）。
       if (isIncapacitated(targetUnit)) rippleIncapacitationCondition(targetUnit);
     }
+    return result;
+  }
+
+  // 単体対象向け：計算＋render()＋sleepまでを1回で行う（従来通りの
+  // 呼び出し感覚を保つラッパー）。
+  async function applyLeafModule(unit, targetUnit, module, params = {}) {
+    const result = computeLeafEffect(unit, targetUnit, module, params);
     render();
     await sleep(ACTION_DELAY_MS);
     return result;
+  }
+
+  // E2：同一のleafアクションを複数の対象へ同時に適用する（対象ごとに
+  // 個別のrender()/sleepを挟まず、全員分の計算とログ積みを終えてから
+  // まとめて1回だけrender()+sleepする）。entriesが空なら何もしない
+  // （このスキルの現在のステップ束で誰も対象にならなかった場合）。
+  // computeLeafはcomputeLeafPrepEffect/computeLeafEffectのどちらか
+  // （呼び出し元のレジストリに対応するもの、runSteps側で解決する）。
+  async function applyLeafBatch(computeLeaf, entries) {
+    if (entries.length === 0) return [];
+    const results = entries.map(({ unit, target, module, params }) => computeLeaf(unit, target, module, params));
+    render();
+    await sleep(ACTION_DELAY_MS);
+    return results;
   }
 
   // step.target省略時の既定（スキル自身が解決したtargetUnitをそのまま
@@ -5384,34 +5414,124 @@ export function BattleScene(container, params, api) {
   // opposingExcludingUsed/ownExcludingUsed/ownExcludingSelfAndUsedの
   // ステップに出会うたびにshift()で1つずつ取り出す。省略時（従来通り
   // これらのtargetを持たないスキルではそもそも参照されない）は空扱い。
+  // E2：対象へ実際に効果を及ぼす前段（属性攻撃への差し替え対象かどうか）
+  // をここで判定する。属性攻撃（攻撃本体に続けて状態異常付与が個別に
+  // 挟まる特殊構成）は同時演出の対象から外し、これまで通り1体ずつ
+  // 処理する -- applyLeafWithAttributeSwap参照。
+  function isAttributeAttackStep(registry, action, unit) {
+    return registry === MAIN_MODULES && action.id === "attack" && !!unit.character.attribute;
+  }
+
+  function poolForEach(unit, each) {
+    if (each === "own") return ownPoolFor(unit);
+    if (each === "ownExcludingSelf") return ownPoolFor(unit).filter((u) => u !== unit);
+    // "ownAll"：祈りの手専用。ownPoolFor（戦闘不能者を除外）とは別に、
+    // 戦闘不能な隊員も含めた自陣営全員を対象にする。
+    if (each === "ownAll") return unit.faction === "ally" ? allyUnits : enemyUnits;
+    return opposingPoolFor(unit);
+  }
+
   async function runSteps(registry, applyLeaf, unit, targetUnit, steps, usedTargets = [targetUnit], leafIds = [], extraTargetQueues = { opposing: [], own: [] }) {
+    const computeLeaf = applyLeaf === applyLeafModule ? computeLeafEffect : computeLeafPrepEffect;
     let lastResult;
-    for (const step of steps) {
+    let i = 0;
+    while (i < steps.length) {
+      const step = steps[i];
       if (step.chance !== undefined) {
         const chance = typeof step.chance === "function" ? step.chance(unit, targetUnit) : step.chance;
-        if (Math.random() >= chance) continue;
+        if (Math.random() >= chance) { i++; continue; }
       }
       const action = registry[step.actionId];
 
       if (step.each) {
-        const pool =
-          step.each === "own"
-            ? ownPoolFor(unit)
-            : step.each === "ownExcludingSelf"
-              ? ownPoolFor(unit).filter((u) => u !== unit)
-              // "ownAll"：祈りの手専用。ownPoolFor（戦闘不能者を除外）とは
-              // 別に、戦闘不能な隊員も含めた自陣営全員を対象にする。
-              : step.each === "ownAll"
-                ? (unit.faction === "ally" ? allyUnits : enemyUnits)
-                : opposingPoolFor(unit);
-        for (const t of pool) {
-          usedTargets.push(t);
-          if (action.steps) await runSteps(registry, applyLeaf, unit, t, action.steps, usedTargets, leafIds, extraTargetQueues);
-          else {
-            leafIds.push(action.id);
-            lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, lastResult));
+        const pool = poolForEach(unit, step.each);
+        usedTargets.push(...pool);
+        if (action.steps) {
+          // E2：合成アクション（例：すっごく大きい声のloudVoiceCombo）は
+          // 内側のstepごとに対象プール全員へ同時適用してから次のstepへ
+          // 進む -- 効果の種類が変わるたびに区切り、同じ効果は同時に
+          // 演出する。
+          for (const innerStep of action.steps) {
+            const innerAction = registry[innerStep.actionId];
+            if (innerAction.steps) {
+              // 現状のスキルデータには存在しない2段ネストのケース。
+              // 安全側に倒し、これまで通り1体ずつ処理する。
+              for (const t of pool) await runSteps(registry, applyLeaf, unit, t, innerAction.steps, usedTargets, leafIds, extraTargetQueues);
+              continue;
+            }
+            const entries = [];
+            for (const t of pool) {
+              if (innerStep.chance !== undefined) {
+                const c = typeof innerStep.chance === "function" ? innerStep.chance(unit, t) : innerStep.chance;
+                if (Math.random() >= c) continue;
+              }
+              leafIds.push(innerAction.id);
+              entries.push({ unit, target: t, module: innerAction, params: resolveStepParams(unit, t, innerStep, undefined) });
+            }
+            await applyLeafBatch(computeLeaf, entries);
           }
+        } else if (isAttributeAttackStep(registry, action, unit)) {
+          for (const t of pool) {
+            leafIds.push(action.id);
+            await applyLeafWithAttributeSwap(registry, applyLeaf, unit, t, action, resolveStepParams(unit, t, step, undefined));
+          }
+        } else {
+          const entries = pool.map((t) => {
+            leafIds.push(action.id);
+            return { unit, target: t, module: action, params: resolveStepParams(unit, t, step, undefined) };
+          });
+          await applyLeafBatch(computeLeaf, entries);
         }
+        i++;
+        continue;
+      }
+
+      // E2：連続する同一actionId・非each・葉アクションのstepは「同一効果
+      // を複数対象へ」とみなし、対象をまとめて解決してから同時に演出する
+      // （例：漁火/衛星のような、主対象＋追加対象へ同じ効果をかけるD5の
+      // 複数対象スキル、複数の相手に同じ攻撃を当てる連撃スキルなど）。
+      // 合成アクション・属性攻撃への差し替え対象はこの一括演出の対象外
+      // （下の単発処理でこれまで通り1体ずつ扱う）。
+      if (!action.steps && !isAttributeAttackStep(registry, action, unit)) {
+        let j = i;
+        let isFirstInRun = true;
+        const entries = [];
+        while (j < steps.length && steps[j].actionId === step.actionId && !steps[j].each) {
+          const runStep = steps[j];
+          if (runStep.chance !== undefined) {
+            const chance = typeof runStep.chance === "function" ? runStep.chance(unit, targetUnit) : runStep.chance;
+            if (Math.random() >= chance) { j++; continue; }
+          }
+          const stepTarget = resolveStepTarget(unit, targetUnit, runStep, usedTargets, extraTargetQueues);
+          if (!stepTarget) {
+            pushLog(`${unit.displayName}は他に対象がいないため、「${action.label}」は不発に終わった。`, unit.faction);
+            render();
+            await sleep(ACTION_DELAY_MS);
+            j++;
+            continue;
+          }
+          usedTargets.push(stepTarget);
+          leafIds.push(action.id);
+          // このstepの直前（別actionIdの先行step）から引き継いだlastResult
+          // を参照できるのは、束ねた対象群の中でも最初の1件のみとする
+          // （【こらっ！】のような、直前stepの結果を参照するケースを
+          // 保つため）。同じ束の中の2件目以降は元々同時対象なので
+          // lastResultの受け渡し自体が意味を持たない（現状そのような
+          // スキルは無い）。
+          entries.push({ unit, target: stepTarget, module: action, params: resolveStepParams(unit, stepTarget, runStep, isFirstInRun ? lastResult : undefined) });
+          isFirstInRun = false;
+          j++;
+        }
+        const batchResults = await applyLeafBatch(computeLeaf, entries);
+        // 元の1体ずつ処理では、対象が見つかったstepのたびにlastResultを
+        // 上書きしていた（不発のstepは触れない）ので、束ねた後もその
+        // 挙動に合わせ、成功した中の最後の結果を採用する（【こらっ！】
+        // のような、別actionIdの後続stepがlastResultを参照する構成が
+        // 壊れないようにするため -- 束ねた対象が複数でも、直後の非束ね
+        // stepが参照できるのは1つの値のみなので、最後の対象の結果を
+        // 代表として使う）。
+        if (batchResults.length > 0) lastResult = batchResults[batchResults.length - 1];
+        i = j;
         continue;
       }
 
@@ -5420,6 +5540,7 @@ export function BattleScene(container, params, api) {
         pushLog(`${unit.displayName}は他に対象がいないため、「${action.label}」は不発に終わった。`, unit.faction);
         render();
         await sleep(ACTION_DELAY_MS);
+        i++;
         continue;
       }
       usedTargets.push(stepTarget);
@@ -5428,6 +5549,7 @@ export function BattleScene(container, params, api) {
         leafIds.push(action.id);
         lastResult = await applyLeafWithAttributeSwap(registry, applyLeaf, unit, stepTarget, action, resolveStepParams(unit, stepTarget, step, lastResult));
       }
+      i++;
     }
   }
 
@@ -6292,21 +6414,53 @@ export function BattleScene(container, params, api) {
   // render()呼び出しで巻き戻されてしまう。updateArrowOverlay()と同じく
   // render()の末尾から毎回呼ぶことで、その行動が解決し終わるまで
   // 呼ばれるたびに正しい位置へ再スクロールし直され、最終的に安定する。
+  // E2追記：主体・全対象のbounding boxが表示領域そのものより大きく、
+  // 中央寄せしてもどちらかの端が必ず見切れてしまう場合は、.battle-
+  // freeform-canvas全体をtransform: scale()で縮小し、全員が収まる
+  // ようにしてから中央寄せする。等倍のままでも収まる（大多数のケース）
+  // 場合は縮小しない。
+  // 倍率適用後の中央寄せ計算は、transform適用後に改めてDOM実測し直す
+  // のではなく、等倍時の実測値から解析的に算出する -- transformに
+  // トランジションを付けている（滑らかにズームさせるため）と、
+  // style.transformを書き換えた直後のgetBoundingClientRect()はブラウザが
+  // まだ遷移を開始していない＝旧い（等倍の）値をそのまま返してしまい、
+  // 縮小前の位置を基準にスクロールしてしまう（実際にこの実装でハマった
+  // 不具合）。transform: scale(s)はtransform-origin（既定で要素自身の
+  // 中心）を基準に効くアフィン変換なので、原点(originX, originY)さえ
+  // わかれば「等倍時の点(x, y)がscale(s)適用後にどこへ移るか」は
+  // origin + (x - origin) * sで機械的に計算でき、実測し直す必要が無い。
+  const ZOOM_FIT_MARGIN = 32;
+  const ZOOM_FIT_MIN_SCALE = 0.4;
   function scrollArenaToCenterOn(units) {
     const scrollEl = container.querySelector(".battle-arena-scroll");
-    if (!scrollEl) return;
-    const rects = units
-      .map((u) => container.querySelector(`[data-unit-id="${u.character.id}"]`))
-      .filter(Boolean)
-      .map((el) => el.getBoundingClientRect());
-    if (!rects.length) return;
-    const minX = Math.min(...rects.map((r) => r.left));
-    const maxX = Math.max(...rects.map((r) => r.right));
-    const minY = Math.min(...rects.map((r) => r.top));
-    const maxY = Math.max(...rects.map((r) => r.bottom));
+    const canvasEl = container.querySelector(".battle-freeform-canvas");
+    if (!scrollEl || !canvasEl) return;
+    const elements = units.map((u) => container.querySelector(`[data-unit-id="${u.character.id}"]`)).filter(Boolean);
+    if (!elements.length) return;
+
+    const naturalRects = elements.map((el) => el.getBoundingClientRect());
+    const minX = Math.min(...naturalRects.map((r) => r.left));
+    const maxX = Math.max(...naturalRects.map((r) => r.right));
+    const minY = Math.min(...naturalRects.map((r) => r.top));
+    const maxY = Math.max(...naturalRects.map((r) => r.bottom));
+    const boxWidth = maxX - minX;
+    const boxHeight = maxY - minY;
+
+    const canvasRect = canvasEl.getBoundingClientRect();
+    const originX = canvasRect.left + canvasRect.width / 2;
+    const originY = canvasRect.top + canvasRect.height / 2;
+
+    const availableWidth = scrollEl.clientWidth - ZOOM_FIT_MARGIN * 2;
+    const availableHeight = scrollEl.clientHeight - ZOOM_FIT_MARGIN * 2;
+    const scale = Math.max(ZOOM_FIT_MIN_SCALE, Math.min(1, availableWidth / boxWidth, availableHeight / boxHeight));
+    canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
+    canvasEl.style.transform = scale < 1 ? `scale(${scale})` : "";
+
+    const scaledCenterX = originX + ((minX + maxX) / 2 - originX) * scale;
+    const scaledCenterY = originY + ((minY + maxY) / 2 - originY) * scale;
     const viewportRect = scrollEl.getBoundingClientRect();
-    const dx = (minX + maxX) / 2 - (viewportRect.left + viewportRect.width / 2);
-    const dy = (minY + maxY) / 2 - (viewportRect.top + viewportRect.height / 2);
+    const dx = scaledCenterX - (viewportRect.left + viewportRect.width / 2);
+    const dy = scaledCenterY - (viewportRect.top + viewportRect.height / 2);
     const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
     const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
     const left = Math.max(0, Math.min(maxScrollLeft, scrollEl.scrollLeft + dx));
