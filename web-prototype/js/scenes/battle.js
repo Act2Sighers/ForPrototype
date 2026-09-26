@@ -3982,8 +3982,7 @@ export function BattleScene(container, params, api) {
     logLines.push({ text, kind });
   }
 
-  // 敵ユニットの残りHP一覧（携帯モードで戦場が見えなくても敵の状況が
-  // 分かるように）。戦闘不能のユニットは省略する。
+  // 敵ユニットの残りHP一覧。戦闘不能のユニットは省略する。
   function enemyHpRosterLine() {
     return enemyUnits
       .filter((u) => !isIncapacitated(u))
@@ -4318,7 +4317,7 @@ export function BattleScene(container, params, api) {
     maybeAutoExecuteMain(unit);
   }
 
-  // ワイドモード限定：ステータス枠を直接クリックした時の行動対象指定。
+  // ステータス枠を直接クリックした時の行動対象指定。
   // Prepフェイズは「誰の対象を選ぶか」→「その対象は誰か」の2段階
   // （交互に行う、混同しない）。Mainフェイズは行動主体が常に1人（今の
   // 手番のユニット）なので、対象選択の1段階のみ。
@@ -5507,12 +5506,12 @@ export function BattleScene(container, params, api) {
     ]);
   }
 
-  // ワイドモードの専用列に並ぶ、隊員名付きの版。味方ステータス列とは
-  // 別列で独立に積み上がるため、行の高さがずれても誰の枠か分かるよう
-  // 名前を添えている。行動内容・行動対象のどちらかが未確定の間はハイ
-  // ライトし、両方確定すると解除する。順次処理中、Mainフェイズで今の
-  // 手番でないユニット、および選べる行動が1つも無いユニットは一律
-  // グレーアウト。
+  // 行動選択専用列に並ぶ、隊員名付きの版。味方ステータス列とは別列で
+  // 独立に積み上がるため、行の高さがずれても誰の枠か分かるよう名前を
+  // 添えている。行動内容・行動対象のどちらかが未確定の間はハイライト
+  // し、両方確定すると解除する。順次処理中、Mainフェイズで今の手番で
+  // ないユニット、および選べる行動が1つも無いユニットは一律グレー
+  // アウト。
   function actionSelectBox(unit) {
     if (isIncapacitated(unit)) {
       return h("div", { class: "battle-action-select battle-action-select--down" }, [
@@ -5533,10 +5532,10 @@ export function BattleScene(container, params, api) {
     );
   }
 
-  // 携帯モードでもワイドモードでも共通の、テキストログ直下の実行ボタン。
-  // Prepフェイズは全味方の行動内容・行動対象が確定するまで、Main
-  // フェイズは今の手番ユニット1人分が確定するまで無効（処理中も無効）。
-  // Prep/Mainどちらのフェイズ中かで実行する処理を切り替える -- Prepは
+  // テキストログ直下の実行ボタン。Prepフェイズは全味方の行動内容・
+  // 行動対象が確定するまで、Mainフェイズは今の手番ユニット1人分が確定
+  // するまで無効（処理中も無効）。Prep/Mainどちらのフェイズ中かで実行
+  // する処理を切り替える -- Prepは
   // 従来通り全員分を一括実行、Mainは手番ユニット1人分だけを実行して
   // 手番送りする。
   function actionExecuteButton() {
@@ -5575,11 +5574,11 @@ export function BattleScene(container, params, api) {
     return classes.length ? classes.join(" ") : null;
   }
 
-  // ワイドモード：味方の行動選択列（左端）／味方ステータス列／中央情報
-  // ／敵ステータス列、の4列。矢印は各ステータス枠の中央側の辺を実測し
-  // て描く1枚のオーバーレイSVG（アリーナ全体に重ねる）で、中央の
-  // フェイズ表示や「vs」の上を横切ることもある。ステータス枠は行動対象
-  // 選択中、直接クリックすることでも指定できる（ワイドモード限定）。
+  // 味方の行動選択列（左端）／味方ステータス列／中央情報／敵ステータス
+  // 列、の4列。矢印は各ステータス枠の中央側の辺を実測して描く1枚の
+  // オーバーレイSVG（アリーナ全体に重ねる）で、中央のフェイズ表示や
+  // 「vs」の上を横切ることもある。ステータス枠は行動対象選択中、直接
+  // クリックすることでも指定できる。
   function battleArena() {
     return h("div", { class: "battle-arena" }, [
       h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
@@ -5609,11 +5608,11 @@ export function BattleScene(container, params, api) {
     while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
 
     const arenaRect = arenaEl.getBoundingClientRect();
-    if (!arenaRect.width || !arenaRect.height) return; // 携帯モードでアリーナ自体が非表示の間は何もしない
+    if (!arenaRect.width || !arenaRect.height) return; // アリーナがまだレイアウトされていない間は何もしない
     overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
 
     // ユニットのステータス枠の「中央側の辺」の中点をDOM実測する。枠が
-    // 見つからない（携帯モードなど）場合はnullを返す。
+    // 見つからない場合はnullを返す。
     function unitEdge(unit) {
       const el = arenaEl.querySelector(`[data-unit-id="${unit.character.id}"]`);
       if (!el) return null;
@@ -5686,31 +5685,6 @@ export function BattleScene(container, params, api) {
     }
   }
 
-  // 携帯モード：視覚的な戦場が非表示になる代わりに、隊員ごとの名前・HP
-  // ・行動選択プルダウンだけの縦並びリストを出す。Mainフェイズで今の
-  // 手番でないユニット、および選べる行動が1つも無いユニットは薄く
-  // グレーアウトする（プルダウン自体はmoduleSelectFor/targetSelectFor
-  // 側で既に無効化されている）。
-  function mobileUnitRow(unit) {
-    if (isIncapacitated(unit)) {
-      return h("div", { class: "battle-mobile-unit battle-mobile-unit--down" }, [
-        h("p", { class: "battle-mobile-unit__name", text: firstName(unit.displayName) }),
-        battleHpGauge(unit),
-        h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
-      ]);
-    }
-    const waiting = (phase === "main" && !isActingNow(unit)) || viableModuleIdsFor(unit).length === 0;
-    return h("div", { class: `battle-mobile-unit${waiting ? " battle-mobile-unit--waiting" : ""}` }, [
-      h("div", { class: "battle-mobile-unit__head" }, [h("p", { class: "battle-mobile-unit__name", text: firstName(unit.displayName) }), conditionBadge(unit)]),
-      battleHpGauge(unit),
-      actionSelectFields(unit),
-    ]);
-  }
-
-  function battleMobileRoster() {
-    return h("div", { class: "battle-mobile-roster" }, allyUnits.map(mobileUnitRow));
-  }
-
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
   // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
   function battleActions() {
@@ -5730,7 +5704,7 @@ export function BattleScene(container, params, api) {
     renderScreen(container, {
       eyebrow: mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
       title: mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
-      body: [battleLog(), actionExecuteButton(), battleArena(), battleMobileRoster()],
+      body: [battleLog(), actionExecuteButton(), battleArena()],
       onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
     });

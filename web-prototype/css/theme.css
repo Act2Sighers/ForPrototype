@@ -1186,81 +1186,24 @@ body {
 .battle-log__line--enemy { color: var(--danger-strong); }
 .battle-log__line--phase { font-weight: 600; }
 
-/* テキストログ直下の実行ボタン。携帯モード・ワイドモード共通で、
-   ログ枠と同じ幅になるよう画面本文の他の要素同様フルブロックで置く。
-   行動内容・行動対象がまだ無いので今は常に無効。 */
+/* テキストログ直下の実行ボタン。ログ枠と同じ幅になるよう画面本文の
+   他の要素同様フルブロックで置く。行動内容・行動対象がまだ無いので
+   今は常に無効。 */
 .battle-execute-btn {
   width: 100%;
 }
 
 /* 視覚的な戦場スペース：味方の行動選択列（左端）／味方ステータス列／
    中央のターン・フェイズ・矢印表示／敵ステータス列（右）、の4列。
-   敵ステータス列も味方と全く同じ内容量の枠になったため、十分な表示幅
-   がある端末（PCなど＝ワイドモード）でのみ表示し、狭い場合（携帯
-   モード）は .battle-mobile-roster に切り替わる。敵列が実データ入りの
-   フルサイズ枠になった分、このしきい値は820pxからさらに引き上げて
-   ある。 */
+   携帯モードは廃止し、常時この表示に統一した（狭い表示幅では
+   .screen-frame自体の横スクロールで全体を見渡す想定 -- 縦横スクロール
+   可能な自由配置キャンバスへの置き換えは今後の段階で対応する）。 */
 .battle-arena {
   position: relative;
   display: grid;
   grid-template-columns: 0.9fr 1.3fr auto 1.3fr;
   gap: 8px;
   align-items: center;
-}
-
-@media (max-width: 900px) {
-  .battle-arena {
-    display: none;
-  }
-}
-
-/* 携帯モード用の縦並びロースター。ワイドモードのアリーナが隠れる幅
-   でのみ表示する（アリーナと表裏の関係）。 */
-.battle-mobile-roster {
-  display: none;
-  flex-direction: column;
-  gap: 8px;
-}
-
-@media (max-width: 900px) {
-  .battle-mobile-roster {
-    display: flex;
-  }
-}
-
-.battle-mobile-unit {
-  border: 1px solid var(--panel-line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--panel-raised);
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.battle-mobile-unit__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
-}
-
-.battle-mobile-unit__name {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-/* 戦闘不能のユニット行：グレーアウトする（ステータス枠の
-   .battle-unit--down と同じ考え方）。 */
-.battle-mobile-unit--down {
-  opacity: 0.5;
-}
-
-/* Mainフェイズで今の手番でないユニット行：戦闘不能ほどではない薄い
-   グレーアウト（プルダウン自体は別途disabledになる）。 */
-.battle-mobile-unit--waiting {
-  opacity: 0.6;
 }
 
 .battle-column {
@@ -1492,8 +1435,8 @@ body {
   border-color: var(--frost);
 }
 
-/* 行動内容／行動対象を選ぶプルダウン2つの組。ワイドモードの味方行動
-   選択列、携帯モードのロースター行のどちらからも使う共通部品。 */
+/* 行動内容／行動対象を選ぶプルダウン2つの組。味方行動選択列で使う
+   部品。 */
 .battle-action-select {
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
