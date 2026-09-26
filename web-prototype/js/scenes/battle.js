@@ -403,7 +403,7 @@ Object.assign(PREP_MODULES, {
     label: "団結",
     targetFaction: "self",
     monsterOnly: true,
-    shortNotation: "P/最適化?s",
+    shortNotation: "P/最適化[自陣営生存者数]s",
     steps: [{ actionId: "optimize", params: (unit, targetUnit, pools) => ({ n: pools.ownPoolFor(unit).length }) }],
   },
   clockUp: {
@@ -648,6 +648,29 @@ Object.assign(PREP_MODULES, {
   },
 });
 
+// 平凡スキル・Prepフェイズ。mediocreOnly:trueでisModuleAvailableForが
+// 常に不可としているため、現時点ではどのユニットからも選べない --
+// 平凡個体自体が未実装（MONSTER_DATA/CHARACTER_DATAどちらにも
+// dataId「平凡個体」は無い）なので、データを登録するだけに留める。
+Object.assign(PREP_MODULES, {
+  step: {
+    id: "step",
+    label: "ステップ",
+    targetFaction: "own",
+    mediocreOnly: true,
+    shortNotation: "P/最適化u",
+    steps: [{ actionId: "optimize" }],
+  },
+  trap: {
+    id: "trap",
+    label: "トラップ",
+    targetFaction: "opposing",
+    mediocreOnly: true,
+    shortNotation: "P/牽制t",
+    steps: [{ actionId: "restrain" }],
+  },
+});
+
 // キャラクタースキル・Prepフェイズ。allyOnly:trueでモンスターの行動
 // 選択肢（randomEnemyActionのフォールバック含む）には出さない。所持
 // スキル自体の制限はCHARACTER_SKILL_LOADOUTS/isModuleAvailableForが
@@ -817,8 +840,23 @@ Object.assign(PREP_MODULES, {
     targetFaction: "none",
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "P/最適化2*",
+    shortNotation: "P/最適化2u*",
     steps: [{ actionId: "optimize", each: "own", params: { n: 2 } }],
+  },
+  // 【チアーズ＋】：チアーズ（最適化(2)自陣営全員）に、自陣営全員への
+  // 鼓舞(1)を追加した改良後スキル。ハイ・ベット/ロー・ベットと同じ
+  // 「each:"own"の2ステップを続ける」構造。
+  cheersPlus: {
+    id: "cheersPlus",
+    label: "チアーズ＋",
+    targetFaction: "none",
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "P/最適化3u*+鼓舞c",
+    steps: [
+      { actionId: "optimize", each: "own", params: { n: 3 } },
+      { actionId: "inspire", each: "own", params: { n: 1 } },
+    ],
   },
   // 【ピクルス】（ビンヅメ）：自身以外の自陣営1体に鼓舞(3)、（前ステップ
   // の対象とは無関係に）自身に威圧(2)。構造は【チェック】と同型
@@ -829,9 +867,26 @@ Object.assign(PREP_MODULES, {
     targetFaction: "ownExcludingSelf",
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "P/鼓舞3+",
+    shortNotation: "P/鼓舞3e+威圧2s",
     steps: [
       { actionId: "inspire", params: { n: 3 } },
+      { actionId: "intimidate", target: "self", params: { n: 2 } },
+    ],
+  },
+  // 【ピクルス＋】：鼓舞の対象数を自身以外の自陣営3体に拡張した改良後
+  // スキル（守りの原点のownExcludingSelfAndUsedを2回使う対象拡張と
+  // 同じ構造）。自身への威圧(2)は据え置き。
+  picklesPlus: {
+    id: "picklesPlus",
+    label: "ピクルス＋",
+    targetFaction: "ownExcludingSelf",
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "P/鼓舞2e(3)+威圧2s",
+    steps: [
+      { actionId: "inspire", params: { n: 2 } },
+      { actionId: "inspire", target: "ownExcludingSelfAndUsed", params: { n: 2 } },
+      { actionId: "inspire", target: "ownExcludingSelfAndUsed", params: { n: 2 } },
       { actionId: "intimidate", target: "self", params: { n: 2 } },
     ],
   },
@@ -859,6 +914,11 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 // 逆に、属性を持つモンスターは無属性の素の「攻撃」を選べない -- 属性を
 // 持つ以上、その攻撃は必ず属性攻撃として現れる、という整理。
 function isModuleAvailableFor(unit, module) {
+  // 平凡スキル：平凡個体自体がまだ未実装（MONSTER_DATA/CHARACTER_DATAの
+  // どちらにも「平凡個体」というdataIdは存在しない）ため、通常の行動
+  // 選択肢には常に出さない。データ登録のみが目的で、実際の使用は平凡
+  // 個体の実装時に別途対応する。
+  if (module.mediocreOnly) return false;
   if (module.monsterOnly && unit.faction !== "enemy") return false;
   if (module.allyOnly && unit.faction !== "ally") return false;
   // 武器固有スキル：module.weaponOnly=trueのモジュールは、CHARACTER_
@@ -998,9 +1058,11 @@ function createCorrectionModule(id, label, statKey, sign, resistanceStatKey, sho
     targetFaction: sign > 0 ? "own" : "opposing",
     effect: "correction",
     shortNotation,
+    // params.aValue：能動能力値を指定した数値に固定する（平凡スキルの
+    // 「A:0」用 -- rawStat参照の代わりにこの数値をそのままダイス数に使う）。
     apply: (actor, target, params = {}) => {
-      const { n = 1, aStat, dStat } = params;
-      const a = triangular(rollJudgement(rawStat(actor, aStat ?? statKey)).successCount);
+      const { n = 1, aStat, dStat, aValue } = params;
+      const a = triangular(rollJudgement(aValue ?? rawStat(actor, aStat ?? statKey)).successCount);
       const d = triangular(rollJudgement(rawStat(target, dStat ?? resistanceStatKey)).successCount);
       const turns = Math.max(1, Math.ceil(correctionMagnitude(a, d, reversed)));
       return applyCorrection(target, statKey, n, sign, turns);
@@ -1118,9 +1180,12 @@ const MAIN_MODULES = {
     effect: "hp",
     shortNotation: "M/攻撃",
     // params.aStat/dStat：能動/受動能力値の上書き（既定attack/defence）。
-    // params.b：ボーナス（既定0）、Bd6合計として攻撃力にそのまま加算。
+    // params.aValue：能動能力値そのものをrawStat参照ではなく指定した
+    // 数値に固定する（平凡スキルの「A:0」用 -- 能力値に関係なく常に
+    // その数値をダイス数として使う）。params.b：ボーナス（既定0）、
+    // Bd6合計として攻撃力にそのまま加算。
     apply: (actor, target, params = {}) => {
-      const a = rollSum(correctedStat(actor, params.aStat ?? "attack"));
+      const a = rollSum(params.aValue ?? correctedStat(actor, params.aStat ?? "attack"));
       const d = rollSum(correctedStat(target, params.dStat ?? "defence"));
       const b = signedRollSum(params.b ?? 0);
       const c = Math.pow(state.battleTuning.staminaCorrectionMultiplier, -1 * target.stamina);
@@ -1237,8 +1302,10 @@ const MAIN_MODULES = {
     // 加算）。戻り値のmagnitudeは体幹の増加量（成功度合いそのもの）--
     // 【エコロジー】のような「直前のステップの結果を次のステップの
     // paramsが参照する」構成のために持たせる。
+    // params.aValue：能動能力値を指定した数値に固定する（平凡スキルの
+    // 「A:0」用）。
     apply: (actor, target, params = {}) => {
-      const a = triangular(rollJudgement(correctedStat(actor, params.aStat ?? "defence")).successCount);
+      const a = triangular(rollJudgement(params.aValue ?? correctedStat(actor, params.aStat ?? "defence")).successCount);
       const d = triangular(rollJudgement(correctedStat(target, params.dStat ?? "defence")).successCount);
       const x = Math.ceil(correctionMagnitude(a, d, true) + (params.nb ?? 0));
       target.stamina = clampStamina(target.stamina + x);
@@ -1252,11 +1319,12 @@ const MAIN_MODULES = {
     effect: "stamina",
     shortNotation: "M/スマッシュ",
     // params.aStat/dStat：能動/受動能力値の上書き（既定power/power）。
-    // params.nb：数値ボーナス（既定0、ダイスは振らず結果にそのまま
-    // 加算）。戻り値のmagnitudeは体幹の減少量（プロテクトと同じ理由で
-    // 持たせる）。
+    // params.aValue：能動能力値を指定した数値に固定する（平凡スキルの
+    // 「A:0」用）。params.nb：数値ボーナス（既定0、ダイスは振らず結果に
+    // そのまま加算）。戻り値のmagnitudeは体幹の減少量（プロテクトと同じ
+    // 理由で持たせる）。
     apply: (actor, target, params = {}) => {
-      const a = triangular(rollJudgement(correctedStat(actor, params.aStat ?? "power")).successCount);
+      const a = triangular(rollJudgement(params.aValue ?? correctedStat(actor, params.aStat ?? "power")).successCount);
       const d = triangular(rollJudgement(correctedStat(target, params.dStat ?? "power")).successCount);
       const x = Math.ceil(correctionMagnitude(a, d, false) + (params.nb ?? 0));
       target.stamina = clampStamina(target.stamina - x);
@@ -1269,6 +1337,8 @@ const MAIN_MODULES = {
   // 設計のparams.n（毎ターンの量を直接指定する固定値）を渡すスキルが
   // まだ残っているため、bが無ければnをボーナスとして扱う後方互換を
   // 残す（新規スキルはbだけを使えばよい）。
+  // params.aValue：能動能力値を指定した数値に固定する（平凡スキルの
+  // 「A:0」用）。
   regen: {
     id: "regen",
     label: "継続回復",
@@ -1277,7 +1347,7 @@ const MAIN_MODULES = {
     shortNotation: "M/継続回復",
     apply: (actor, target, params = {}) => {
       const { turns, magnitude } = continuousCascade(
-        correctedStat(actor, params.aStat ?? "sociality"),
+        params.aValue ?? correctedStat(actor, params.aStat ?? "sociality"),
         correctedStat(target, params.dStat ?? "sociality"),
         true,
         params.b ?? params.n ?? 0
@@ -1322,6 +1392,8 @@ const MAIN_MODULES = {
       return { applied: true, healedHp };
     },
   },
+  // params.aValue：能動能力値を指定した数値に固定する（平凡スキルの
+  // 「A:0」用）。
   dot: {
     id: "dot",
     label: "継続ダメージ",
@@ -1330,7 +1402,7 @@ const MAIN_MODULES = {
     shortNotation: "M/継続ダメ",
     apply: (actor, target, params = {}) => {
       const { turns, magnitude } = continuousCascade(
-        correctedStat(actor, params.aStat ?? "wisdom"),
+        params.aValue ?? correctedStat(actor, params.aStat ?? "wisdom"),
         correctedStat(target, params.dStat ?? "wisdom"),
         false,
         params.b ?? params.n ?? 0
@@ -1724,7 +1796,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/継続ダメ?t*",
+    shortNotation: "M/1/継続ダメ[ターン/2]t*",
     steps: [{ actionId: "dot", each: "opposing", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
   },
   countUp: {
@@ -1733,7 +1805,7 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "none",
     cost: 1,
     monsterOnly: true,
-    shortNotation: "M/1/継続回復?u*",
+    shortNotation: "M/1/継続回復[ターン/3]u*",
     steps: [{ actionId: "regen", each: "own", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 3) }) }],
   },
   // 飴アーミー系統の上位個体用スキル。それぞれの兵科が担う仕事を1つだけ
@@ -2046,8 +2118,107 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     cost: "all",
     monsterOnly: true,
-    shortNotation: "M/r/攻撃1?(r)",
+    shortNotation: "M/r/攻撃0?(r)",
     custom: "hyperRush",
+  },
+});
+
+// 平凡スキル・Mainフェイズ。全て「A:0」（能動能力値をrawStat/corrected
+// Stat参照ではなく数値0に固定する）を使う -- 対応するleafモジュール
+// 側にparams.aValueという専用の上書き経路を用意した（attack/protect/
+// smash/dot/regen/createCorrectionModule参照）。mediocreOnly:trueで
+// isModuleAvailableForが常に不可としているため、現時点ではどのユニット
+// からも選べない（Prep側の【ステップ】【トラップ】と同じ理由）。
+Object.assign(MAIN_MODULES, {
+  mediocreAttack: {
+    id: "mediocreAttack",
+    label: "アタック",
+    targetFaction: "opposing",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/攻撃1t/0",
+    steps: [{ actionId: "attack", params: { aValue: 0, b: 1 } }],
+  },
+  mediocreGuard: {
+    id: "mediocreGuard",
+    label: "ガード",
+    targetFaction: "self",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/プロテクト1s/0",
+    steps: [{ actionId: "protect", params: { aValue: 0, nb: 1 } }],
+  },
+  mediocreBreak: {
+    id: "mediocreBreak",
+    label: "ブレイク",
+    targetFaction: "opposing",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/スマッシュ1t/0",
+    steps: [{ actionId: "smash", params: { aValue: 0, nb: 1 } }],
+  },
+  mediocrePot: {
+    id: "mediocrePot",
+    label: "ポット",
+    targetFaction: "opposing",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/継続ダメ1t/0",
+    steps: [{ actionId: "dot", params: { aValue: 0, b: 1 } }],
+  },
+  mediocreHeal: {
+    id: "mediocreHeal",
+    label: "ヒール",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/継続回復1u/0",
+    steps: [{ actionId: "regen", params: { aValue: 0, b: 1 } }],
+  },
+  attackRaise: {
+    id: "attackRaise",
+    label: "トウドレイズ",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/攻撃∧1u/0",
+    steps: [{ actionId: "enhanceAttack", params: { aValue: 0, n: 1 } }],
+  },
+  defenceRaise: {
+    id: "defenceRaise",
+    label: "ヒフクレイズ",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/防御∧1u/0",
+    steps: [{ actionId: "enhanceDefence", params: { aValue: 0, n: 1 } }],
+  },
+  powerRaise: {
+    id: "powerRaise",
+    label: "シゲキレイズ",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/破壊∧1u/0",
+    steps: [{ actionId: "enhancePower", params: { aValue: 0, n: 1 } }],
+  },
+  wisdomRaise: {
+    id: "wisdomRaise",
+    label: "フクミレイズ",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/賢さ∧1u/0",
+    steps: [{ actionId: "enhanceWisdom", params: { aValue: 0, n: 1 } }],
+  },
+  socialityRaise: {
+    id: "socialityRaise",
+    label: "カオリレイズ",
+    targetFaction: "own",
+    cost: 1,
+    mediocreOnly: true,
+    shortNotation: "M/協調∧1u/0",
+    steps: [{ actionId: "enhanceSociality", params: { aValue: 0, n: 1 } }],
   },
 });
 
@@ -2423,8 +2594,25 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/r/弱体化(攻)r",
+    shortNotation: "M/r/攻撃t+攻撃∨rc",
     steps: [{ actionId: "attack" }, { actionId: "weakenAttack", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  // 【ホーンブレイク＋】：固定コスト2に変わり、攻撃・攻撃力低下(5)
+  // どちらの判定もA/D両方を攻撃力に上書きする（能動側は元々攻撃力の
+  // ままだが、受動側の防御力/賢さもここでは攻撃力に変える -- 相手の
+  // 攻撃力そのものと殴り合う専門特化）。
+  hornBreakPlus: {
+    id: "hornBreakPlus",
+    label: "ホーンブレイク＋",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/攻撃t+攻撃∨5c/攻/攻",
+    steps: [
+      { actionId: "attack", params: { aStat: "attack", dStat: "attack" } },
+      { actionId: "weakenAttack", params: { n: 5, aStat: "attack", dStat: "attack" } },
+    ],
   },
   iceBreak: {
     id: "iceBreak",
@@ -2433,8 +2621,21 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/r/弱体化(破)r",
+    shortNotation: "M/r/攻撃t+破壊∨rc",
     steps: [{ actionId: "attack" }, { actionId: "weakenPower", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  iceBreakPlus: {
+    id: "iceBreakPlus",
+    label: "アイスブレイク＋",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/攻撃t+破壊∨5c/破/破",
+    steps: [
+      { actionId: "attack", params: { aStat: "power", dStat: "power" } },
+      { actionId: "weakenPower", params: { n: 5, aStat: "power", dStat: "power" } },
+    ],
   },
   shellBreak: {
     id: "shellBreak",
@@ -2443,8 +2644,21 @@ Object.assign(MAIN_MODULES, {
     cost: "all",
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/r/弱体化(防)r",
+    shortNotation: "M/r/攻撃t+防御∨rc",
     steps: [{ actionId: "attack" }, { actionId: "weakenDefence", params: (unit) => ({ n: unit.lastActionCost }) }],
+  },
+  shellBreakPlus: {
+    id: "shellBreakPlus",
+    label: "シェルブレイク＋",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/攻撃t+防御∨5c/防/防",
+    steps: [
+      { actionId: "attack", params: { aStat: "defence", dStat: "defence" } },
+      { actionId: "weakenDefence", params: { n: 5, aStat: "defence", dStat: "defence" } },
+    ],
   },
   // 【サプライズ】（ストロー）：攻撃の能動能力値を協調性に上書きする
   // （Stage0のattack.params.aStat拡張をそのまま使う）。
@@ -2455,8 +2669,20 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/2/攻撃/協",
+    shortNotation: "M/2/攻撃t/協",
     steps: [{ actionId: "attack", params: { aStat: "sociality" } }],
+  },
+  // 【サプライズ＋】：受動能力値も協調性に上書きし（対象の協調性で
+  // 受け止める）、さらにボーナス+3を乗せた強化版。
+  surprisePlus: {
+    id: "surprisePlus",
+    label: "サプライズ＋",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/攻撃3t/協/協",
+    steps: [{ actionId: "attack", params: { b: 3, aStat: "sociality", dStat: "sociality" } }],
   },
   // 【バウンス】（ディッパー）：自身のIN値で分岐する特殊スキル。実際の
   // 分岐処理はcustom resolver（resolveBounce、BattleScene内）が持つ。
@@ -2468,8 +2694,20 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/1/特殊INs",
+    shortNotation: "M/1/?{破壊,防御}∧?s",
     custom: "bounce",
+  },
+  // 【バウンス＋】：バウンスの分岐に、破壊力/協調性（B>0側）または
+  // 防御力/賢さ（B<0側）の同時上昇を追加した改良後スキル。
+  bouncePlus: {
+    id: "bouncePlus",
+    label: "バウンス＋",
+    targetFaction: "self",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/1/?{[破+協],[防+賢]}∧?s",
+    custom: "bouncePlus",
   },
   // 【サニーサイドアップ】（フライパン）：直前に使った技がスマッシュ/
   // プロテクトを内包する場合だけ選択肢に出る（requiresPriorActionIds、
@@ -2484,8 +2722,19 @@ Object.assign(MAIN_MODULES, {
     allyOnly: true,
     weaponOnly: true,
     requiresPriorActionIds: ["smash", "protect"],
-    shortNotation: "M/1/回復2",
+    shortNotation: "M/1/?回復2u",
     steps: [{ actionId: "heal", params: { b: 2 } }],
+  },
+  sunnySideUpPlus: {
+    id: "sunnySideUpPlus",
+    label: "サニーサイドアップ＋",
+    targetFaction: "own",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    requiresPriorActionIds: ["smash", "protect"],
+    shortNotation: "M/1/?回復5u",
+    steps: [{ actionId: "heal", params: { b: 5 } }],
   },
   // 【アラート】（タイマー）：継続ダメージのnを「現在のターン数÷2
   // （切り上げ）」にする（resolveStepParamsが渡すpools.turnを参照）。
@@ -2497,8 +2746,20 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/1/継続ダメ?",
+    shortNotation: "M/1/継続ダメ[ターン/2]t",
     steps: [{ actionId: "dot", params: (unit, targetUnit, pools) => ({ n: Math.ceil(pools.turn / 2) }) }],
+  },
+  // 【アラート＋】：÷2切り上げの弱体化を外し、現在のターン数をそのまま
+  // 使う強化版。
+  alertPlus: {
+    id: "alertPlus",
+    label: "アラート＋",
+    targetFaction: "opposing",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/1/継続ダメ[ターン]t",
+    steps: [{ actionId: "dot", params: (unit, targetUnit, pools) => ({ n: pools.turn }) }],
   },
   // 【エコロジー】（カミザラ）：自身にプロテクトをかけ、そのプロテクト
   // で増えた体幹の量（lastResult.magnitude）をそのまま継続回復のnに
@@ -2512,10 +2773,26 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/2/プロテクトs+",
+    shortNotation: "M/2/プロテクトs+継続回復c/防",
     steps: [
       { actionId: "protect" },
       { actionId: "regen", params: (unit, targetUnit, pools, lastResult) => ({ n: lastResult?.magnitude ?? 0, aStat: "defence" }) },
+    ],
+  },
+  // 【エコロジー＋】：プロテクト/継続回復のステップ間参照（前ステップの
+  // 結果をnに使う）を外し、それぞれ固定のnb/bを持つ独立した強化版に
+  // なった（改良後スキルはほとんどが単純な数値強化、という方針通り）。
+  ecologyPlus: {
+    id: "ecologyPlus",
+    label: "エコロジー＋",
+    targetFaction: "self",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/プロテクト2s+継続回復3c/防",
+    steps: [
+      { actionId: "protect", params: { nb: 2 } },
+      { actionId: "regen", params: { b: 3, aStat: "defence" } },
     ],
   },
   // 【シェアカット】（ピザカッター）：対象選択の必要なし（targetFaction:
@@ -2529,8 +2806,21 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/2/特殊?",
+    shortNotation: "M/2/攻撃0?({0,1,3,6,10})",
     custom: "shareCut",
+  },
+  // 【シェアカット＋】：回数の算出方法が無印と変わる（唯一の例外）。
+  // 「使用者の能力値のうち実効値が最も低いものと同じ値」がそのまま
+  // 回数になる（実効値0の能力値があれば不発）。
+  shareCutPlus: {
+    id: "shareCutPlus",
+    label: "シェアカット＋",
+    targetFaction: "none",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/攻撃0?([能力値の最低値])",
+    custom: "shareCutPlus",
   },
   // 【アレンジ】（レシピブック）：自陣営・相手陣営どちらの1体でも選べる
   // （targetFaction:"any"）。継続回復⇔継続ダメージの交換／全補正の
@@ -2545,13 +2835,27 @@ Object.assign(MAIN_MODULES, {
     cost: 1,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/1/特殊?",
+    shortNotation: "M/1/[バフ/デバフ&体幹全て反転]a",
     custom: "arrange",
   },
-  // 【ピール】（スライサー）：相手陣営全員に、体幹が1以上ある時だけ
-  // 体幹を1減らしHPを固定8削る（peelHitが葉、each:"opposing"がラップ
-  // する）。体幹0以下の相手には何も起きない（peelHit自身がmagnitude:0
-  // で不発を表現する）。
+  // 【アレンジ＋】：反転が無条件（バフ・デバフ両方、体幹は符号反転）
+  // だった無印から、対象の陣営に応じて「自陣営ならデバフだけ反転して
+  // 体幹を絶対値化（有利な方へ）、相手陣営ならバフだけ反転して体幹を
+  // -絶対値化（不利な方へ）」という選択的な反転に変わった改良後版。
+  // 継続回復⇔継続ダメージの交換は含まれない（詳細文に記載が無いため）。
+  arrangePlus: {
+    id: "arrangePlus",
+    label: "アレンジ＋",
+    targetFaction: "any",
+    cost: 1,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/1/[バフ/デバフ&体幹選択反転]a",
+    custom: "arrangePlus",
+  },
+  // 【ピール】（スライサー）：相手陣営全員の体幹を1減少（下限は体幹
+  // 下限）させ、HPを固定8削る（peelHitが葉、each:"opposing"がラップ
+  // する）。
   peel: {
     id: "peel",
     label: "ピール",
@@ -2559,7 +2863,7 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/2/特殊*",
+    shortNotation: "M/2/[体幹-1,HP-8]t*",
     steps: [{ actionId: "peelHit", each: "opposing" }],
   },
   peelHit: {
@@ -2568,18 +2872,42 @@ Object.assign(MAIN_MODULES, {
     targetFaction: "opposing",
     effect: "hp",
     apply: (actor, target) => {
-      if (target.stamina < 1) return { magnitude: 0, label: "ダメージ" };
-      target.stamina -= 1;
+      target.stamina = clampStamina(target.stamina - 1);
       applyHpDamage(target.character, 8);
       return { magnitude: 8, label: "ダメージ" };
     },
   },
+  peelPlus: {
+    id: "peelPlus",
+    label: "ピール＋",
+    targetFaction: "none",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/[体幹-2,HP-16]t*",
+    steps: [{ actionId: "peelHitPlus", each: "opposing" }],
+  },
+  // weaponOnly:trueだが、どの武器のskillIdもpeelHitPlus自身とは一致
+  // させない（peelPlusのstepsからだけ参照させ、単独では絶対に選ばせない
+  // ための「隠す」用途 -- 警護(guard)がmonsterOnly:trueを同じ目的で
+  // 使っているのと同じ考え方）。
+  peelHitPlus: {
+    id: "peelHitPlus",
+    label: "ピール＋",
+    targetFaction: "opposing",
+    effect: "hp",
+    weaponOnly: true,
+    apply: (actor, target) => {
+      target.stamina = clampStamina(target.stamina - 2);
+      applyHpDamage(target.character, 16);
+      return { magnitude: 16, label: "ダメージ" };
+    },
+  },
   // 【ブレンド】（ミキサー）：相手陣営1体を選んで使う（不発ありの方式
-  // --「選べるが不発」に統一するユーザー指示に従う）。対象の体幹が
-  // -1以下の時だけ、その脆弱性を全て支払って「4×(-体幹)」の固定
-  // ダメージを与え体幹を0に戻す。体幹が0以上の相手には何も起きない。
-  // 単体のleafモジュールとして、自分自身がsteps無しでapplyを直接持つ
-  // （quickAttackなどと同じ形）。
+  // --「選べるが不発」に統一するユーザー指示に従う）。C=対象のIN。
+  // C<0の時だけ、その負のIN分だけ「-8×C」の固定ダメージを与え体幹を
+  // 0に戻す。C>=0の相手には何も起きない。単体のleafモジュールとして、
+  // 自分自身がsteps無しでapplyを直接持つ（quickAttackなどと同じ形）。
   blend: {
     id: "blend",
     label: "ブレンド",
@@ -2588,14 +2916,43 @@ Object.assign(MAIN_MODULES, {
     cost: 2,
     allyOnly: true,
     weaponOnly: true,
-    shortNotation: "M/2/特殊",
+    shortNotation: "M/2/?[HP-消費脆弱×8]t",
     apply: (actor, target) => {
-      if (target.stamina >= 0) return { magnitude: 0, label: "ダメージ" };
-      const damage = 4 * -target.stamina;
+      if (target.in >= 0) return { magnitude: 0, label: "ダメージ" };
+      const damage = -8 * target.in;
       target.stamina = 0;
       applyHpDamage(target.character, damage);
       return { magnitude: damage, label: "ダメージ" };
     },
+  },
+  // 【ブレンド＋】：C<0はダメージ倍率が16倍に強化。C>=0でも無印のような
+  // 完全な不発ではなく、代わりに体幹を2減少させる（下限は体幹下限）--
+  // 効果種別がhp/staminaで分かれるため、bounceと同じcustom resolver
+  // （resolveBlendPlus）で適切な葉モジュールへ振り分ける。
+  // weaponOnly:true（peelHitPlusと同じ「単独選択を隠す」用途 -- 一致
+  // するskillIdを持つ武器が無いため実質常に不可になる）。
+  blendPlusDamage: {
+    id: "blendPlusDamage",
+    label: "ブレンド＋",
+    targetFaction: "opposing",
+    effect: "hp",
+    weaponOnly: true,
+    apply: (actor, target) => {
+      const damage = -16 * target.in;
+      target.stamina = 0;
+      applyHpDamage(target.character, damage);
+      return { magnitude: damage, label: "ダメージ" };
+    },
+  },
+  blendPlus: {
+    id: "blendPlus",
+    label: "ブレンド＋",
+    targetFaction: "opposing",
+    cost: 2,
+    allyOnly: true,
+    weaponOnly: true,
+    shortNotation: "M/2/{[HP-消費脆弱×16],[体幹-2]}t",
+    custom: "blendPlus",
   },
 });
 
@@ -4175,16 +4532,52 @@ export function BattleScene(container, params, api) {
     }
   }
 
+  // 【バウンス＋】：バウンスと同じB=IN分岐に、破壊力上昇と同時に協調性
+  // 上昇（B>0側）、または防御力上昇と同時に賢さ上昇（B<0側）を追加する。
+  async function resolveBouncePlus(unit) {
+    if (unit.in >= 1) {
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhancePower, { n: unit.in });
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceSociality, { n: unit.in });
+    } else if (unit.in <= -1) {
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceDefence, { n: -unit.in });
+      await applyLeafModule(unit, unit, MAIN_MODULES.enhanceWisdom, { n: -unit.in });
+    } else {
+      pushLog(`${unit.displayName}はIN（行動値）が0のため、「バウンス＋」は不発に終わった。`, unit.faction);
+      render();
+      await sleep(ACTION_DELAY_MS);
+    }
+  }
+
   // 【シェアカット】専用の解決関数：使用者の5能力値（補正なし/rawStat）
-  // の中で最も高い値に並んでいる個数をXとし、相手陣営の生存者から
-  // 毎回改めてランダムに選んだ対象へX回「攻撃」を行う（重複・除外なし
-  // -- ユーザー指示により対象選択の候補管理は行わない簡略版）。相手
-  // 陣営が全滅するなどして候補がいなくなった時点で打ち切る。
-  async function resolveShareCut(unit) {
+  // のうち、最も高い値に並んでいる個数kから作れるペアの数C(k,2)をXと
+  // し、相手陣営の生存者から毎回改めてランダムに選んだ対象へX回
+  // 「攻撃」を行う（重複・除外なし -- ユーザー指示により対象選択の
+  // 候補管理は行わない簡略版）。相手陣営が全滅するなどして候補がいなく
+  // なった時点で打ち切る。Xが取り得る値は{0,1,3,6,10}（k=0~5に対応）。
+  function shareCutTiedPairCount(unit) {
     const statKeys = ["attack", "defence", "power", "wisdom", "sociality"];
     const values = statKeys.map((key) => rawStat(unit, key));
     const max = Math.max(...values);
-    const hitCount = values.filter((v) => v === max).length;
+    const k = values.filter((v) => v === max).length;
+    return (k * (k - 1)) / 2;
+  }
+  async function resolveShareCut(unit) {
+    const hitCount = shareCutTiedPairCount(unit);
+    for (let i = 0; i < hitCount; i++) {
+      const pool = opposingPoolFor(unit);
+      if (pool.length === 0) break;
+      const target = pickRandom(pool);
+      await applyLeafModule(unit, target, MAIN_MODULES.attack, {});
+    }
+  }
+
+  // 【シェアカット＋】：回数の算出方法が無印と異なる（改良後スキルの
+  // 中で唯一、単純な数値強化ではない）。使用者の5能力値（補正なし）の
+  // うち最も低い値そのものをXとする -- 0ならその時点で不発。
+  async function resolveShareCutPlus(unit) {
+    const statKeys = ["attack", "defence", "power", "wisdom", "sociality"];
+    const values = statKeys.map((key) => rawStat(unit, key));
+    const hitCount = Math.min(...values);
     for (let i = 0; i < hitCount; i++) {
       const pool = opposingPoolFor(unit);
       if (pool.length === 0) break;
@@ -4263,14 +4656,64 @@ export function BattleScene(container, params, api) {
     await sleep(ACTION_DELAY_MS);
   }
 
+  // 【アレンジ＋】専用の解決関数：無印の「バフ・デバフ両方／体幹の符号
+  // 反転」という無条件の反転から、対象の陣営（使用者から見て自陣営か
+  // 相手陣営か）に応じた選択的な反転に変わった。自陣営の対象は
+  // デバフだけを反転し、体幹は絶対値化（不利な状態を有利な方へ）。
+  // 相手陣営の対象はバフだけを反転し、体幹は-絶対値化する。継続回復
+  // ⇔継続ダメージの交換は詳細文に記載が無いため据え置かない（含めない）。
+  async function resolveArrangePlus(unit, targetUnit) {
+    let changed = false;
+    const isOwn = targetUnit.faction === unit.faction;
+    for (const statKey of ["attack", "defence", "power", "wisdom", "sociality"]) {
+      const correction = targetUnit.corrections[statKey];
+      if (!correction) continue;
+      if (isOwn && correction.sign > 0) continue;
+      if (!isOwn && correction.sign < 0) continue;
+      correction.sign *= -1;
+      const statLabel = CHARACTER_STAT_FULL_LABELS[statKey];
+      pushLog(`${targetUnit.displayName}の${statLabel}の補正が反転した（${correction.sign > 0 ? "+" : "-"}${correction.n}）！`, unit.faction);
+      changed = true;
+    }
+    if (targetUnit.stamina !== 0) {
+      const before = targetUnit.stamina;
+      targetUnit.stamina = isOwn ? Math.abs(targetUnit.stamina) : -Math.abs(targetUnit.stamina);
+      if (targetUnit.stamina !== before) {
+        pushLog(`${targetUnit.displayName}の体幹：${before} → ${targetUnit.stamina}`, unit.faction);
+        changed = true;
+      }
+    }
+    if (!changed) {
+      pushLog(`${targetUnit.displayName}には特に変化がなかった。`, unit.faction);
+    }
+    render();
+    await sleep(ACTION_DELAY_MS);
+  }
+
+  // 【ブレンド＋】専用の解決関数：C（対象のIN）が負ならダメージ枠
+  // （blendPlusDamage、effect:"hp"）、0以上なら体幹操作枠
+  // （staminaShift、既存の【崇高】用の葉をそのまま流用）へ振り分ける
+  // -- 効果種別が実行時の条件で変わるためbounceと同じ構造を取る。
+  async function resolveBlendPlus(unit, targetUnit) {
+    if (targetUnit.in < 0) {
+      await applyLeafModule(unit, targetUnit, MAIN_MODULES.blendPlusDamage, {});
+    } else {
+      await applyLeafModule(unit, targetUnit, MAIN_MODULES.staminaShift, { n: -2 });
+    }
+  }
+
   // Mainフェイズ用のカスタム解決関数レジストリ：resolvePrepActionの
   // module.custom === "tasteTest"分岐と対になる仕組み。stepsの汎用
   // エンジン（固定回数・固定候補）では表現しづらいスキルを、
   // module.custom: "<key>"で対応するresolverへ振り分ける。
   const MAIN_CUSTOM_RESOLVERS = {
     bounce: resolveBounce,
+    bouncePlus: resolveBouncePlus,
     shareCut: resolveShareCut,
+    shareCutPlus: resolveShareCutPlus,
     arrange: resolveArrange,
+    arrangePlus: resolveArrangePlus,
+    blendPlus: resolveBlendPlus,
     hyperRush: resolveHyperRush,
     honeyBeastBeat: resolveHoneyBeastBeat,
   };
