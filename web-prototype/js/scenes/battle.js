@@ -5646,10 +5646,18 @@ export function BattleScene(container, params, api) {
       if (unit === activeArrow.actor) classes.push("battle-unit--actor");
       else if (activeArrow.targets ? activeArrow.targets.includes(unit) : unit === activeArrow.target) classes.push("battle-unit--target");
     } else {
-      // Prepフェイズで「この隊員の行動対象を選ぶ」モード中のその隊員
-      // 自身も、矢印表示中の行動主体と同じ見た目でハイライトする。
-      if (phase === "prep" && unit === prepTargetPickingActor) classes.push("battle-unit--actor");
-      if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
+      // D2：行動内容（スキル）は選んだが行動対象がまだ決まっていない間、
+      // その行動主体を矢印表示中と同じ見た目でハイライトする。Prepは
+      // prepTargetPickingActorで「今どの隊員の対象を選んでいるか」を
+      // 明示的に管理しているのでそれを使い、Mainは行動主体が常に今の
+      // 手番のユニット1人なので、moduleId確定・targetUnit未確定という
+      // 状態そのもので判定できる（targetUnitまで決まればmaybeAutoExecute
+      // Mainで即実行されるので、この状態は「対象待ち」の間だけ存在する）。
+      const isActorAwaitingTarget =
+        (phase === "prep" && unit === prepTargetPickingActor) ||
+        (phase === "main" && unit === mainOrder[mainCursor] && !!unit.action?.moduleId && !unit.action.targetUnit);
+      if (isActorAwaitingTarget) classes.push("battle-unit--actor");
+      else if (isClickableAsTarget(unit)) classes.push("battle-unit--clickable-target");
       else if (isPickableActor(unit)) classes.push("battle-unit--pickable-actor");
     }
     return classes.length ? classes.join(" ") : null;
