@@ -4981,6 +4981,13 @@ export function BattleScene(container, params, api) {
   // （実際の遷移とHP復活はhandleBattleEndButton側）。
   function concludeBattle(outcome) {
     battleOutcome = outcome;
+    // 戦闘終了時点でトリガーされた一連の処理（Prep/Mainの自動連続実行）
+    // が完了したことを示す -- これをtrueのままにすると、isInteractive()
+    // が永久にfalseのままになり、G3のテストフック（pickTarget内の
+    // while(executing)待機など）がこの後さらに何か呼ばれた場合に
+    // ハングしてしまう（本来のUIはbattleOutcome確定後に行動選択系の
+    // 関数を呼び直すことが無いため、これまで表面化していなかった）。
+    executing = false;
     if (outcome === "victory") {
       pushLog("▼▼▼ 勝利！ ▼▼▼", "phase");
       pushLog(`戦闘勝利報酬：${grantBattleRewards()}`, "phase");
@@ -6584,6 +6591,148 @@ export function BattleScene(container, params, api) {
     // 巻き戻る -- scrollArenaToCenterOn自体のコメント参照）。
     if (activeArrow) scrollArenaToCenterOn(activeArrow.targets ? [activeArrow.actor, ...activeArrow.targets] : [activeArrow.actor, activeArrow.target]);
   }
+
+  // G3：プログラム的にトリガーできるテストフック。DOM操作（クリック・
+  // テキスト照合）に頼らずPlaywrightテストから戦闘を直接駆動・検査
+  // できるようにする -- クリック手順の変化（D8のプルダウン撤去、F3の
+  // 行動順カード列刷新など）にテストが影響されなくなる、ランダム戦闘
+  // 生成に頼らずシナリオを固定できる、フェイズ切替の完了をポーリング
+  // ではなくPromiseの完了で検知できる、という3点が主な狙い。
+  // 本番動作には一切影響しない（読み取り専用のgetState以外は、既存の
+  // クリックハンドラが内部で呼んでいる関数をそのまま呼ぶだけ）。
+  function findUnitById(id) {
+    return [...allyUnits, ...enemyUnits].find((u) => u.character.id === id);
+  }
+
+  function summarizeUnitForTest(unit) {
+    return {
+      id: unit.character.id,
+      name: unit.displayName,
+      faction: unit.faction,
+      level: unit.character.level,
+      hp: unit.character.currentHp,
+      maxHp: computeEffectiveMaxHp(unit.character),
+      pt: { ...unit.pt },
+      in: unit.in,
+      stamina: unit.stamina,
+      incapacitated: isIncapacitated(unit),
+      action: unit.action
+        ? {
+            moduleId: unit.action.moduleId,
+            targetId: unit.action.targetUnit?.character.id ?? null,
+            extraTargetIds: unit.action.extraTargets.map((t) => t.character.id),
+            resolved: isActionFullyResolved(unit),
+          }
+        : null,
+    };
+  }
+
+  window.__battleTestHooks__ = {
+    // 現在の戦闘状態を丸ごと読み取る（アサーション用）。
+    getState() {
+      return {
+        phase,
+        turn,
+        mainCursor,
+        battleOutcome,
+        mainOrder: mainOrder.map((u) => u.character.id),
+        allies: allyUnits.map(summarizeUnitForTest),
+        enemies: enemyUnits.map(summarizeUnitForTest),
+        log: logLines.map((l) => l.text),
+      };
+    },
+    // このユニットが今選べるスキル一覧（id・表示名）。行動ポップアップの
+    // 開閉を経由せずに済む。
+    listViableModules(unitId) {
+      const unit = findUnitById(unitId);
+      if (!unit) throw new Error(`unit not found: ${unitId}`);
+      return viableModuleIdsFor(unit).map((id) => ({ id, label: currentModules()[id].label }));
+    },
+    // 今のunit.action（スキル選択済みで対象未確定の状態）に対して、次に
+    // 選べる対象候補のユニットidの一覧。
+    listTargetCandidates(unitId) {
+      const unit = findUnitById(unitId);
+      if (!unit) throw new Error(`unit not found: ${unitId}`);
+      return currentPickCandidates(unit).map((u) => u.character.id);
+    },
+    // handlePopupSkillSelect相当（ポップアップでスキル名をクリックする
+    // ことと同じ）。単一候補の対象は自動確定される（既存仕様のまま）。
+    chooseModule(unitId, moduleId) {
+      const unit = findUnitById(unitId);
+      if (!unit) throw new Error(`unit not found: ${unitId}`);
+      handleModuleChange(unit, moduleId);
+    },
+    // confirmPick相当（対象候補のステータス枠をクリックすることと同じ）。
+    // confirmPickは同期関数で、Mainフェイズの自動実行（maybeAutoExecuteMain
+    // 経由のrunMainStep）はawaitされずに投げっぱなしで開始される --
+    // runMainStepは最初のawaitより前で同期的にexecuting=trueにするため、
+    // confirmPickが返った時点でexecutingを見ればその実行が始まったか
+    // どうか判定でき、trueである間だけ待てば完了を検知できる。
+    async pickTarget(unitId, targetUnitId) {
+      const unit = findUnitById(unitId);
+      const targetUnit = findUnitById(targetUnitId);
+      if (!unit) throw new Error(`unit not found: ${unitId}`);
+      if (!targetUnit) throw new Error(`target unit not found: ${targetUnitId}`);
+      confirmPick(unit, targetUnit);
+      while (executing) await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+    // chooseModule+pickTargetの一括版。targetIdsを省略した場合は、その
+    // 都度その時点で選べる候補（currentPickCandidates）の先頭を、対象が
+    // 埋まりきるまで機械的に選び続ける -- D5のような複数対象の逐次選択
+    // （1回選ぶたびに次に選べる候補が変わる）にも自然に対応できる、
+    // 「対象は何でもいいからとにかく1つ行動を確定させたい」テスト向けの
+    // 簡易版。特定の対象を指定したい場合はtargetIdsを渡す。
+    async setAction(unitId, moduleId, targetIds) {
+      this.chooseModule(unitId, moduleId);
+      const unit = findUnitById(unitId);
+      if (Array.isArray(targetIds)) {
+        for (const targetId of targetIds) {
+          if (isActionFullyResolved(unit)) break;
+          await this.pickTarget(unitId, targetId);
+        }
+      } else {
+        while (!isActionFullyResolved(unit)) {
+          const candidates = currentPickCandidates(unit);
+          if (candidates.length === 0) break;
+          await this.pickTarget(unitId, candidates[0].character.id);
+        }
+      }
+      return summarizeUnitForTest(unit).action;
+    },
+    // handleModuleChange(unit, null)相当（自分の枠へドロップして行動を
+    // 取り消すことと同じ）。
+    cancelAction(unitId) {
+      const unit = findUnitById(unitId);
+      if (!unit) throw new Error(`unit not found: ${unitId}`);
+      handleModuleChange(unit, null);
+    },
+    // Prepは全味方、Mainは今の手番ユニットが確定済みかどうか（実行
+    // ボタン／オードブル開始！が押せる状態かどうかと同じ判定）。
+    isReady() {
+      return phase === "prep" ? allAlliesReady() : mainActorReady();
+    },
+    // 「行動実行！」／「オードブル開始！」ボタン相当。返るPromiseが
+    // 解決するまで待てば、Prepの順次処理・Mainフェイズ最初の自動行動
+    // バーストまで含めて完了している。
+    runPrepExecution: () => runPrepExecution(),
+    // Mainフェイズの「行動実行！」相当（今の手番ユニット1人分の実行、
+    // 続く敵の自動行動バーストも含めて完了してから解決する）。
+    runMainStep: () => runMainStep(),
+    // G3：ランダム戦闘生成に頼らず敵構成を固定するためのフック。
+    // Prepフェイズの行動選択が始まる前（戦闘開始直後）に呼ぶ前提 --
+    // 敵のPrep行動もこの時点で選び直す（通常の初期化と同じ経路）。
+    // specs: [{ dataId: MONSTER_DATAのキー, level? }]。
+    forceEnemies(specs) {
+      enemyUnits.length = 0;
+      for (const spec of specs) {
+        const unit = createBattleUnit(createMonsterFromData(spec.dataId, spec.level ?? 1), "enemy");
+        unit.action = pickMonsterAction(unit, "prep");
+        enemyUnits.push(unit);
+      }
+      assignDisplayNames([...allyUnits, ...enemyUnits]);
+      render();
+    },
+  };
 
   render();
   return {};
