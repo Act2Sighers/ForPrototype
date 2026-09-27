@@ -979,6 +979,7 @@ body {
 }
 
 .hp-gauge {
+  position: relative;
   flex: 1;
   min-width: 80px;
   height: 8px;
@@ -991,6 +992,20 @@ body {
   height: 100%;
   background: var(--stat-hp);
   border-radius: 999px;
+}
+
+/* 戦闘画面限定（battleHpGauge参照）：変調による実効最大HPの低下を、
+   ゲージの右端から浸食してくる紫色の帯として視覚化する。ゲージ自体の
+   長さは常に「本来の最大HP」基準のままなので、.hp-gauge__fillの橙色
+   （現在HP分、左から）とこの紫色の帯（変調量ぶん、右から）は重ならない
+   （currentHp + condition <= 本来の最大HPが常に成り立つため）。紫は
+   協調性能力値と同じ色（--stat-sociality）を使う。 */
+.hp-gauge__erosion {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  background: var(--stat-sociality);
 }
 
 /* 探索イベントの作業進捗度ゲージ -- .hp-gauge と同じ構造で色だけ変える */
@@ -1161,10 +1176,14 @@ body {
    Battle screen (battle.js) -- レイアウトのみ、中身の処理は未実装
    --------------------------------------------------------- */
 
-/* 画面最上部のテキストログ。スマホなど視覚的な戦場スペースを表示でき
-   ない端末でも、最低限これだけは常に見える。 */
+/* 戦闘盤面の下側に置くテキストログ（ユーザー指示：以前は画面最上部で
+   黒背景・最新行が最下部に追記される仕様だったが、盤面の下へ移し、
+   背景も戦闘盤面と同じ色にして、最新行が最上部に来て古い行が下へ流れる
+   仕様に変更した -- battleLog()参照）。背景はbodyの--void（戦闘盤面
+   自体は明示的な背景を持たず、bodyの色がそのまま透けて見えている）に
+   合わせている。 */
 .battle-log {
-  background: #000;
+  background: var(--void);
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
@@ -1289,6 +1308,11 @@ body {
   background: rgba(20, 12, 28, 0.6);
   text-align: center;
   pointer-events: none;
+  /* opacityはJS側（updateCenterOverlayOpacity）がカメラの位置を見て
+     直接書き込む -- カメラが既定位置（全員が映る通常表示）以外の時は
+     薄くし、クローズアップ中のユニットに常に不透明のまま被さって見え
+     づらくなるのを防ぐ（ユーザー指示）。 */
+  transition: opacity 0.2s ease;
 }
 
 .battle-center-overlay button {
@@ -1547,28 +1571,42 @@ body {
   white-space: nowrap;
 }
 
-/* F1：Prepフェイズ中、枠の真上中央に常時出すイニシアチブ(IN)の数字。
-   枠は持たず（背景透過）、.battle-unit__nameより一回り大きいフォント
-   サイズにする。position:absoluteの親（placedCardの外側ラッパー）
-   基準で、枠の上端からわずかに上に浮かせる。 */
+/* F1：Prepフェイズ中、枠の真下中央に常時出す「イニシアチブ：n」表示。
+   枠は持たず（背景透過）、position:absoluteの親（placedCardの外側
+   ラッパー）基準で、枠の下端からわずかに下へ浮かせる（ユーザー指示 --
+   以前は枠の真上に数値だけを表示していた）。 */
 .battle-unit__initiative {
   position: absolute;
-  top: -24px;
+  top: 100%;
   left: 0;
   width: 100%;
-  text-align: center;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--ink-dim);
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
   pointer-events: none;
   line-height: 1;
 }
 
-.battle-unit__initiative--positive {
+.battle-unit__initiative-label {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* .battle-unit__nameより一回り大きいフォントサイズにする（以前の数値
+   単独表示と同じ大きさを踏襲）。 */
+.battle-unit__initiative-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+.battle-unit__initiative-value--positive {
   color: var(--stat-defence);
 }
 
-.battle-unit__initiative--negative {
+.battle-unit__initiative-value--negative {
   color: var(--danger);
 }
 
@@ -1626,13 +1664,6 @@ body {
 .battle-unit__in {
   font-size: 11px;
   color: var(--ink-dim);
-  white-space: nowrap;
-}
-
-/* 変調：隊員（味方陣営）限定の常設パラメータ、紫（協調性と同じ色）。 */
-.battle-unit__condition {
-  font-size: 11px;
-  color: var(--stat-sociality);
   white-space: nowrap;
 }
 

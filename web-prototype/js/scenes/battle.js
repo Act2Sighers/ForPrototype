@@ -10,6 +10,7 @@ import state, {
 } from "../state.js";
 import {
   computeStats,
+  computeMaxHp,
   computeEffectiveMaxHp,
   computeLevel,
   increaseCondition,
@@ -3849,11 +3850,6 @@ function staminaSpan(stamina) {
   return h("span", { class: "battle-unit__stamina", text: "体幹: 0" });
 }
 
-// 変調：隊員（味方陣営）限定の常設パラメータ。モンスターには表示しない。
-function conditionBadge(unit) {
-  return h("span", { class: "battle-unit__condition", text: `変調: ${unit.character.condition ?? 0}` });
-}
-
 // 残りPTを示すランプ。図形で示す指定なので文字の「●」「○」ではなく
 // 実際の丸い要素を並べる（武器強化画面のゲージと同じ考え方）。
 function ptLamp(current, max) {
@@ -3868,17 +3864,31 @@ function ptLamp(current, max) {
 // 戦闘画面の枠は横幅が厳しいので「カロリー(HP)」ではなく「HP」だけ
 // のラベルにした専用版。継続回復/継続ダメージがかかっている間は、
 // ラベルを「HP(↑n)」「HP(↓n)」に変えてその存在を示す。
+// 変調（condition）：ゲージ自体の長さは常に「本来の最大HP」
+// （computeMaxHp、変調による低下を受けない）を基準にし、そこへ橙色の
+// 現在HP分を左から、紫色の変調浸食（変調量ぶん）を右から重ねて描く
+// （ユーザー指示・モックアップ：「HP: 12/24 ■■□□★★★★★★」 --
+// 本来の最大HP60・変調36・実効最大HP24・現在HP12の例）。数値表示
+// （ラベル横の「現在/実効最大」）は変調適用後の実効最大HPを基準に
+// する旧仕様のまま変えない。モンスターはcondition常に0（隊員限定の
+// パラメータ）なので浸食幅は自然に0%になり、旧来と見た目が変わらない。
 function battleHpGauge(unit) {
   const character = unit.character;
+  const rawMaxHp = computeMaxHp(character.growth);
   const maxHp = computeEffectiveMaxHp(character);
   const currentHp = character.currentHp ?? maxHp;
-  const pct = maxHp > 0 ? Math.max(0, Math.min(100, (currentHp / maxHp) * 100)) : 0;
+  const condition = character.condition ?? 0;
+  const fillPct = rawMaxHp > 0 ? Math.max(0, Math.min(100, (currentHp / rawMaxHp) * 100)) : 0;
+  const erosionPct = rawMaxHp > 0 ? Math.max(0, Math.min(100, (condition / rawMaxHp) * 100)) : 0;
   const c = unit.continuousHp;
   const label = c ? `HP(${c.type === "heal" ? "↑" : "↓"}${c.n})` : "HP";
   return h("div", { class: "hp-line" }, [
     h("span", { class: "hp-line__label stat-hp", text: label }),
     h("span", { class: "hp-line__value", text: `${currentHp} / ${maxHp}` }),
-    h("div", { class: "hp-gauge" }, [h("div", { class: "hp-gauge__fill", style: `width:${pct}%` })]),
+    h("div", { class: "hp-gauge" }, [
+      h("div", { class: "hp-gauge__fill", style: `width:${fillPct}%` }),
+      erosionPct > 0 ? h("div", { class: "hp-gauge__erosion", style: `width:${erosionPct}%` }) : null,
+    ]),
   ]);
 }
 
@@ -3913,10 +3923,12 @@ function unitAttribute(character) {
   return character.attribute ?? NO_ATTRIBUTE;
 }
 
-// C1で削った情報（能力値/IN/体幹＝装甲・脆弱性/変調）を、マウスオーバー
-// 時のポップアップとして仮に確認できるようにする土台（ユーザー指示）。
+// C1で削った情報（能力値/IN/体幹＝装甲・脆弱性）を、マウスオーバー時の
+// ポップアップとして仮に確認できるようにする土台（ユーザー指示）。
 // 将来的に装甲/脆弱性/バフ/デバフは簡易アイコンへ差し替わる想定だが、
-// それまでの間はここに文字情報のまま出しておく。変調は隊員限定。
+// それまでの間はここに文字情報のまま出しておく。変調はここでは表示
+// しない -- HPゲージ自体に浸食として視覚化されるようになったため、
+// 数値としての表示は不要になった（ユーザー指示）。
 // レベルは常時表示から外し（ユーザー指示）、マウスオーバーポップアップ
 // の先頭行に回す。
 // C2改：以前はCSSの:hoverだけで開閉する、カードの子要素としての
@@ -3930,7 +3942,6 @@ function unitAttribute(character) {
 // サイズで、かつ絶対に見切れなくなる。
 function battleUnitPopoverContent(unit) {
   const children = [h("span", { class: "battle-unit__level", text: `Lv.${unit.character.level}` }), battleStatsRow(unit), staminaSpan(unit.stamina)];
-  if (unit.faction === "ally") children.push(conditionBadge(unit));
   return h("div", { class: "battle-unit__popover" }, children);
 }
 
@@ -3958,15 +3969,19 @@ function battleUnitCard(unit, extraClass, onClick, onPointerDown, onMouseenter, 
   ]);
 }
 
-// F1：Prepフェイズ中、各ユニットの枠の真上中央に常時表示するイニシア
-// チブ(IN)の数字。枠自体は持たず（背景透過）、名前より一回り大きい
-// 文字だけを置く（ユーザー指示）。正なら青地に「+n」、負なら赤地に
-// 「-n」、0はどちらでもない中間色でそのまま「0」と表示する。
+// F1：Prepフェイズ中、各ユニットの枠の真下中央に常時表示するイニシア
+// チブ(IN)。枠自体は持たず（背景透過）、「イニシアチブ：」の小さい
+// ラベルに続けて、名前より一回り大きい文字で数値を出す（ユーザー指示 --
+// 以前は枠の真上に数値だけを表示していた）。正なら青地に「+n」、負なら
+// 赤地に「-n」、0はどちらでもない中間色でそのまま「0」と表示する。
 function initiativeBadge(unit) {
   const n = unit.in;
-  const sign = n > 0 ? "battle-unit__initiative--positive" : n < 0 ? "battle-unit__initiative--negative" : "";
+  const sign = n > 0 ? "battle-unit__initiative-value--positive" : n < 0 ? "battle-unit__initiative-value--negative" : "";
   const text = n > 0 ? `+${n}` : `${n}`;
-  return h("div", { class: `battle-unit__initiative ${sign}`.trim(), text });
+  return h("div", { class: "battle-unit__initiative" }, [
+    h("span", { class: "battle-unit__initiative-label", text: "イニシアチブ：" }),
+    h("span", { class: `battle-unit__initiative-value ${sign}`.trim(), text }),
+  ]);
 }
 
 function targetDisplayName(actor, target) {
@@ -4127,6 +4142,12 @@ export function BattleScene(container, params, api) {
   let lastCameraTx = 0;
   let lastCameraTy = 0;
   let lastCameraScale = 1;
+  // カメラが「既定位置」（盤面中央が画面中心、全ユニットが映り込んで
+  // いる状態）にあるかどうか。updateCenterOverlayOpacity()が参照し、
+  // 既定位置の時だけ中央固定表示（ターン/フェイズ/vs/オードブル開始！
+  // ボタン）を不透明にする（ユーザー指示：それ以外の時はクローズアップ
+  // 中のユニットに被さって見づらいため薄くする）。
+  let cameraAtDefaultPosition = true;
   // D4：ドラッグで対象を確定する処理の実行中状態。null＝ドラッグ中で
   // ない。{ actor, origin, arenaEl, overlay, arenaRect, hoverEl }
   // -- origin/arenaRectはpointerdown時に1度だけ実測してキャッシュし、
@@ -6322,10 +6343,14 @@ export function BattleScene(container, params, api) {
   }
 
   function battleLog() {
+    // ユーザー指示：最新の行が表示枠の最上部に来て、古い行が下へ流れて
+    // いく仕様に変更（旧仕様は逆で、最下部へ追記→毎回scrollTopを最下
+    // 端へ強制していた）。配列そのものは引き続き古い順（push）で溜める
+    // ため、表示だけ複製して反転させる。
     return h(
       "div",
       { class: "battle-log" },
-      logLines.map((line) => h("p", { class: `battle-log__line battle-log__line--${line.kind}`, text: line.text }))
+      [...logLines].reverse().map((line) => h("p", { class: `battle-log__line battle-log__line--${line.kind}`, text: line.text }))
     );
   }
 
@@ -6415,7 +6440,8 @@ export function BattleScene(container, params, api) {
               e.stopPropagation();
               handlePopupSkillSelect(unit, m.id);
             },
-            text: m.label,
+            // ユーザー指示：スキル名だけでなく最短表記も併記する。
+            text: `${m.label}（${m.shortNotation}）`,
           })
         ),
       ]
@@ -6788,7 +6814,7 @@ export function BattleScene(container, params, api) {
   // その中心（biasRectを指定した場合はrects全体の中心とbiasRectの中心を
   // biasWeightで按分した点）が.battle-arena-scrollの表示領域の中心に
   // 来るようスクロールする。
-  function applyCamera(rects, { biasRect, biasWeight = 0 } = {}) {
+  function applyCamera(rects, { biasRect, biasWeight = 0, isDefaultView = false } = {}) {
     const scrollEl = container.querySelector(".battle-arena-scroll");
     const canvasEl = container.querySelector(".battle-freeform-canvas");
     if (!scrollEl || !canvasEl || rects.length === 0) return;
@@ -6802,7 +6828,7 @@ export function BattleScene(container, params, api) {
     // あった。非表示中はカメラを動かさず、次の描画フレーム（.is-active
     // 付与後の最初のペイント）で同じ引数のまま再試行する。
     if (scrollEl.clientWidth <= 0 || scrollEl.clientHeight <= 0) {
-      requestAnimationFrame(() => applyCamera(rects, { biasRect, biasWeight }));
+      requestAnimationFrame(() => applyCamera(rects, { biasRect, biasWeight, isDefaultView }));
       return;
     }
 
@@ -6855,6 +6881,7 @@ export function BattleScene(container, params, api) {
     lastCameraTx = tx;
     lastCameraTy = ty;
     lastCameraScale = scale;
+    cameraAtDefaultPosition = isDefaultView;
   }
 
   // 指定ユニットの枠の「最終的な」（カメラのCSSトランジションが完了した
@@ -6948,8 +6975,10 @@ export function BattleScene(container, params, api) {
         return;
       }
       // ①/④：それ以外（誰かの選択待ち・全員確定済みなど）は既定位置＝
-      // 全員が映る通常表示。
-      applyCamera([allUnitsLogicalRect()]);
+      // 全員が映る通常表示。isDefaultView:trueを渡し、中央固定表示
+      // （battle-center-overlay）の不透明度判定に使う（updateCenter
+      // OverlayOpacity参照）。
+      applyCamera([allUnitsLogicalRect()], { isDefaultView: true });
       return;
     }
     // Mainフェイズ：プレイヤーの選択が必要なのは常にmainOrder[mainCursor]
@@ -6970,7 +6999,7 @@ export function BattleScene(container, params, api) {
     }
     // ①：プレイヤーの選択が必要な場面でない間（敵の自動行動待ち等）は
     // 既定位置。
-    applyCamera([allUnitsLogicalRect()]);
+    applyCamera([allUnitsLogicalRect()], { isDefaultView: true });
   }
 
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
@@ -7044,23 +7073,35 @@ export function BattleScene(container, params, api) {
     renderScreen(container, {
       eyebrow: isArenaMode ? "TRAINING GROUNDS" : mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
       title: isArenaMode ? "訓練（アリーナモード）" : mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
-      body: [battleLog(), battleArena()],
+      body: [battleArena(), battleLog()],
       onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
     });
     restoreArenaScrollState(savedArenaScroll);
-    // テキストログは常に最新行が見えるよう、描画のたびに一番下へ
-    // スクロールする（.screen-frame自体のスクロール位置保持とは別)。
-    const logEl = container.querySelector(".battle-log");
-    if (logEl) logEl.scrollTop = logEl.scrollHeight;
     updateArrowOverlay();
     updateCamera();
-    // ポップアップ2種の実際の画面位置は、カメラ（スクロール/ズーム）が
-    // 確定した後でなければ正しく測れないため、updateCamera()の後で呼ぶ。
+    // ポップアップ2種・中央固定表示の不透明度は、カメラ（スクロール/
+    // ズーム）が確定した後でなければ正しく判定できないため、
+    // updateCamera()の後で呼ぶ。
     updateActionPopupOverlay();
     updateHoverPopoverOverlay();
+    updateCenterOverlayOpacity();
     scrollActionQueueToActive(".battle-action-queue--left");
     scrollActionQueueToActive(".battle-action-queue--right");
+  }
+
+  // 中央固定表示（ターン/フェイズ/vs/オードブル開始！ボタン）は、カメラ
+  // が既定位置（全員が映る通常表示）にある時だけ不透明にし、ユニットへ
+  // クローズアップ中など既定位置以外の時は薄くする（ユーザー指示：
+  // クローズアップしたユニットに常に不透明のまま被さるのが気になる
+  // とのこと）。「オードブル開始！」ボタンが出るのは全員確定済み＝
+  // 既定位置の時に限られるため、薄くなっている間にこの表示だけ操作
+  // したくなる場面は起こらない。
+  const CENTER_OVERLAY_DIMMED_OPACITY = 0.2;
+  function updateCenterOverlayOpacity() {
+    const overlayEl = container.querySelector(".battle-center-overlay");
+    if (!overlayEl) return;
+    overlayEl.style.opacity = cameraAtDefaultPosition ? "1" : String(CENTER_OVERLAY_DIMMED_OPACITY);
   }
 
   // G3：プログラム的にトリガーできるテストフック。DOM操作（クリック・

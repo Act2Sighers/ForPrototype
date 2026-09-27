@@ -24,7 +24,10 @@ test('Prep実行中、最適化/牽制でIN表示が実行の瞬間に+/-・色�
   const [ally1, ally2] = state.allies;
   const enemyId = state.enemies[0].id;
 
-  const badgeFor = (unitId) => page.locator(`.battle-freeform-canvas [data-unit-id="${unitId}"]`).locator('xpath=..').locator('.battle-unit__initiative');
+  // イニシアチブ表示は「イニシアチブ：」ラベル＋数値の2つのspanに
+  // 分かれている（ユーザー指示）。テキスト/色クラスの検証は数値側の
+  // .battle-unit__initiative-valueを対象にする。
+  const badgeFor = (unitId) => page.locator(`.battle-freeform-canvas [data-unit-id="${unitId}"]`).locator('xpath=..').locator('.battle-unit__initiative-value');
   await expect(badgeFor(ally1.id)).toHaveText('0');
   await expect(badgeFor(ally1.id)).not.toHaveClass(/--positive|--negative/);
 
@@ -68,7 +71,7 @@ test('Prep実行中、最適化/牽制でIN表示が実行の瞬間に+/-・色�
   const ally2Line = (await getState(page)).log.find((l) => l.includes(`${ally2.name}のIN`));
   const afterValue = Number(ally2Line.match(/→\s*(-?\d+)/)[1]);
   const expectedText = afterValue > 0 ? `+${afterValue}` : `${afterValue}`;
-  const expectedClass = afterValue > 0 ? /--positive/ : afterValue < 0 ? /--negative/ : /^battle-unit__initiative$/;
+  const expectedClass = afterValue > 0 ? /--positive/ : afterValue < 0 ? /--negative/ : /^battle-unit__initiative-value$/;
   await expect(badgeFor(ally2.id)).toHaveText(expectedText);
   await expect(badgeFor(ally2.id)).toHaveClass(expectedClass);
 
