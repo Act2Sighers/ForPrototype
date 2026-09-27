@@ -28,6 +28,7 @@ import {
   pickLowestQualityFrame,
   pickLowestQualityNatural,
 } from "./data/resourceCatalog.js";
+import { buildArenaDefaultConfig, encodeArenaConfig, decodeArenaConfig } from "./data/arena.js";
 
 // 隊員 (characters, each carrying its own equipped 武器) live in one of
 // three slot groups:
@@ -40,6 +41,9 @@ import {
 export const FORMATION_LIMIT = 6;
 export const STANDBY_LIMIT = 6;
 export const RETIRED_LIMIT = 20; // not enforced yet — overflow handling is future work
+
+// 訓練所（アリーナモード）：名前付きプリセットの保存枠数。
+export const ARENA_PRESET_LIMIT = 10;
 
 // 体幹関連係数（オプション画面「体幹関連係数」参照）：スマッシュ/
 // プロテクトが強すぎるという実プレイでの手応えを受けての、バトルの
@@ -91,6 +95,14 @@ function freshProfile() {
     // 参照）と、探査記録画面（archive.js、宿舎から入る）の既読一覧
     // 表示の両方で使う。
     seenEpisodeIds: [],
+    // 訓練所（アリーナモード）の現在の設定一式（js/data/arena.jsの
+    // buildArenaDefaultConfig/validateArenaConfigが形を規定する）。
+    // プレイヤーがアリーナ画面で最後に確定した内容がそのまま次回訪問時
+    // にも復元される（ユーザー指示）。新規セーブでは初期値から始まる。
+    arenaConfig: buildArenaDefaultConfig(),
+    // 名前付きプリセット：ARENA_PRESET_LIMIT枠、空き枠はnull。
+    // {name, config, savedAt}の形（saveArenaPreset参照）。
+    arenaPresets: Array(ARENA_PRESET_LIMIT).fill(null),
   };
 }
 
@@ -716,6 +728,53 @@ export function recordPeddlerTriggered() {
   state.run.movesSincePeddler = 0;
 }
 
+// ---------------------------------------------------------------------
+// 訓練所（アリーナモード）
+// ---------------------------------------------------------------------
+// アリーナ画面が設定を変更するたびの唯一の書き換え口。構造化複製で
+// 完全に切り離す（呼び出し側が保持している同じオブジェクトへの参照を
+// 後から書き換えても、保存済みの現在設定が巻き込まれて変化しない
+// ようにするため -- slotSnapshot/restoreFromSlotと同じ流儀）。
+export function setArenaConfig(config) {
+  state.arenaConfig = structuredClone(config);
+}
+
+// 現在の設定を、名前を付けてプリセット枠（0〜ARENA_PRESET_LIMIT-1）に
+// 保存する（既存の内容は上書き）。
+export function saveArenaPreset(slotIndex, name) {
+  state.arenaPresets[slotIndex] = { name, config: structuredClone(state.arenaConfig), savedAt: Date.now() };
+}
+
+// プリセット枠の内容を現在の設定として読み込む。空き枠ならnoop（null
+// を返す）。
+export function loadArenaPreset(slotIndex) {
+  const preset = state.arenaPresets[slotIndex];
+  if (!preset) return null;
+  state.arenaConfig = structuredClone(preset.config);
+  return state.arenaConfig;
+}
+
+export function deleteArenaPreset(slotIndex) {
+  state.arenaPresets[slotIndex] = null;
+}
+
+// 現在の設定を可搬な文字列にエクスポートする（暗号化は行わない、共有・
+// バックアップ用の可逆エンコードのみ -- js/data/arena.jsのencodeArena
+// Config参照）。
+export function exportArenaConfigString() {
+  return encodeArenaConfig(state.arenaConfig);
+}
+
+// エクスポート文字列を現在の設定として取り込む。文字列が壊れている/
+// 改ざんされている等でデコード・検証に失敗した場合は何もせずfalseを
+// 返す（呼び出し側のUIがエラー表示を出す判断材料にする）。
+export function importArenaConfigString(text) {
+  const config = decodeArenaConfig(text);
+  if (!config) return false;
+  state.arenaConfig = config;
+  return true;
+}
+
 // A save slot bundles: its own label/timestamp, a deep copy of the
 // profile (warehouse + character slots), and a deep copy of the run in
 // progress (or null, if the player saved from outside a run — e.g. from
@@ -734,6 +793,8 @@ function slotSnapshot() {
       coatingCraftCounts: state.coatingCraftCounts,
       restEpisodeProgress: state.restEpisodeProgress,
       seenEpisodeIds: state.seenEpisodeIds,
+      arenaConfig: state.arenaConfig,
+      arenaPresets: state.arenaPresets,
     }),
     run: state.run ? structuredClone(state.run) : null,
   };

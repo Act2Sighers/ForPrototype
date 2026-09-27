@@ -430,3 +430,70 @@ export function buildArenaDefaultConfig() {
     conditionEnabled: true,
   };
 }
+
+// ---------------------------------------------------------------------
+// 設定オブジェクトの妥当性検証・文字列エクスポート/インポート
+// ---------------------------------------------------------------------
+// ユーザー指示：プリセットのエクスポート/インポートは「暗号化」までは
+// 不要で、共有・バックアップ目的で十分な可逆エンコード（JSON→Base64）
+// で良い。設定オブジェクト自体にプレイヤーが入力した文字列（プリセット
+// 名など）は含まれず、id・数値・真偽値のみで構成されるため、UTF-8を
+// 気にする必要のあるbtoa/atob単体でも安全に往復できる（念のため
+// encodeURIComponent/decodeURIComponentで挟んでおく）。インポートは
+// 「他人から受け取った/手で書き換えた文字列」を信頼せずに済むよう、
+// 復元した内容をvalidateArenaConfigで検証し、不正なら失敗を示すnullを
+// 返す。
+
+function isValidArenaAllySlot(slot) {
+  if (!slot || !IMPLEMENTED_CHARACTER_IDS.includes(slot.dataId)) return false;
+  if (!ARENA_LEVELS.includes(slot.level)) return false;
+  if (!ARENA_GROWTH_PROFILES[slot.growthProfileId]) return false;
+  if (slot.weaponTypeId != null && !compatibleWeaponTypeIds(slot.dataId).includes(slot.weaponTypeId)) return false;
+  if (slot.weaponQualityId != null && !ARENA_WEAPON_QUALITIES[slot.weaponQualityId]) return false;
+  if (typeof slot.skillSelection !== "object" || slot.skillSelection === null) return false;
+  return true;
+}
+
+function isValidArenaEnemySlot(slot) {
+  if (!slot || !ARENA_ENEMY_CATALOG_KINDS.includes(slot.kind)) return false;
+  try {
+    arenaEnemyTemplate(slot.kind, slot.dataId);
+  } catch {
+    return false;
+  }
+  if (!ARENA_LEVELS.includes(slot.level)) return false;
+  return Number.isInteger(slot.count) && slot.count >= 1 && slot.count <= 12;
+}
+
+// 訓練所の設定一式が、実際にcreateArenaCharacter/createArenaEnemyへ渡して
+// 安全な形をしているかを検証する。インポート文字列だけでなく、将来の
+// UI側の入力バリデーションにもそのまま使える想定。
+export function validateArenaConfig(config) {
+  if (!config || !Array.isArray(config.allies) || !Array.isArray(config.enemies)) return false;
+  if (config.allies.length < 2 || config.allies.length > 6) return false;
+  if (config.enemies.length < 1 || config.enemies.length > 5) return false;
+  if (!config.allies.every(isValidArenaAllySlot)) return false;
+  if (!config.enemies.every(isValidArenaEnemySlot)) return false;
+  const totalEnemyCount = config.enemies.reduce((sum, slot) => sum + slot.count, 0);
+  if (totalEnemyCount > 12) return false;
+  const bossSlots = config.enemies.filter((slot) => slot.kind === "boss" || slot.kind === "eliteBoss");
+  if (bossSlots.length > 1 || bossSlots.some((slot) => slot.count !== 1)) return false;
+  if (typeof config.conditionEnabled !== "boolean") return false;
+  return true;
+}
+
+export function encodeArenaConfig(config) {
+  return btoa(encodeURIComponent(JSON.stringify(config)));
+}
+
+// 不正な文字列（破損・改ざん・全くの無関係な文字列）はnullを返す
+// （JSON化・Base64デコードの失敗、および形式検証の失敗のどちらも）。
+export function decodeArenaConfig(text) {
+  let config;
+  try {
+    config = JSON.parse(decodeURIComponent(atob(text.trim())));
+  } catch {
+    return null;
+  }
+  return validateArenaConfig(config) ? config : null;
+}
