@@ -1356,6 +1356,34 @@ body {
   color: var(--ink-faint);
 }
 
+/* F2：Prepフェイズの全員の行動が確定した時だけ両陣営中央に出す、
+   インタラクト可能な「オードブル開始！」。押せることが一目で分かる
+   よう丸みの強いピル型ボタンにし、ゆるい明滅で誘目する。 */
+.battle-center__start-prompt {
+  appearance: none;
+  margin-top: 4px;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ember-ink);
+  background: var(--ember);
+  cursor: pointer;
+  white-space: nowrap;
+  animation: battle-start-prompt-pulse 1.6s ease-in-out infinite;
+}
+
+.battle-center__start-prompt:hover {
+  background: var(--ember-strong);
+}
+
+@keyframes battle-start-prompt-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 79, 163, 0.55); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 79, 163, 0); }
+}
+
 .battle-unit {
   position: relative;
   border: 1px solid var(--panel-line-strong);

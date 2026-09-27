@@ -6148,6 +6148,21 @@ export function BattleScene(container, params, api) {
     });
   }
 
+  // F2：Prepフェイズの全味方の行動内容・対象が確定すると、両陣営中央
+  // （battleCenterの直下）にインタラクト可能な「オードブル開始！」を
+  // 表示する。押すとactionExecuteButtonの「行動実行！」と同じ
+  // runPrepExecutionを呼び、Prepフェイズの順次処理へ移る -- 呼び出し
+  // 直後にexecuting=trueとなり次のrender()で自然に消える（isInteractive
+  // 参照）。
+  // 「行動実行！」ボタン自体（.battle-execute-btn）は、既存のPlaywright
+  // 回帰テスト群がPrepフェイズの実行トリガーとして直接クリックしている
+  // ため、システム都合によりそのまま残してある（G3のテスト再整備まで
+  // 撤去しない、ユーザー了承済み）。
+  function prepStartPrompt() {
+    if (phase !== "prep" || !isInteractive() || !allAlliesReady()) return null;
+    return h("button", { class: "battle-center__start-prompt", onClick: runPrepExecution, text: "オードブル開始！" });
+  }
+
   // キャンバス内の原点(originX, originY)の少し上（battleLayout.jsの
   // CENTER_BLOCK_WIDTH/HEIGHTぶんの領域）に、中央のフェイズ表示を絶対
   // 配置する。
@@ -6157,6 +6172,7 @@ export function BattleScene(container, params, api) {
       h("p", { class: "battle-center__turn", text: `${turn}ターン目` }),
       h("p", { class: "battle-center__phase", text: phase === "prep" ? "オードブル！" : "メインディッシュ！" }),
       h("p", { class: "battle-center__vs", text: "vs" }),
+      prepStartPrompt(),
     ]);
   }
 
