@@ -3907,11 +3907,18 @@ function unitAttribute(character) {
 // 時のポップアップとして仮に確認できるようにする土台（ユーザー指示）。
 // 将来的に装甲/脆弱性/バフ/デバフは簡易アイコンへ差し替わる想定だが、
 // それまでの間はここに文字情報のまま出しておく。変調は隊員限定。
-// CSSの.battle-unit:hover .battle-unit__popoverで表示を切り替える
-// （JS側で開閉状態を持たない、hoverだけの簡易実装）。
 // レベルは常時表示から外し（ユーザー指示）、マウスオーバーポップアップ
 // の先頭行に回す。
-function battleUnitPopover(unit) {
+// C2改：以前はCSSの:hoverだけで開閉する、カードの子要素としての
+// ポップアップだったが、戦闘盤面表示領域（.battle-arena-scroll、
+// overflow:hiddenでカメラのズーム/スクロールの影響を受ける）の内側に
+// あったため、カメラの位置によっては見切れて読めなくなる不具合があった
+// （ユーザー報告）。ポップアップ自体はJS側でカードの画面上の位置を
+// 実測し、表示領域の外（戦闘画面本体、position:fixed）へ「あたかも
+// カードの隣にあるかのように」描画するportal方式に変更（ユーザー提案）
+// -- updatePopupOverlay参照。これによりズーム倍率に関わらず常に同じ
+// サイズで、かつ絶対に見切れなくなる。
+function battleUnitPopoverContent(unit) {
   const children = [h("span", { class: "battle-unit__level", text: `Lv.${unit.character.level}` }), battleStatsRow(unit), staminaSpan(unit.stamina)];
   if (unit.faction === "ally") children.push(conditionBadge(unit));
   return h("div", { class: "battle-unit__popover" }, children);
@@ -3919,26 +3926,25 @@ function battleUnitPopover(unit) {
 
 // ステータス枠の表示項目は「名前・属性・HPゲージ・PT（ランプのみ）」に
 // 絞ってある（ユーザー指示）。レベル/変調/体幹/能力値/IN/戦闘不能バッジ
-// など他の情報は、この枠自体には出さず、battleUnitPopover()の
+// など他の情報は、この枠自体には出さず、battleUnitPopoverContent()の
 // マウスオーバーポップアップに回している。戦闘不能の判別は、この枠に
 // 別途重ねる.battle-unit--down（グレーアウト、statusCardClass参照）
 // のみで行う。属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）
 // の場合は、「属性：なし」等とは書かず、属性欄自体を表示しない。
 // PTはヘッダー行の右側（旧レベル表示の位置）へ移し、数値表示は削って
 // ランプ（pt-lamp）のみにする（ユーザー指示）。
-function battleUnitCard(unit, extraClass, onClick, onPointerDown) {
+function battleUnitCard(unit, extraClass, onClick, onPointerDown, onMouseenter, onMouseleave) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const character = unit.character;
   const attribute = unitAttribute(character);
   const attributeLabel = attribute === NO_ATTRIBUTE ? null : COATING_ATTRIBUTE_LABELS[attribute];
-  return h("div", { class: classes, "data-unit-id": character.id, onClick, onPointerdown: onPointerDown }, [
+  return h("div", { class: classes, "data-unit-id": character.id, onClick, onPointerdown: onPointerDown, onMouseenter, onMouseleave }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
       ptLamp(unit.pt.current, unit.pt.max),
     ]),
     attributeLabel ? h("p", { class: "battle-unit__attribute", text: `属性: ${attributeLabel}` }) : null,
     battleHpGauge(unit),
-    battleUnitPopover(unit),
   ]);
 }
 
@@ -4090,6 +4096,15 @@ export function BattleScene(container, params, api) {
   // ことでこれをトグルする（handlePrepActorClick/handleMainActorClick
   // 参照）。同時に開けるのは1人分だけ。
   let actionPopupUnit = null;
+  // C2：マウスオーバー中のユニット（サブステータスの簡易ポップオーバー
+  // 表示用）。null＝どのユニットにも乗っていない。以前はCSSの:hoverだけ
+  // で開閉していたが、ポップアップ自体をキャンバス外（戦闘画面本体）へ
+  // 出すportal方式に変えたため（updatePopupOverlay参照）、JS側でも
+  // どのユニットに乗っているかを状態として持つ必要がある。ホバーの
+  // たびに毎回render()（画面全体の組み直し）をすると重いので、
+  // hoveredUnitの変更はupdatePopupOverlay()の直接DOM操作だけで反映し、
+  // render()は呼ばない。
+  let hoveredUnit = null;
   // D4：ドラッグで対象を確定する処理の実行中状態。null＝ドラッグ中で
   // ない。{ actor, origin, arenaEl, overlay, arenaRect, hoverEl }
   // -- origin/arenaRectはpointerdown時に1度だけ実測してキャッシュし、
@@ -4344,9 +4359,15 @@ export function BattleScene(container, params, api) {
   pushPhaseHeader("オードブル！");
 
   // PrepフェイズもMainフェイズも同じ形（プレイヤー選択→行動実行）に
-  // なったので、処理中でなければ常に操作可能。
+  // なったので、処理中でなければ常に操作可能。ただし勝敗が決した後は、
+  // mainOrder/mainCursorや各ユニットのunit.actionがその瞬間の状態の
+  // まま残るため、battleOutcomeを見ずにexecutingだけで判定すると
+  // 「決着後もオードブル開始！／行動実行！が引き続き押せてしまい、
+  // 押すと最後の行動が再実行されて勝利/敗北ログと報酬が重複する」
+  // 不具合が起きる（ユーザー報告）。決着後は一切のプレイヤー操作
+  // （枠クリック・ドラッグ・実行ボタン）を受け付けない。
   function isInteractive() {
-    return !executing;
+    return !executing && !battleOutcome;
   }
 
   // Prepフェイズの現在の状況で、対象候補が最低1つある所持スキルのid
@@ -4770,6 +4791,13 @@ export function BattleScene(container, params, api) {
     const cardEl = arenaEl?.querySelector(`[data-unit-id="${actor.character.id}"]`);
     if (!arenaEl || !overlay || !cardEl) return;
     const arenaRect = arenaEl.getBoundingClientRect();
+    // overlayのviewBoxは直近のupdateArrowOverlay()呼び出し時点（＝この
+    // render()内でのupdateCamera()より前）の測定値のままなので、その後
+    // カメラが動いていた場合は現在のスケールとズレている可能性がある。
+    // ここで自前に測ったarenaRectへ synchronously 引き直しておくことで、
+    // 以降のorigin/pointerPointの座標系と必ず一致させる（ユーザー報告の
+    // 「ドラッグ開始時に矢印の位置がずれる」不具合の原因）。
+    overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
     const origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, actor.faction);
     dragState = {
       actor, origin, arenaEl, overlay, arenaRect, hoverEl: null, redoSlotIndex, redoOriginalUnitId,
@@ -4807,14 +4835,22 @@ export function BattleScene(container, params, api) {
       if (dragState.redoSlotIndex !== undefined) {
         // render()はシーン全体を組み直すため、それ以前にキャッシュした
         // arenaEl/overlayは差し替え後のDOMでは無効（detached）になる --
-        // 直後に取り直してdragStateへ入れ直す。
+        // 直後に取り直してdragStateへ入れ直す。dragState.origin（矢印の
+        // 起点）もbeginDrag時点＝このrender()より前の枠の位置を指した
+        // ままだったため、render()でカメラが動いた分だけ矢印の起点が
+        // 実際の枠の位置とずれる不具合があった（ユーザー報告）。origin
+        // も同じタイミングでcardEl基準に取り直す。
         render();
         const arenaEl = container.querySelector(".battle-freeform-canvas");
         const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
-        if (!dragState || !arenaEl || !overlay) { dragState = null; return; }
+        const cardEl = arenaEl?.querySelector(`[data-unit-id="${dragState.actor.character.id}"]`);
+        if (!dragState || !arenaEl || !overlay || !cardEl) { dragState = null; return; }
+        const arenaRect = arenaEl.getBoundingClientRect();
+        overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
         dragState.arenaEl = arenaEl;
         dragState.overlay = overlay;
-        dragState.arenaRect = arenaEl.getBoundingClientRect();
+        dragState.arenaRect = arenaRect;
+        dragState.origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, dragState.actor.faction);
       }
     }
     const { arenaRect, actor, redoSlotIndex, redoOriginalUnitId } = dragState;
@@ -6382,8 +6418,18 @@ export function BattleScene(container, params, api) {
       const children = [];
       // F1：Prepフェイズ中だけ、枠の真上に常時イニシアチブ(IN)を表示する。
       if (phase === "prep") children.push(initiativeBadge(unit));
-      children.push(battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit), (e) => handleUnitPointerDown(unit, e)));
-      if (actionPopupUnit === unit) children.push(battleActionPopup(unit));
+      children.push(
+        battleUnitCard(
+          unit,
+          statusCardClass(unit),
+          () => handleStatusCardClick(unit),
+          (e) => handleUnitPointerDown(unit, e),
+          () => handleUnitMouseEnter(unit),
+          () => handleUnitMouseLeave(unit)
+        )
+      );
+      // 行動選択ポップアップ（battleActionPopup）はここではなく
+      // popupOverlayLayer()側（戦闘盤面表示領域の外）に出す。
       return h("div", { style }, children);
     }
 
@@ -6411,7 +6457,79 @@ export function BattleScene(container, params, api) {
       // にすることで、その中の絶対配置はスクロールの影響を受けなくなる。
       h("div", { class: "battle-arena-viewport" }, [h("div", { class: "battle-arena-scroll" }, [canvas]), battleCenterOverlay()]),
       actionQueueColumn("ally", "battle-action-queue--right"),
+      popupOverlayLayer(),
     ]);
+  }
+
+  // C2改／D1改：ホバー時のサブステータスポップオーバーと行動選択
+  // ポップアップを、戦闘盤面表示領域（.battle-arena-scroll、カメラの
+  // ズーム/スクロールでクリップされる）の外に、position:fixedで
+  // 「あたかも該当のステータス枠の隣にあるかのように」重ねて出す層。
+  // 実際の位置はupdatePopupOverlay()がDOM実測して直接書き込む。
+  // ホバーポップオーバーは開閉のたびに毎回render()すると重いので、常に
+  // 存在する空の入れ物として用意しておき、中身の出し入れはhandleUnit
+  // MouseEnter/Leaveから直接DOM操作する（updateHoverPopoverOverlay
+  // 参照）。行動選択ポップアップはactionPopupUnitの変更が元々render()を
+  // 伴うので、素直に条件付きでここに含めている。
+  function popupOverlayLayer() {
+    return h("div", { class: "battle-popup-layer" }, [
+      h("div", { class: "battle-unit-popover-overlay" }, []),
+      actionPopupUnit ? battleActionPopup(actionPopupUnit) : null,
+    ]);
+  }
+
+  // カードの画面上の位置（getBoundingClientRect、実際のズーム倍率を
+  // 反映した実測値）を基準に、overlayElをその「下」または「上」へ
+  // ちょうど隣接するよう配置する（position:fixed前提、window座標系の
+  // ままでよい）。overlayEl自体は常に自然な＝ズームの影響を受けない
+  // サイズで描画されるため、倍率に関わらず常に同じ大きさで表示される
+  // （ユーザー要望）。
+  const POPUP_OVERLAY_MARGIN = 6;
+  function positionFixedOverlayNearCard(overlayEl, cardEl, direction) {
+    const cardRect = cardEl.getBoundingClientRect();
+    overlayEl.style.left = `${cardRect.left}px`;
+    overlayEl.style.width = `${cardRect.width}px`;
+    if (direction === "below") {
+      overlayEl.style.top = `${cardRect.bottom + POPUP_OVERLAY_MARGIN}px`;
+      overlayEl.style.bottom = "";
+    } else {
+      overlayEl.style.bottom = `${window.innerHeight - cardRect.top + POPUP_OVERLAY_MARGIN}px`;
+      overlayEl.style.top = "";
+    }
+  }
+
+  function handleUnitMouseEnter(unit) {
+    hoveredUnit = unit;
+    updateHoverPopoverOverlay();
+  }
+  function handleUnitMouseLeave(unit) {
+    if (hoveredUnit !== unit) return;
+    hoveredUnit = null;
+    updateHoverPopoverOverlay();
+  }
+
+  // render()の末尾からも呼ぶ（ホバー中に別の理由でrender()が走り、
+  // カメラや枠の位置が変わった場合にも追従させるため）。
+  function updateHoverPopoverOverlay() {
+    const layer = container.querySelector(".battle-unit-popover-overlay");
+    if (!layer) return;
+    if (!hoveredUnit) { layer.style.display = "none"; return; }
+    const cardEl = container.querySelector(`.battle-freeform-canvas [data-unit-id="${hoveredUnit.character.id}"]`);
+    if (!cardEl) { layer.style.display = "none"; return; }
+    while (layer.firstChild) layer.removeChild(layer.firstChild);
+    layer.appendChild(battleUnitPopoverContent(hoveredUnit));
+    layer.style.display = "block";
+    positionFixedOverlayNearCard(layer, cardEl, "above");
+  }
+
+  // render()の末尾から呼ぶ。actionPopupUnitがあれば、そのユニットの枠の
+  // すぐ下に来るようbattleActionPopup()の実際の画面位置を書き込む。
+  function updateActionPopupOverlay() {
+    if (!actionPopupUnit) return;
+    const popupEl = container.querySelector(".battle-action-popup");
+    const cardEl = container.querySelector(`.battle-freeform-canvas [data-unit-id="${actionPopupUnit.character.id}"]`);
+    if (!popupEl || !cardEl) return;
+    positionFixedOverlayNearCard(popupEl, cardEl, "below");
   }
 
   // battleArena()がDOMに実際に挿入された後（render()内でrenderScreen
@@ -6576,20 +6694,24 @@ export function BattleScene(container, params, api) {
   // 直接使う -- 前回のズーム倍率がどうであれ常に同じ土台で計算でき、
   // 「前回の倍率のまま測ってしまい、新しい倍率をさらに掛けて二重に縮小
   // されてしまう」といった不具合を構造的に避けられる（旧scrollArenaTo
-  // CenterOnはDOM実測ベースで、実際にこの問題を抱えていた）。唯一DOM実測
-  // が必要なのは「キャンバス自身の現在の画面上の中心位置」だけ -- transform:
-  // scale(s)はtransform-origin（既定で要素自身の中心）を基準に効くため、
-  // 倍率を変えてもこの中心点自体は画面上で動かない。よって「現在の中心
-  // 位置」を1度測っておけば、任意の新しい倍率sに対して、自然座標
-  // (natural座標、キャンバス左上基準)上の任意の点Pが画面上のどこに来るか
-  // を viewportCenter + (P - naturalCenter) * s で機械的に算出できる
-  // （実測し直す必要がないので、CSSトランジション中でも縮小前の古い値を
-  // 拾ってしまう心配が無い）。
+  // CenterOnはDOM実測ベースで、実際にこの問題を抱えていた）。
+  //
+  // パン（平行移動）とズームは、.battle-freeform-canvas自身の
+  // transform: translate(tx,ty) scale(s) だけで表現する（旧実装は
+  // scale()をtransformに、パンをscrollEl.scrollLeft/scrollTopに分担
+  // させていたが、ズーム拡大の上限を撤廃した際、scale>1でscrollEl.
+  // scrollWidth/maxScrollLeftがブラウザ側で「中心基準で拡大した際に
+  // 左/上方向へはみ出す分」を正しくスクロール可能範囲に含めない
+  // （実測するとscrollWidthが素の拡大後サイズと一致しない）ことが判明し、
+  // 大きなscaleで対象が画面外はるか彼方へずれる不具合を引き起こしていた。
+  // transform-origin: 0 0（CSS側で指定）にしておけば、ローカル座標系の
+  // 点P=(px,py)は screen = (tx + s*px, ty + s*py) という単純な式で
+  // 画面上の位置（.battle-arena-scrollの左上を原点とするローカル座標）
+  // に写る。自然座標(targetX, targetY)を表示領域の中心に置きたいので、
+  // tx = clientWidth/2 - s*targetX、ty = clientHeight/2 - s*targetY。
+  // ブラウザの「スクロール可能範囲」計算に一切依存しないため、どんな
+  // scaleでも正確に動く。
   const CAMERA_MARGIN = 32;
-  // ポップアップの実際の高さは選択肢数で変わる（DOM依存）が、正確な
-  // キャンバス座標変換までは行わず、CSS側のmax-height（theme.css
-  // .battle-action-popup参照）に余白を足した固定値で近似する。
-  const POPUP_APPROX_HEIGHT = 260;
   // ⑤：Mainフェイズで行動内容・対象がどちらも未確定な手番ユニットへ
   // 「気持ちだけ」寄せる度合い（0=寄せない、1=完全にその人を中心に）。
   const MAIN_CHOICE_ACTOR_BIAS = 0.18;
@@ -6635,14 +6757,8 @@ export function BattleScene(container, params, api) {
       return;
     }
 
-    const canvasRect = canvasEl.getBoundingClientRect();
-    const viewportCenterX = canvasRect.left + canvasRect.width / 2;
-    const viewportCenterY = canvasRect.top + canvasRect.height / 2;
-
     const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
     const bounds = computeCanvasBounds(layout);
-    const naturalCenterX = bounds.width / 2;
-    const naturalCenterY = bounds.height / 2;
 
     const minX = Math.min(...rects.map((r) => r.left));
     const maxX = Math.max(...rects.map((r) => r.right));
@@ -6651,7 +6767,11 @@ export function BattleScene(container, params, api) {
 
     const availableWidth = scrollEl.clientWidth - CAMERA_MARGIN * 2;
     const availableHeight = scrollEl.clientHeight - CAMERA_MARGIN * 2;
-    const scale = Math.min(1, availableWidth / (maxX - minX), availableHeight / (maxY - minY));
+    // 縮小に下限を設けていないのと同様（ユーザー指示）、拡大にも上限を
+    // 設けない -- 映すべき対象が表示領域よりずっと小さい時は、単に
+    // 「全員映ってさえいればそれ以上倍率を上げない」のではなく、その
+    // 対象へ実際にクローズアップするようにする（ユーザー指示）。
+    const scale = Math.min(availableWidth / (maxX - minX), availableHeight / (maxY - minY));
 
     let targetX = (minX + maxX) / 2;
     let targetY = (minY + maxY) / 2;
@@ -6662,19 +6782,27 @@ export function BattleScene(container, params, api) {
       targetY = targetY * (1 - biasWeight) + biasY * biasWeight;
     }
 
-    canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
-    canvasEl.style.transform = scale !== 1 ? `scale(${scale})` : "";
+    // 自然座標(targetX, targetY)が.battle-arena-scrollの表示領域中央へ
+    // 来るような平行移動量（transform-origin: 0 0前提、上のコメント参照）。
+    let tx = scrollEl.clientWidth / 2 - scale * targetX;
+    let ty = scrollEl.clientHeight / 2 - scale * targetY;
 
-    const scaledTargetX = viewportCenterX + (targetX - naturalCenterX) * scale;
-    const scaledTargetY = viewportCenterY + (targetY - naturalCenterY) * scale;
-    const viewportRect = scrollEl.getBoundingClientRect();
-    const dx = scaledTargetX - (viewportRect.left + viewportRect.width / 2);
-    const dy = scaledTargetY - (viewportRect.top + viewportRect.height / 2);
-    const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
-    const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
-    const left = Math.max(0, Math.min(maxScrollLeft, scrollEl.scrollLeft + dx));
-    const top = Math.max(0, Math.min(maxScrollTop, scrollEl.scrollTop + dy));
-    scrollEl.scrollTo({ left, top, behavior: FAST ? "auto" : "smooth" });
+    // キャンバスが表示領域より大きい軸では、キャンバスの外側（本来何も
+    // 描かれていない余白）が映り込みすぎないよう、キャンバスの端が表示
+    // 領域の内側を通り過ぎないようクランプする。キャンバスの方が表示
+    // 領域より小さい軸（対象が少なく等倍でも収まる等）ではクランプせず
+    // 中央寄せにする。
+    const scaledWidth = bounds.width * scale;
+    const scaledHeight = bounds.height * scale;
+    tx = scaledWidth <= scrollEl.clientWidth
+      ? (scrollEl.clientWidth - scaledWidth) / 2
+      : Math.max(scrollEl.clientWidth - scaledWidth, Math.min(0, tx));
+    ty = scaledHeight <= scrollEl.clientHeight
+      ? (scrollEl.clientHeight - scaledHeight) / 2
+      : Math.max(scrollEl.clientHeight - scaledHeight, Math.min(0, ty));
+
+    canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
+    canvasEl.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
   }
 
   // render()の末尾から毎回呼び、現在のフェイズ・選択状態を見てカメラの
@@ -6693,17 +6821,16 @@ export function BattleScene(container, params, api) {
       return;
     }
     if (actionPopupUnit) {
-      // ②：行動選択ポップアップを開いている間は、そのユニットの枠と
-      // ポップアップが主に見えるように（Prep・Mainどちらでも、
-      // handlePrepActorClick/handleMainActorClickのどちらもactionPopup
-      // Unitを使うため共通で判定する -- Mainフェイズのみここが抜けて
-      // いたため、手番ユニットの位置によってはポップアップが表示領域外
-      // へはみ出しクリックできなくなる不具合があった）。
-      const cardRect = unitLogicalRect(actionPopupUnit);
-      // theme.cssの.battle-action-popupはtop:100%（枠の下）に展開する
-      // ため、ここでも枠の下側にPOPUP_APPROX_HEIGHTぶんの領域を見込む。
-      const popupRect = { left: cardRect.left, right: cardRect.right, top: cardRect.bottom, bottom: cardRect.bottom + POPUP_APPROX_HEIGHT };
-      applyCamera([cardRect, popupRect]);
+      // ②：行動選択ポップアップを開いている間は、そのユニットの枠が
+      // よく見えるように（Prep・Mainどちらでも、handlePrepActorClick/
+      // handleMainActorClickのどちらもactionPopupUnitを使うため共通で
+      // 判定する）。ポップアップ自体はもうキャンバスの論理座標系の中には
+      // 無く、画面本体へposition:fixedで直接重ねるportal方式
+      // （updateActionPopupOverlay参照）になったため、以前のように
+      // 「枠の下にポップアップぶんの領域も見込んで一緒に収める」計算は
+      // 不要になった -- ポップアップ自体のサイズはズーム倍率に関係なく
+      // 常に一定で、表示領域の外にもはみ出せるため、見切れる心配が無い。
+      applyCamera([unitLogicalRect(actionPopupUnit)]);
       return;
     }
     if (phase === "prep") {
@@ -6760,14 +6887,16 @@ export function BattleScene(container, params, api) {
     return [skipButton, speedButton];
   }
 
-  // アリーナのスクロール位置・カード列のスクロール位置・キャンバスの
-  // 縮小率は、render()のたびに.battle-arena-scroll等が丸ごと作り直され
-  // scrollLeft/scrollTop/transformが初期値へ戻ってしまう。差し替え直前の
-  // 値を保存し、renderScreen直後・まだ画面が塗り替わる前に同じ値を即座に
-  // （トランジション無しで）書き戻すことで、見た目上は「一旦左上へ飛んで
-  // から動く」ようには見えず、その後のupdateCamera()等が正しい現在地
-  // からなめらかにアニメーションできるようにする。
-  const ARENA_SCROLL_SELECTORS = [".battle-arena-scroll", ".battle-action-queue--left", ".battle-action-queue--right"];
+  // カード列のスクロール位置・キャンバスのtransform（パン+ズーム）は、
+  // render()のたびにDOMが丸ごと作り直され初期値へ戻ってしまう。差し替え
+  // 直前の値を保存し、renderScreen直後・まだ画面が塗り替わる前に同じ値を
+  // 即座に（トランジション無しで）書き戻すことで、見た目上は「一旦左上へ
+  // 飛んでから動く」ようには見えず、その後のupdateCamera()等が正しい
+  // 現在地からなめらかにアニメーションできるようにする。.battle-arena
+  // -scroll自体はもうscrollLeft/scrollTopを使わない（パンはキャンバスの
+  // transformで表現するため）ので対象から外し、キャンバスのtransform
+  // 文字列（translate+scale）をまるごと保存する。
+  const ARENA_SCROLL_SELECTORS = [".battle-action-queue--left", ".battle-action-queue--right"];
   function saveArenaScrollState() {
     const scrollPositions = {};
     for (const sel of ARENA_SCROLL_SELECTORS) {
@@ -6775,17 +6904,16 @@ export function BattleScene(container, params, api) {
       if (el) scrollPositions[sel] = { left: el.scrollLeft, top: el.scrollTop };
     }
     const canvasEl = container.querySelector(".battle-freeform-canvas");
-    const scaleMatch = canvasEl?.style.transform.match(/scale\(([\d.]+)\)/);
-    return { scrollPositions, scale: scaleMatch ? parseFloat(scaleMatch[1]) : null };
+    return { scrollPositions, transform: canvasEl?.style.transform || null };
   }
   function restoreArenaScrollState(saved) {
     for (const [sel, pos] of Object.entries(saved.scrollPositions)) {
       const el = container.querySelector(sel);
       if (el) { el.scrollLeft = pos.left; el.scrollTop = pos.top; }
     }
-    if (saved.scale != null) {
+    if (saved.transform) {
       const canvasEl = container.querySelector(".battle-freeform-canvas");
-      if (canvasEl) { canvasEl.style.transition = "none"; canvasEl.style.transform = `scale(${saved.scale})`; }
+      if (canvasEl) { canvasEl.style.transition = "none"; canvasEl.style.transform = saved.transform; }
     }
   }
 
@@ -6822,6 +6950,10 @@ export function BattleScene(container, params, api) {
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
     updateArrowOverlay();
     updateCamera();
+    // ポップアップ2種の実際の画面位置は、カメラ（スクロール/ズーム）が
+    // 確定した後でなければ正しく測れないため、updateCamera()の後で呼ぶ。
+    updateActionPopupOverlay();
+    updateHoverPopoverOverlay();
     scrollActionQueueToActive(".battle-action-queue--left");
     scrollActionQueueToActive(".battle-action-queue--right");
   }

@@ -1199,6 +1199,7 @@ body {
 .battle-arena-scroll {
   overflow: hidden;
   border-radius: var(--radius-sm);
+  width: 100%;
   max-height: 60vh;
 }
 
@@ -1211,9 +1212,22 @@ body {
    の一部として扱われてカメラのscrollTo()と一緒に動いてしまい、結局は
    スクロール位置によって画面中央からずれてしまう（実測で判明した不具合）。
    このoverflowを持たない中間の箱を挟むことで、絶対配置がスクロール量の
-   影響を受けなくなる。 */
+   影響を受けなくなる。
+   flex: 1 1 0（左右のカード列の残り幅いっぱいに広がる）＋
+   min-width: 0（フレックスアイテムの既定min-width:autoを上書き）が無いと、
+   中の.battle-freeform-canvasが（敵の配置体数が多く3列モードになる等で）
+   横に非常に広くなった時、.battle-arena-scrollのoverflow: hiddenでは
+   クリップされず、.battle-arena自体・ひいては戦闘画面全体が右へ広がって
+   横スクロールバーが出てしまう不具合があった（ユーザー報告 -- flexアイ
+   テムは既定でmin-width:autoのため、中身の自然サイズより縮まない）。
+   min-width: 0でその既定を外すことで、キャンバスがどれだけ横に広くても
+   .battle-arena-scrollは左右のカード列の間の幅に固定され、はみ出した分は
+   overflow: hiddenで正しくクリップされる（縦方向はmax-height: 60vhが
+   同じ役割を果たしている）。 */
 .battle-arena-viewport {
   position: relative;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .battle-arena {
@@ -1226,6 +1240,11 @@ body {
 
 .battle-freeform-canvas {
   flex: 0 0 auto;
+  /* カメラのtranslate(tx,ty) scale(s)は「表示領域左上を原点とする
+     ローカル座標」を前提に計算している（battle.jsのapplyCamera参照）。
+     transform-originを既定の中心のままにすると平行移動と拡縮の基準点が
+     ズレて計算が成り立たないため、原点を左上（0 0）に固定する。 */
+  transform-origin: 0 0;
 }
 
 /* F3：行動順カード列（.battle-action-queue）専用。幅は固定 -- 旧
@@ -1417,36 +1436,41 @@ body {
 }
 
 /* C1で枠から削った能力値/IN/体幹/変調を、仮にマウスオーバーで確認
-   できるようにする土台（battleUnitPopover参照）。装甲/脆弱性/バフ/
-   デバフを簡易アイコンへ差し替える段階までの暫定表示。開閉状態は
-   JS側で持たず、hoverだけで切り替える。枠の上（bottom:100%）に出す
-   -- .battle-action-popup（行動選択ポップアップ）が枠の下（top:100%）
-   に出るため、展開方向を互い違いにすることで、行動選択ポップアップが
-   開いている間もこちらが隠れなくなる（ユーザー指摘）。カメラ制御の
-   対象外（純粋なCSS:hoverのみの表示なので、行動選択ポップアップの
-   ようにupdateCamera()で表示領域内へ収める調整はできない）のため、
-   スクロール枠（.battle-arena-scroll）の端に近い枠では見切れる場合が
-   ある点は今の段階では許容する。 */
+   できるようにする土台（battleUnitPopoverContent参照）。装甲/脆弱性/
+   バフ/デバフを簡易アイコンへ差し替える段階までの暫定表示。
+   以前はCSSの:hoverだけで開閉する、カードの子要素かつposition:absolute
+   （枠の上、bottom:100%）だったが、戦闘盤面表示領域（.battle-arena
+   -scroll、overflow:hiddenでカメラのズーム/スクロールに応じてクリップ
+   される）の内側にあったため、カメラの位置によっては見切れて読めなく
+   なる不具合があった（ユーザー報告）。JS側でカードの画面上の位置を
+   実測し、表示領域の外（戦闘画面本体）へposition:fixedで「あたかも
+   カードの隣にあるかのように」重ねて出すportal方式に変更（ユーザー
+   提案、updateHoverPopoverOverlay参照）。ここでの.battle-unit__popover
+   は、その中に差し込む中身（見た目）だけを担う -- 開閉・位置決めは
+   外側の.battle-unit-popover-overlay（battle.js側でJSが直接操作）が
+   担当する。 */
 .battle-unit__popover {
-  display: none;
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  z-index: 10;
-  margin-bottom: 6px;
-  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 10px;
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
   background: var(--panel-raised);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
-  flex-direction: column;
-  gap: 6px;
   white-space: nowrap;
 }
 
-.battle-unit:hover .battle-unit__popover {
-  display: flex;
+/* 上のportal方式の外側の入れ物。中身の出し入れ・表示位置（left/top or
+   bottom）はbattle.jsのupdateHoverPopoverOverlay()が直接DOM操作する
+   （display:noneが既定、hoveredUnitがある間だけblockにする）。 */
+.battle-unit-popover-overlay {
+  display: none;
+  position: fixed;
+  z-index: 40;
+  /* 情報表示専用で操作対象を持たないため、下に隠れたカードのホバー/
+     クリックを妨げないようクリックを一切奪わない。 */
+  pointer-events: none;
 }
 
 /* 矢印表示中、行動主体は水色、行動対象は赤系でステータス枠をハイラ
@@ -1694,24 +1718,20 @@ body {
 }
 
 /* D1：ステータス枠クリックで開く、選べるスキル一覧のポップアップ。
-   枠の上（bottom:100%）に出す案も検討したが、1行目付近の枠は原点の
-   少し上にしか余白が無く（キャンバス自体がそこで終わっているため、
-   カメラでどれだけズーム/パンしても存在しない領域は表示できない）、
-   所持スキル数が多いユニットだと上方向にビューポート外まではみ出して
-   クリック不能になってしまう（実測で確認済み）。キャンバスは下方向へは
-   行がいくらでも続く（＝論理座標上のスペースが常に十分にある）ため、
-   枠の下（top:100%）に出す。C2の.battle-unit__popover（マウスオーバー
-   時のサブステータス表示）とは展開方向を互い違いにしてあり（あちらは
-   bottom:100%）、同じ枠で両方が同時に該当しても互いを隠さない。
+   以前は枠の子要素・position:absolute（top:100%＝枠の下）で、戦闘盤面
+   表示領域（.battle-arena-scroll、カメラのズーム/スクロールでクリップ
+   される）の内側にあったため、カメラの位置（特に手番ユニットが表示
+   領域の下端に近い時）によっては見切れてクリック不能になる不具合が
+   あった（ユーザー報告）。JS側でカードの画面上の位置を実測し、表示
+   領域の外（戦闘画面本体）へposition:fixedで「あたかもカードの隣に
+   あるかのように」重ねて出すportal方式に変更（ユーザー提案、
+   updateActionPopupOverlay参照）。これによりズーム倍率に関わらず常に
+   同じサイズで表示され、カメラの状態によらず絶対に見切れなくなる。
    選択肢が多いユニット向けに、ここ自体にも上限高さと縦スクロールを
    持たせておく。 */
 .battle-action-popup {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 20;
-  margin-top: 6px;
-  min-width: 100%;
+  position: fixed;
+  z-index: 45;
   max-height: 240px;
   overflow-y: auto;
   padding: 8px 10px;
@@ -1722,6 +1742,21 @@ body {
   border-radius: var(--radius-sm);
   background: var(--panel-raised);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* popupOverlayLayer()のラッパー。自分自身はクリックを一切奪わない
+   （pointer-events: none）が、中の.battle-action-popup（フェイズに
+   応じてクリック可能なボタンを含む）自体はpointer-events: autoで
+   復元する。 */
+.battle-popup-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.battle-popup-layer > * {
+  pointer-events: auto;
 }
 
 .battle-action-popup__title {
