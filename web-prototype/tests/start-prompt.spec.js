@@ -17,11 +17,6 @@ test('全員確定で「オードブル開始！」が現れ、押すとPrep処�
   await expect(prompt).toBeVisible();
   await expect(prompt).toHaveText('オードブル開始！');
 
-  // D8のPrepフェイズ用「行動実行！」ボタンは、システム都合（既存の
-  // 回帰テスト群がPrepフェイズのトリガーとして使い続けている）で
-  // 意図的に残されている -- 併存を確認する。
-  await expect(page.locator('.battle-execute-btn')).toBeVisible();
-
   await prompt.click();
   await page.waitForFunction(() => window.__battleTestHooks__.getState().phase !== 'prep', { timeout: 3000 });
   await expect(prompt).toHaveCount(0);

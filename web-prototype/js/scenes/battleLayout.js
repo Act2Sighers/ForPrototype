@@ -29,8 +29,8 @@ const LANE_SPACING_GAP = 40;
 
 // 1行あたりの縦方向の間隔（枠の高さ＋余白）。
 const ROW_HEIGHT = CARD_HEIGHT + ROW_GAP;
-// 原点から1行目までの縦方向のオフセット。中央のフェイズ表示
-// （CENTER_BLOCK_HEIGHT参照）を原点の少し上に置くための余白を兼ねる。
+// 原点から1行目までの縦方向のオフセット（「ハの字」の先端が原点付近に
+// 収束して見えるよう、多少の余白を持たせてある）。
 const ROW_START_Y = 90;
 // ジグザグモード（1列）：偶数行を「近レーン」・奇数行を「遠レーン」の
 // 2本のレーンとして扱う（ユーザー提示のモックアップに合わせた設計 --
@@ -55,10 +55,6 @@ const WIDE_COLUMN_COUNT = 3;
 // 人数を渡されても計算は続けるが、呼び出し側はこれを超える人数を
 // 生成しない前提）。
 export const MAX_UNITS_PER_FACTION = 12;
-// 原点付近に置く中央のフェイズ表示（ターン数／フェイズ名）の想定
-// サイズ。原点はこのぶんだけ上に余白を持たせてある。
-export const CENTER_BLOCK_WIDTH = 160;
-export const CENTER_BLOCK_HEIGHT = 70;
 
 // faction（"ally"|"enemy"）とその陣営の人数から、原点(0,0)を基準にした
 // 各ユニットの{x,y}座標を、渡された配列の並び順（0番目が最も原点に
@@ -110,33 +106,51 @@ export function computeUnitPositions(faction, count) {
   return positions;
 }
 
+// 陣営の縦方向の中心（bounding boxの中点）。空配列（0人）ならoutil。
+function verticalCenterOf(points) {
+  const minY = Math.min(...points.map((p) => p.y)) - CARD_HEIGHT / 2;
+  const maxY = Math.max(...points.map((p) => p.y)) + CARD_HEIGHT / 2;
+  return (minY + maxY) / 2;
+}
+
 // 味方・敵両陣営分をまとめて計算し、原点からの相対座標をそのまま
 // 返す（{ally: [...], enemy: [...]}）。B2でDOM上に配置する際、この
 // 座標群全体のbounding boxから必要なキャンバスサイズを逆算する想定。
+//
+// 人数が陣営間で大きく異なる（例：1列ジグザグの6人 vs 3列モードの
+// 12人）と、どちらも1行目はy=ROW_START_Yで揃っているのに全体の縦の
+// 深さ（行数×ROW_HEIGHT）が陣営ごとに違うため、単純にそのまま並べる
+// と「浅い方の陣営の中心が、深い方の陣営の中心より原点に近い（＝上に
+// 来る）」というズレが生じる（ユーザー指摘）。ここで、より深い方の
+// 陣営はそのまま（1行目が原点付近という基準を保つ）にし、浅い方の
+// 陣営だけを縦方向にシフトして、両陣営のbounding box中心のy座標を
+// 一致させる（浅い方を必ず下へ動かすだけで、上方向＝原点寄りへ動かす
+// ことはない＝中央のフェイズ表示と重なる心配が無い）。
 export function computeBattleLayout(allyCount, enemyCount) {
-  return {
-    ally: computeUnitPositions("ally", allyCount),
-    enemy: computeUnitPositions("enemy", enemyCount),
-  };
+  const ally = computeUnitPositions("ally", allyCount);
+  const enemy = computeUnitPositions("enemy", enemyCount);
+  if (ally.length > 0 && enemy.length > 0) {
+    const delta = verticalCenterOf(ally) - verticalCenterOf(enemy);
+    if (delta > 0) for (const p of enemy) p.y += delta;
+    else if (delta < 0) for (const p of ally) p.y -= delta;
+  }
+  return { ally, enemy };
 }
 
 // computeBattleLayoutの結果全体を収める、原点(0,0)基準のbounding box。
-// 各ユニット枠の実サイズ（CARD_WIDTH/CARD_HEIGHT）と、原点の少し上に
-// 置く中央のフェイズ表示（CENTER_BLOCK_WIDTH/HEIGHT）ぶんの余白も
-// 含める。呼び出し側は、返り値のminX/minYの符号を反転させた量だけ
-// 全座標を平行移動すれば、そのままキャンバスの左上を原点にできる
-// （width/heightがキャンバス自体に必要なピクセルサイズになる）。
+// 各ユニット枠の実サイズ（CARD_WIDTH/CARD_HEIGHT）ぶんの余白を含める。
+// 中央のフェイズ表示（ターン数・フェイズ名・vs・実行ボタン）はもはや
+// キャンバス内の論理座標に配置せず、.battle-arena-scroll側に画面中央
+// 固定のオーバーレイとして独立に重ねているため、ここでその分の余白を
+// 確保する必要は無い。呼び出し側は、返り値のminX/minYの符号を反転
+// させた量だけ全座標を平行移動すれば、そのままキャンバスの左上を原点
+// にできる（width/heightがキャンバス自体に必要なピクセルサイズになる）。
 export function computeCanvasBounds(layout) {
   const points = [...layout.ally, ...layout.enemy];
-  const unitMinX = Math.min(...points.map((p) => p.x)) - CARD_WIDTH / 2;
-  const unitMaxX = Math.max(...points.map((p) => p.x)) + CARD_WIDTH / 2;
-  const unitMinY = Math.min(...points.map((p) => p.y)) - CARD_HEIGHT / 2;
-  const unitMaxY = Math.max(...points.map((p) => p.y)) + CARD_HEIGHT / 2;
-
-  const minX = Math.min(unitMinX, -CENTER_BLOCK_WIDTH / 2);
-  const maxX = Math.max(unitMaxX, CENTER_BLOCK_WIDTH / 2);
-  const minY = Math.min(unitMinY, -CENTER_BLOCK_HEIGHT);
-  const maxY = unitMaxY;
+  const minX = Math.min(...points.map((p) => p.x)) - CARD_WIDTH / 2;
+  const maxX = Math.max(...points.map((p) => p.x)) + CARD_WIDTH / 2;
+  const minY = Math.min(...points.map((p) => p.y)) - CARD_HEIGHT / 2;
+  const maxY = Math.max(...points.map((p) => p.y)) + CARD_HEIGHT / 2;
 
   return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }

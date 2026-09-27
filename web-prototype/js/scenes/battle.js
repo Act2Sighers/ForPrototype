@@ -1,5 +1,5 @@
 import { renderScreen, button, h } from "../dom.js";
-import { computeBattleLayout, computeCanvasBounds, CARD_WIDTH, CARD_HEIGHT, CENTER_BLOCK_WIDTH, CENTER_BLOCK_HEIGHT } from "./battleLayout.js";
+import { computeBattleLayout, computeCanvasBounds, CARD_WIDTH, CARD_HEIGHT } from "./battleLayout.js";
 import state, {
   grantResource,
   grantTieredResource,
@@ -6267,46 +6267,37 @@ export function BattleScene(container, params, api) {
     );
   }
 
-  // テキストログ直下の実行ボタン。Prepフェイズは全味方の行動内容・
-  // 行動対象が確定するまで、Mainフェイズは今の手番ユニット1人分が確定
-  // するまで無効（処理中も無効）。Prep/Mainどちらのフェイズ中かで実行
-  // する処理を切り替える -- Prepは
-  // 従来通り全員分を一括実行、Mainは手番ユニット1人分だけを実行して
-  // 手番送りする。
-  function actionExecuteButton() {
-    return h("button", {
-      class: "btn btn--primary battle-execute-btn",
-      disabled: !isInteractive() || (phase === "prep" ? !allAlliesReady() : !mainActorReady()),
-      onClick: phase === "prep" ? runPrepExecution : runMainStep,
-      text: "行動実行！",
-    });
+  // Prep：全味方の行動内容・対象が確定した時、Main：今の手番ユニットの
+  // 行動内容・対象がそろった時に、押せる「実行」ボタンを返す（それ以外
+  // はnull＝非表示）。旧来は常時表示（無効化のみ）の.battle-execute-btn
+  // を画面上部に置いていたが、ユーザー指示によりそれを廃止し、この
+  // ボタン1つに統合したうえでbattleCenterOverlay()の一部として画面中央
+  // （オードブル開始！が出ていた位置）へ表示位置も一本化する。
+  // Mainフェイズは選択完了時にmaybeAutoExecuteMainが即座に実行するため
+  // 実際にはほぼ出番が無いが、稀に手動発火が必要な場面のため残す。
+  function centerActionPrompt() {
+    if (!isInteractive()) return null;
+    if (phase === "prep") {
+      if (!allAlliesReady()) return null;
+      return h("button", { class: "battle-center__start-prompt", onClick: runPrepExecution, text: "オードブル開始！" });
+    }
+    if (!mainActorReady()) return null;
+    return h("button", { class: "battle-center__start-prompt", onClick: runMainStep, text: "行動実行！" });
   }
 
-  // F2：Prepフェイズの全味方の行動内容・対象が確定すると、両陣営中央
-  // （battleCenterの直下）にインタラクト可能な「オードブル開始！」を
-  // 表示する。押すとactionExecuteButtonの「行動実行！」と同じ
-  // runPrepExecutionを呼び、Prepフェイズの順次処理へ移る -- 呼び出し
-  // 直後にexecuting=trueとなり次のrender()で自然に消える（isInteractive
-  // 参照）。
-  // 「行動実行！」ボタン自体（.battle-execute-btn）は、既存のPlaywright
-  // 回帰テスト群がPrepフェイズの実行トリガーとして直接クリックしている
-  // ため、システム都合によりそのまま残してある（G3のテスト再整備まで
-  // 撤去しない、ユーザー了承済み）。
-  function prepStartPrompt() {
-    if (phase !== "prep" || !isInteractive() || !allAlliesReady()) return null;
-    return h("button", { class: "battle-center__start-prompt", onClick: runPrepExecution, text: "オードブル開始！" });
-  }
-
-  // キャンバス内の原点(originX, originY)の少し上（battleLayout.jsの
-  // CENTER_BLOCK_WIDTH/HEIGHTぶんの領域）に、中央のフェイズ表示を絶対
-  // 配置する。
-  function battleCenter(originX, originY) {
-    const style = `position:absolute; left:${originX - CENTER_BLOCK_WIDTH / 2}px; top:${originY - CENTER_BLOCK_HEIGHT}px; width:${CENTER_BLOCK_WIDTH}px;`;
-    return h("div", { class: "battle-center", style }, [
+  // ターン数・フェイズ名・vs・実行ボタンをまとめた中央表示。ユーザー
+  // 指示により、キャンバス内の論理座標（原点付近）には置かず、
+  // .battle-arena-scrollの真ん中に画面固定で重ねる（CSS側の
+  // .battle-center-overlayがposition:absolute; top/left:50%で中央寄せ）。
+  // カメラのスクロール/ズームが動いても常に画面中央に留まり続けるため、
+  // 「ボタンを中央に寄せるためカメラ側に余白を持たせる」必要が無くなる
+  // （ユーザー指示）。
+  function battleCenterOverlay() {
+    return h("div", { class: "battle-center-overlay" }, [
       h("p", { class: "battle-center__turn", text: `${turn}ターン目` }),
       h("p", { class: "battle-center__phase", text: phase === "prep" ? "オードブル！" : "メインディッシュ！" }),
       h("p", { class: "battle-center__vs", text: "vs" }),
-      prepStartPrompt(),
+      centerActionPrompt(),
     ]);
   }
 
@@ -6402,14 +6393,23 @@ export function BattleScene(container, params, api) {
       [
         ...allyUnits.map((u, i) => placedCard(u, layout.ally[i])),
         ...enemyUnits.map((u, i) => placedCard(u, layout.enemy[i])),
-        battleCenter(originX, originY),
         svg("svg", { class: "battle-arrow-overlay" }),
       ]
     );
 
     return h("div", { class: "battle-arena" }, [
       actionQueueColumn("enemy", "battle-action-queue--left"),
-      h("div", { class: "battle-arena-scroll" }, [canvas]),
+      // battleCenterOverlay()は.battle-arena-scroll「の中」ではなく、
+      // それを包む.battle-arena-viewportの直接の子（.battle-arena-scroll
+      // とは兄弟）として置く。.battle-arena-scrollの子にしてしまうと、
+      // 絶対配置の基準（containing block）が「スクロールする要素自身」に
+      // なるため、CSSのtop/left:50%で中央に置いても、そのスクロール
+      // コンテンツの一部として扱われてカメラのscrollTo()と一緒に動いて
+      // しまい、結局スクロール位置次第で画面中央からずれる（実測で判明）。
+      // .battle-arena-viewport自身はoverflow/scrollを持たない只の
+      // position:relativeの箱（.battle-arena-scrollと同じ大きさになる）
+      // にすることで、その中の絶対配置はスクロールの影響を受けなくなる。
+      h("div", { class: "battle-arena-viewport" }, [h("div", { class: "battle-arena-scroll" }, [canvas]), battleCenterOverlay()]),
       actionQueueColumn("ally", "battle-action-queue--right"),
     ]);
   }
@@ -6593,9 +6593,6 @@ export function BattleScene(container, params, api) {
   // ⑤：Mainフェイズで行動内容・対象がどちらも未確定な手番ユニットへ
   // 「気持ちだけ」寄せる度合い（0=寄せない、1=完全にその人を中心に）。
   const MAIN_CHOICE_ACTOR_BIAS = 0.18;
-  // ④：Prepフェイズの計画が全て確定した時、既定位置の中心を「オード
-  // ブル開始！」ボタン側へどれだけ寄せるか。
-  const PREP_READY_BUTTON_BIAS = 1;
 
   function unitLogicalRect(unit) {
     const idx = unit.faction === "ally" ? allyUnits.indexOf(unit) : enemyUnits.indexOf(unit);
@@ -6607,20 +6604,12 @@ export function BattleScene(container, params, api) {
     return { left: cx - CARD_WIDTH / 2, right: cx + CARD_WIDTH / 2, top: cy - CARD_HEIGHT / 2, bottom: cy + CARD_HEIGHT / 2 };
   }
 
-  // キャンバス全体（＝全ユニット＋中央のフェイズ表示が過不足なく収まる
-  // よう算出済みのbounding box）をそのまま焦点にする＝「全員が映る」。
+  // キャンバス全体（＝全ユニットが過不足なく収まるよう算出済みの
+  // bounding box）をそのまま焦点にする＝「全員が映る」。
   function allUnitsLogicalRect() {
     const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
     const bounds = computeCanvasBounds(layout);
     return { left: 0, top: 0, right: bounds.width, bottom: bounds.height };
-  }
-
-  function centerBlockLogicalRect() {
-    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
-    const bounds = computeCanvasBounds(layout);
-    const originX = -bounds.minX;
-    const originY = -bounds.minY;
-    return { left: originX - CENTER_BLOCK_WIDTH / 2, right: originX + CENTER_BLOCK_WIDTH / 2, top: originY - CENTER_BLOCK_HEIGHT, bottom: originY };
   }
 
   // rects全てがちょうど収まるようキャンバスを縮小し（収まる場合は等倍
@@ -6632,6 +6621,19 @@ export function BattleScene(container, params, api) {
     const scrollEl = container.querySelector(".battle-arena-scroll");
     const canvasEl = container.querySelector(".battle-freeform-canvas");
     if (!scrollEl || !canvasEl || rects.length === 0) return;
+
+    // シーン初回構築時（SceneManager._pushMountedがfactory()＝この
+    // シーンのコンストラクタを走らせてから.is-activeを付ける前）は、
+    // .screenがdisplay:noneのままrender()が呼ばれるため、この時点で
+    // 測ったclientWidth/Heightは0になる。そのままscale計算に使うと
+    // 分母が負（availableWidth/Height = 0 - CAMERA_MARGIN*2）になり、
+    // scaleが負の値になって配置が上下左右反転して見える不具合が
+    // あった。非表示中はカメラを動かさず、次の描画フレーム（.is-active
+    // 付与後の最初のペイント）で同じ引数のまま再試行する。
+    if (scrollEl.clientWidth <= 0 || scrollEl.clientHeight <= 0) {
+      requestAnimationFrame(() => applyCamera(rects, { biasRect, biasWeight }));
+      return;
+    }
 
     const canvasRect = canvasEl.getBoundingClientRect();
     const viewportCenterX = canvasRect.left + canvasRect.width / 2;
@@ -6677,9 +6679,12 @@ export function BattleScene(container, params, api) {
 
   // render()の末尾から毎回呼び、現在のフェイズ・選択状態を見てカメラの
   // 焦点を決め直す（ユーザー指定の①〜⑦）。優先順位：①実行中の演出
-  // （矢印表示中）＞②Prepの行動選択ポップアップ＞③/⑥対象候補選択中＞
-  // ⑤Mainで手番ユニットの行動内容が未確定＞④/①既定位置（Prep全確定時
-  // は開始ボタンへ寄せる）。
+  // （矢印表示中）＞②行動選択ポップアップ（Prep/Main共通）＞③/⑥対象
+  // 候補選択中＞⑤Mainで手番ユニットの行動内容が未確定＞①既定位置。
+  // ④（Prep全確定時）は、旧来「開始ボタンへカメラを寄せる」実装だった
+  // が、ユーザー指示によりボタン自体をbattleCenterOverlay()として画面
+  // 中央固定のオーバーレイへ変更したため、カメラ側で特別扱いする必要が
+  // 無くなり①と同じ扱いになった。
   function updateCamera() {
     if (activeArrow) {
       // ⑦：実行中は主体・全対象の中心へ、大きさもちょうど収まるように。
@@ -6687,15 +6692,21 @@ export function BattleScene(container, params, api) {
       applyCamera([activeArrow.actor, ...targets].map(unitLogicalRect));
       return;
     }
+    if (actionPopupUnit) {
+      // ②：行動選択ポップアップを開いている間は、そのユニットの枠と
+      // ポップアップが主に見えるように（Prep・Mainどちらでも、
+      // handlePrepActorClick/handleMainActorClickのどちらもactionPopup
+      // Unitを使うため共通で判定する -- Mainフェイズのみここが抜けて
+      // いたため、手番ユニットの位置によってはポップアップが表示領域外
+      // へはみ出しクリックできなくなる不具合があった）。
+      const cardRect = unitLogicalRect(actionPopupUnit);
+      // theme.cssの.battle-action-popupはtop:100%（枠の下）に展開する
+      // ため、ここでも枠の下側にPOPUP_APPROX_HEIGHTぶんの領域を見込む。
+      const popupRect = { left: cardRect.left, right: cardRect.right, top: cardRect.bottom, bottom: cardRect.bottom + POPUP_APPROX_HEIGHT };
+      applyCamera([cardRect, popupRect]);
+      return;
+    }
     if (phase === "prep") {
-      if (actionPopupUnit) {
-        // ②：行動選択ポップアップを開いている間は、そのユニットの枠と
-        // ポップアップが主に見えるように。
-        const cardRect = unitLogicalRect(actionPopupUnit);
-        const popupRect = { left: cardRect.left, right: cardRect.right, top: cardRect.bottom, bottom: cardRect.bottom + POPUP_APPROX_HEIGHT };
-        applyCamera([cardRect, popupRect]);
-        return;
-      }
       if (prepTargetPickingActor) {
         // ③：行動対象選択中は、主体と全ての対象候補が見えるように
         // （候補が一部確定して減っても、その都度候補を狭めて追う必要は
@@ -6704,14 +6715,8 @@ export function BattleScene(container, params, api) {
         applyCamera([actor, ...currentPickCandidates(actor)].map(unitLogicalRect));
         return;
       }
-      if (allAlliesReady()) {
-        // ④：全員確定済み＝「オードブル開始！」が出ている間は、全員が
-        // 映る倍率を保ったまま、その中心を開始ボタン側へ寄せる。
-        applyCamera([allUnitsLogicalRect()], { biasRect: centerBlockLogicalRect(), biasWeight: PREP_READY_BUTTON_BIAS });
-        return;
-      }
-      // ①：それ以外（誰かの選択待ち・選択中だがポップアップは閉じている
-      // 等）は既定位置＝全員が映る通常表示。
+      // ①/④：それ以外（誰かの選択待ち・全員確定済みなど）は既定位置＝
+      // 全員が映る通常表示。
       applyCamera([allUnitsLogicalRect()]);
       return;
     }
@@ -6806,7 +6811,7 @@ export function BattleScene(container, params, api) {
     renderScreen(container, {
       eyebrow: isArenaMode ? "TRAINING GROUNDS" : mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
       title: isArenaMode ? "訓練（アリーナモード）" : mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
-      body: [battleLog(), actionExecuteButton(), battleArena()],
+      body: [battleLog(), battleArena()],
       onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
     });

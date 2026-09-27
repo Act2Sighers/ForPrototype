@@ -1186,13 +1186,6 @@ body {
 .battle-log__line--enemy { color: var(--danger-strong); }
 .battle-log__line--phase { font-weight: 600; }
 
-/* テキストログ直下の実行ボタン。ログ枠と同じ幅になるよう画面本文の
-   他の要素同様フルブロックで置く。行動内容・行動対象がまだ無いので
-   今は常に無効。 */
-.battle-execute-btn {
-  width: 100%;
-}
-
 /* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横の
    表示領域を担う枠。F3で行動順カード列（.battle-action-queue）を
    .battle-arenaの外（このスクロール枠の左右）へ固定配置したため、
@@ -1207,6 +1200,20 @@ body {
   overflow: hidden;
   border-radius: var(--radius-sm);
   max-height: 60vh;
+}
+
+/* .battle-arena-scrollを包むだけの、自分自身はスクロール/overflowを
+   持たない箱（.battle-arena-scrollと常に同じ大きさになる）。中央固定の
+   ターン/フェイズ/vs/実行ボタン表示（.battle-center-overlay）は、
+   .battle-arena-scrollの子ではなくこちらの子にする -- .battle-arena
+   -scrollの子にすると、絶対配置の基準（containing block）がスクロール
+   する要素自身になり、top/left:50%で中央に置いてもスクロールコンテンツ
+   の一部として扱われてカメラのscrollTo()と一緒に動いてしまい、結局は
+   スクロール位置によって画面中央からずれてしまう（実測で判明した不具合）。
+   このoverflowを持たない中間の箱を挟むことで、絶対配置がスクロール量の
+   影響を受けなくなる。 */
+.battle-arena-viewport {
+  position: relative;
 }
 
 .battle-arena {
@@ -1237,13 +1244,36 @@ body {
   overflow-y: auto;
 }
 
-.battle-center {
+/* ターン数・フェイズ名・vs・実行ボタンをまとめた中央表示。ユーザー
+   指示により、キャンバスの論理座標（原点付近）ではなく、.battle-arena
+   -viewport（.battle-arena-scrollと常に同じ大きさの、スクロールしない
+   箱）自体の中央に画面固定で重ねる（top/left:50%+transform）ため、
+   カメラのスクロール/ズームがどう動いてもこの表示だけは常に表示領域の
+   真ん中に留まり続け、「ボタンを中央に寄せるためにカメラ側へ余白を
+   持たせる」必要が無くなる。表示中のユニット枠と視覚的に重なりうる
+   （カメラのバイアス演出でユニットが中央付近へ寄る場面がある）ため、
+   半透明の背景を敷いて視認性を保ちつつ、実行ボタンが無い間は
+   pointer-events: noneにして下のユニット枠のクリックを妨げないように
+   する（ボタン自体はpointer-events: autoで復元）。 */
+.battle-center-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 15;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  padding: 0 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(20, 12, 28, 0.6);
   text-align: center;
+  pointer-events: none;
+}
+
+.battle-center-overlay button {
+  pointer-events: auto;
 }
 
 .battle-center__turn {
@@ -1389,16 +1419,21 @@ body {
 /* C1で枠から削った能力値/IN/体幹/変調を、仮にマウスオーバーで確認
    できるようにする土台（battleUnitPopover参照）。装甲/脆弱性/バフ/
    デバフを簡易アイコンへ差し替える段階までの暫定表示。開閉状態は
-   JS側で持たず、hoverだけで切り替える。枠の下に重ねて出すため、
+   JS側で持たず、hoverだけで切り替える。枠の上（bottom:100%）に出す
+   -- .battle-action-popup（行動選択ポップアップ）が枠の下（top:100%）
+   に出るため、展開方向を互い違いにすることで、行動選択ポップアップが
+   開いている間もこちらが隠れなくなる（ユーザー指摘）。カメラ制御の
+   対象外（純粋なCSS:hoverのみの表示なので、行動選択ポップアップの
+   ようにupdateCamera()で表示領域内へ収める調整はできない）のため、
    スクロール枠（.battle-arena-scroll）の端に近い枠では見切れる場合が
    ある点は今の段階では許容する。 */
 .battle-unit__popover {
   display: none;
   position: absolute;
-  top: 100%;
+  bottom: 100%;
   left: 0;
   z-index: 10;
-  margin-top: 6px;
+  margin-bottom: 6px;
   min-width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--panel-line-strong);
@@ -1660,16 +1695,16 @@ body {
 
 /* D1：ステータス枠クリックで開く、選べるスキル一覧のポップアップ。
    枠の上（bottom:100%）に出す案も検討したが、1行目付近の枠は原点の
-   少し上（CENTER_BLOCK_HEIGHT分）にしか余白が無く、所持スキル数が
-   多いユニットだと上方向にビューポート外まではみ出してクリック不能に
-   なってしまう（実測で確認済み）。キャンバスは下方向へは行がいくらでも
-   続く（＝スクロール領域が既に十分にある）ため、枠の下（top:100%、
-   C2の.battle-unit__popover と同じ側）に出す。同じ位置に重なりうるが、
-   z-indexで前面に出し、かつこちらの上にマウスが乗った時点で
-   .battle-unit:hoverの対象から外れる（このポップアップは.battle-unit
-   の子ではなく兄弟要素のため）ので、実際に触っている間はポップオーバー
-   は隠れる。選択肢が多いユニット向けに、ここ自体にも上限高さと縦
-   スクロールを持たせておく。 */
+   少し上にしか余白が無く（キャンバス自体がそこで終わっているため、
+   カメラでどれだけズーム/パンしても存在しない領域は表示できない）、
+   所持スキル数が多いユニットだと上方向にビューポート外まではみ出して
+   クリック不能になってしまう（実測で確認済み）。キャンバスは下方向へは
+   行がいくらでも続く（＝論理座標上のスペースが常に十分にある）ため、
+   枠の下（top:100%）に出す。C2の.battle-unit__popover（マウスオーバー
+   時のサブステータス表示）とは展開方向を互い違いにしてあり（あちらは
+   bottom:100%）、同じ枠で両方が同時に該当しても互いを隠さない。
+   選択肢が多いユニット向けに、ここ自体にも上限高さと縦スクロールを
+   持たせておく。 */
 .battle-action-popup {
   position: absolute;
   top: 100%;
