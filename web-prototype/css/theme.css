@@ -1194,15 +1194,12 @@ body {
 }
 
 /* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横
-   スクロールを担う枠。中身の.battle-arenaは、行動選択列（旧来の
-   プルダウン方式のまま）と、味方・敵のステータス枠をbattleLayout.js
-   が算出した座標へ絶対配置する.battle-freeform-canvasの2つを横に
-   並べたもの。行動選択列はCSS上の最低幅（min-width）を、キャンバス
-   は自身のbounding boxから逆算した実ピクセルサイズを持つため、表示幅
-   がそれらの合計を下回ると.battle-arenaの実際のサイズが
-   .battle-arena-scrollの表示領域からはみ出し、そちらのスクロールで
-   全容を見渡せるようになる。縦方向も同様、キャンバスの高さがユニット
-   数に応じて伸びればスクロール対象になる。 */
+   スクロールを担う枠。F3で行動順カード列（.battle-action-queue）を
+   .battle-arenaの外（このスクロール枠の左右）へ固定配置したため、
+   中身は味方・敵のステータス枠をbattleLayout.jsが算出した座標へ絶対
+   配置する.battle-freeform-canvasだけになった -- キャンバス自身の
+   bounding boxから逆算した実ピクセルサイズが表示領域を超えると、この
+   枠のスクロールで全容を見渡せるようになる。 */
 .battle-arena-scroll {
   overflow: auto;
   border-radius: var(--radius-sm);
@@ -1236,14 +1233,20 @@ body {
   flex: 0 0 auto;
 }
 
-/* 現在は行動選択列（.battle-column--action）専用。幅を固定（220px、
-   ステータス枠のCARD_WIDTHと合わせてある）することで、選択内容による
-   幅のガタつきを防ぐ。 */
+/* F3：行動順カード列（.battle-action-queue）専用。幅は固定 -- 旧
+   プルダウン時代のステータス枠幅（220px）に合わせていたが、名前と
+   行動内容だけの表示になった今は広すぎるため、その2/3程度（150px）
+   まで狭めてある。.battle-arena-scrollの外（左右に1本ずつ）に置くため、
+   キャンバス側を横スクロールしても画面に固定されたまま見え続ける。
+   縦は.battle-arena-scrollと同じ上限（60vh）を持たせ、超えた分は列
+   自体が独自にスクロールする。 */
 .battle-column {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 0 0 220px;
+  flex: 0 0 150px;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .battle-center {
@@ -1625,9 +1628,11 @@ body {
   border-color: var(--frost);
 }
 
-/* 行動内容／行動対象を選ぶプルダウン2つの組。味方行動選択列で使う
-   部品。 */
-.battle-action-select {
+/* F3：行動順カード列（.battle-action-queue、左右に1本ずつ固定配置）の
+   1ユニットぶんのカード。実際の行動選択操作はキャンバス側のステータス
+   枠クリック→.battle-action-popup／枠のクリック・ドラッグで行う
+   （このカード自体はインタラクト不可能な読み取り専用表示）。 */
+.battle-action-queue-card {
   border: 1px solid var(--panel-line-strong);
   border-radius: var(--radius-sm);
   background: var(--panel-raised);
@@ -1637,46 +1642,35 @@ body {
   gap: 4px;
 }
 
-/* 行動内容・行動対象のどちらかが未確定の間のハイライト。 */
-.battle-action-select--pending {
-  border-color: var(--ember);
-  box-shadow: 0 0 0 2px var(--ember) inset;
+/* 隣接するキャンバス側と反対の陣営（左列なら敵、右列なら味方）を
+   グレーアウトする演出（statusCardClass同様インタラクト性とは無関係）。 */
+.battle-action-queue-card--dimmed {
+  opacity: 0.4;
 }
 
-/* 順次処理中は全ての選択枠を一律グレーアウト。 */
-.battle-action-select--disabled {
-  opacity: 0.5;
+/* グレーアウトされていない側のユニットが今まさに行動している間だけの
+   ハイライト（activeArrow.actor基準、Prep/Mainどちらの実行中も共通）。 */
+.battle-action-queue-card--active {
+  border-color: var(--frost);
+  box-shadow: 0 0 0 2px var(--frost) inset;
 }
 
-/* 戦闘不能のユニットの枠：プルダウンの代わりに「戦闘不能」だけ出す。 */
-.battle-action-select--down {
-  opacity: 0.5;
-}
-
-.battle-action-select__down-label {
-  margin: 0;
-  font-size: 12px;
-  color: var(--ink-faint);
-  text-align: center;
-}
-
-.battle-action-select__name {
+.battle-action-queue-card__name {
   margin: 0;
   font-size: 12px;
   font-weight: 700;
 }
 
-.battle-action-select__fields {
+.battle-action-queue-card__lines {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
-/* D1で行動内容プルダウンを、D8で行動対象プルダウンをそれぞれ廃止した
-   後、選択済みのスキル名（未選択なら案内文）を読み取り専用で表示する
-   行。実際の選択操作はキャンバス側のステータス枠クリック→
-   .battle-action-popup（下記）／枠のクリック・ドラッグで行う。 */
-.battle-action-select__chosen {
+/* 未確定「（未確定）」、まだ開示されていない敵の行動「？？？」、実際の
+   行動名のいずれも同じ見た目にする（区別は文言自体で付く）。1ユニット
+   の1手番内で複数回行動すると、この行が改行を挟んで増えていく。 */
+.battle-action-queue-card__line {
   margin: 0;
   font-size: 11px;
   color: var(--ink-dim);

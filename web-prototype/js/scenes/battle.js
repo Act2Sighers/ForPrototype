@@ -3740,6 +3740,16 @@ function createBattleUnit(character, faction) {
     lastLeafActionIds: [],
     action: null,
     displayName: character.name,
+    // F3：行動順カード列（左右固定列）用の状態。
+    // prepRevealed：Prepフェイズで、このユニットの行動内容（敵の場合は
+    // CPUが既に内部的に選び終えているが、プレイヤーにはまだ見せない）
+    // をカード列に開示してよいかどうか。resolvePrepAction側で、行動
+    // 宣言のログを積むのと同じタイミングでtrueにする。
+    // mainActionLog：Mainフェイズ中、このユニットが今回のMainフェイズ
+    // 内で実際に使った（宣言済みの）行動のラベルを、発生順に積んだ配列
+    // -- resolveMainAction側で宣言ログと同じタイミングに積む。
+    prepRevealed: false,
+    mainActionLog: [],
   };
 }
 
@@ -4265,6 +4275,10 @@ export function BattleScene(container, params, api) {
       // 内限定 -- ターンをまたいで前の技を覚えていると不自然なので、
       // 新しいPrepフェイズが始まるたびにリセットする。
       unit.lastLeafActionIds = [];
+      // F3：新しいPrepフェイズが始まるたび、敵の行動をカード列に開示
+      // する権利を取り消す（この後CPUが選び直す新しい行動は、また実際
+      // に宣言されるまで「？？？」に戻る）。
+      unit.prepRevealed = false;
     }
     for (const unit of allyUnits) {
       unit.action = null;
@@ -4313,13 +4327,6 @@ export function BattleScene(container, params, api) {
   function mainActorReady() {
     const unit = mainOrder[mainCursor];
     return !!unit && isActionFullyResolved(unit);
-  }
-
-  // このユニットが「今、選択操作の対象」かどうか。Prepフェイズは全員
-  // 常に選択可能（現行仕様のまま）。Mainフェイズは逐次処理のため、
-  // 行動順で今の手番のユニットだけが選択可能。
-  function isActingNow(unit) {
-    return phase === "prep" || mainOrder[mainCursor] === unit;
   }
 
   // Mainフェイズの現在の手番ユニット（味方）について、今すぐ選べる
@@ -5198,6 +5205,9 @@ export function BattleScene(container, params, api) {
         ? { actor: unit, targets: [targetUnit, ...extraTargets] }
         : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
+    // F3：行動順カード列で、このユニットの行動内容を開示してよい
+    // タイミング（敵は実際に宣言されるまで「？？？」のまま）。
+    unit.prepRevealed = true;
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
     if (unit.faction === "ally") increaseCondition(unit.character, 1);
@@ -5835,6 +5845,9 @@ export function BattleScene(container, params, api) {
         ? { actor: unit, targets: [targetUnit, ...extraTargets] }
         : { actor: unit, target: targetUnit };
     pushLog(declarationLine(unit, module, targetUnit), unit.faction);
+    // F3：行動順カード列に、このMainフェイズ内での行動履歴として積む
+    // （不発に終わった場合も、宣言自体は行われたのでそのまま残す）。
+    unit.mainActionLog.push(module.label);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
     if (unit.faction === "ally") increaseCondition(unit.character, 1);
@@ -5964,7 +5977,12 @@ export function BattleScene(container, params, api) {
     phase = "main";
     mainOrder = buildMainOrder();
     mainCursor = 0;
-    for (const unit of [...allyUnits, ...enemyUnits]) unit.action = null;
+    // F3：行動順カード列は、Mainフェイズ内での行動履歴だけを表示する
+    // ため、新しいMainフェイズが始まるたびに空にする。
+    for (const unit of [...allyUnits, ...enemyUnits]) {
+      unit.action = null;
+      unit.mainActionLog = [];
+    }
     prepTargetPickingActor = null;
     actionPopupUnit = null;
     pushPhaseHeader("メインディッシュ！");
@@ -6094,35 +6112,73 @@ export function BattleScene(container, params, api) {
     await advanceMainPhase();
   }
 
-  // 行動内容（スキル）の選択自体はD1でステータス枠クリック→行動
-  // ポップアップに移った（moduleSelectFor廃止）。ここには選択済みの
-  // 内容を読み取り専用で表示するだけにする -- 未選択なら、どうすれば
-  // 選べるかの案内文を出す。D8：行動対象のプルダウン（targetSelectFor/
-  // handleTargetChange）も完全に撤去した -- 対象確定はキャンバス側の
-  // ステータス枠クリック／ドラッグ（D1〜D5で整備済み）だけに一本化する。
-  function actionSelectFields(unit) {
+  // F3：行動順カード列（左右固定列、両陣営分を1本の列にまとめたものを
+  // 2つ複製して表示する）。列の並び順はPrepフェイズ中は既定の行動順
+  // （buildAlternatingOrder、味方①→敵①→味方②→敵②→…）、Mainフェイズ
+  // 中はそのフェイズの間だけ固定されている実際の行動順（mainOrder）に
+  // 揃える。どちらも戦闘不能のユニットは元々除外しているので、そのまま
+  // 「両陣営の生存ユニット数ぶんの行」になる。
+  function actionQueueOrder() {
+    return phase === "prep" ? buildAlternatingOrder() : mainOrder.filter((u) => !isIncapacitated(u));
+  }
+
+  // Prepフェイズの1行ぶんの表示内容（常に1行）。味方は自分の選択なので
+  // 即座に開示、敵はunit.prepRevealed（resolvePrepAction参照）が立つ
+  // ＝実際に宣言されるまで「？？？」のまま伏せる。
+  function prepActionQueueLines(unit) {
+    if (unit.faction === "ally") {
+      const module = unit.action?.moduleId ? currentModules()[unit.action.moduleId] : null;
+      return [module ? module.label : "（未確定）"];
+    }
+    if (!unit.prepRevealed) return ["？？？"];
     const module = unit.action?.moduleId ? currentModules()[unit.action.moduleId] : null;
-    return h("div", { class: "battle-action-select__fields" }, [
-      h("p", { class: "battle-action-select__chosen", text: module ? module.label : "（自分の枠をクリックして選択）" }),
+    return [module ? module.label : "？？？"];
+  }
+
+  // Mainフェイズの1行ぶんの表示内容（複数行になりうる）。mainActionLog
+  // （resolveMainAction参照）に、実際に宣言済みの行動が発生順に積まれて
+  // いく。味方はまだPTが残っていて選べる行動がある間、末尾に「（未確定）」
+  // を追記し続ける（選ぶたびにそれが行動名に変わり、また残っていれば
+  // 新しい「（未確定）」が下に増える）。敵は宣言が1つも無い間だけ
+  // 「？？？」1行、以降は宣言されるたびにそのまま行動名を積み増す
+  // （敵の行動はCPUが即断即決するため、味方のような「未確定」枠は
+  // 挟まない）。
+  function mainActionQueueLines(unit) {
+    const lines = [...unit.mainActionLog];
+    if (unit.faction === "ally") {
+      if (!isIncapacitated(unit) && viableMainModuleIds(unit).length > 0) lines.push("（未確定）");
+    } else if (lines.length === 0) {
+      lines.push("？？？");
+    }
+    return lines;
+  }
+
+  function actionQueueLinesFor(unit) {
+    if (isIncapacitated(unit)) return ["戦闘不能"];
+    return phase === "prep" ? prepActionQueueLines(unit) : mainActionQueueLines(unit);
+  }
+
+  // dimFaction側の陣営はこのカード列の演出上グレーアウトする（左列＝
+  // 敵をグレーアウト、右列＝味方をグレーアウト -- ユーザー指示）。
+  // ハイライトは、グレーアウトされていない側のユニットが「今まさに
+  // 行動している」時（activeArrow.actor、Prep/Mainどちらの実行中でも
+  // 共通）だけに限る。
+  function actionQueueCard(unit, dimFaction) {
+    const dimmed = unit.faction === dimFaction;
+    const active = !dimmed && activeArrow?.actor === unit;
+    const classes = ["battle-action-queue-card"];
+    if (dimmed) classes.push("battle-action-queue-card--dimmed");
+    if (active) classes.push("battle-action-queue-card--active");
+    const lines = actionQueueLinesFor(unit).map((line) => h("p", { class: "battle-action-queue-card__line", text: line }));
+    return h("div", { class: classes.join(" "), "data-unit-id": unit.character.id }, [
+      h("p", { class: "battle-action-queue-card__name", text: firstName(unit.displayName) }),
+      h("div", { class: "battle-action-queue-card__lines" }, lines),
     ]);
   }
 
-  // 行動選択専用列に並ぶ、隊員名付きの版。味方ステータス列とは別列で
-  // 独立に積み上がるため、行の高さがずれても誰の枠か分かるよう名前を
-  // 添えている。行動内容・行動対象のどちらかが未確定の間はハイライト
-  // し、両方確定すると解除する。順次処理中、Mainフェイズで今の手番で
-  // ないユニット、および選べる行動が1つも無いユニットは一律グレー
-  // アウト。
-  function actionSelectBox(unit) {
-    if (isIncapacitated(unit)) {
-      return h("div", { class: "battle-action-select battle-action-select--down" }, [
-        h("p", { class: "battle-action-select__name", text: firstName(unit.displayName) }),
-        h("p", { class: "battle-action-select__down-label", text: "戦闘不能" }),
-      ]);
-    }
-    const inactive = executing || !isActingNow(unit) || viableModuleIdsFor(unit).length === 0;
-    const modifier = inactive ? " battle-action-select--disabled" : !isActionFullyResolved(unit) ? " battle-action-select--pending" : "";
-    return h("div", { class: `battle-action-select${modifier}` }, [h("p", { class: "battle-action-select__name", text: firstName(unit.displayName) }), actionSelectFields(unit)]);
+  function actionQueueColumn(dimFaction, sideClass) {
+    const order = actionQueueOrder();
+    return h("div", { class: `battle-column battle-action-queue ${sideClass}` }, order.map((unit) => actionQueueCard(unit, dimFaction)));
   }
 
   function battleLog() {
@@ -6235,20 +6291,17 @@ export function BattleScene(container, params, api) {
     );
   }
 
-  // 味方の行動選択列（左端、対象選択プルダウンのみ残存 -- 行動内容の
-  // 選択はD1でステータス枠クリック→行動ポップアップに置き換わった）と、
-  // その右側の自由配置キャンバス（味方・敵のステータス枠と中央情報を、
-  // battleLayout.jsが算出した「ハの字」型の座標に絶対配置したもの）の
-  // 2つで構成する。キャンバスのピクセルサイズは、全ユニット枠が収まる
-  // bounding boxから逆算し、原点(0,0)がキャンバス内のどこに来るかを
-  // originX/originYとして各枠の平行移動に使う。矢印は各ステータス枠の
-  // 中央側の辺を実測して描く1枚のオーバーレイSVG（キャンバス全体に
-  // 重ねる）。ステータス枠は行動対象選択中、直接クリックすることでも
-  // 指定できる。
-  // .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方の枠）が
-  // 縦横スクロールを担い、中身の.battle-arenaは行動選択列のCSS上の
-  // 最低幅を表示幅が下回った時、またはキャンバス自体が表示領域より
-  // 大きい時に、そこからはみ出す（詳細はtheme.cssの該当コメント参照）。
+  // F3：両陣営の行動順を示すカード列を画面の左右端に1本ずつ固定表示し
+  // （actionQueueColumn、両方とも同じ内容の複製）、スクロールして見渡す
+  // 自由配置キャンバス（味方・敵のステータス枠と中央情報を、battle
+  // Layout.jsが算出した「ハの字」型の座標に絶対配置したもの）はその間に
+  // 挟む。カード列は.battle-arena-scrollの外に置くため、キャンバス側を
+  // 横スクロールしても左右に固定されたまま見え続ける。キャンバスの
+  // ピクセルサイズは、全ユニット枠が収まるbounding boxから逆算し、
+  // 原点(0,0)がキャンバス内のどこに来るかをoriginX/originYとして各枠の
+  // 平行移動に使う。矢印は各ステータス枠の中央側の辺を実測して描く1枚の
+  // オーバーレイSVG（キャンバス全体に重ねる）。ステータス枠は行動対象
+  // 選択中、直接クリックすることでも指定できる。
   function battleArena() {
     const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
     const bounds = computeCanvasBounds(layout);
@@ -6276,11 +6329,10 @@ export function BattleScene(container, params, api) {
       ]
     );
 
-    return h("div", { class: "battle-arena-scroll" }, [
-      h("div", { class: "battle-arena" }, [
-        h("div", { class: "battle-column battle-column--action" }, allyUnits.map(actionSelectBox)),
-        canvas,
-      ]),
+    return h("div", { class: "battle-arena" }, [
+      actionQueueColumn("enemy", "battle-action-queue--left"),
+      h("div", { class: "battle-arena-scroll" }, [canvas]),
+      actionQueueColumn("ally", "battle-action-queue--right"),
     ]);
   }
 
