@@ -1193,33 +1193,20 @@ body {
   width: 100%;
 }
 
-/* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横
-   スクロールを担う枠。F3で行動順カード列（.battle-action-queue）を
+/* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横の
+   表示領域を担う枠。F3で行動順カード列（.battle-action-queue）を
    .battle-arenaの外（このスクロール枠の左右）へ固定配置したため、
    中身は味方・敵のステータス枠をbattleLayout.jsが算出した座標へ絶対
-   配置する.battle-freeform-canvasだけになった -- キャンバス自身の
-   bounding boxから逆算した実ピクセルサイズが表示領域を超えると、この
-   枠のスクロールで全容を見渡せるようになる。 */
+   配置する.battle-freeform-canvasだけになった。プレイヤーが直接ドラッグ/
+   ホイールでスクロールすることはできないようoverflow: hiddenにしてある
+   （ユーザー指示：「カメラ」はシステム側だけが動かす）。JS側の
+   scrollTo()/scrollLeft/scrollTop代入によるプログラム制御は
+   overflow: hiddenでも引き続き機能するため、battle.jsのupdateCamera()
+   はそのまま動く。 */
 .battle-arena-scroll {
-  overflow: auto;
+  overflow: hidden;
   border-radius: var(--radius-sm);
   max-height: 60vh;
-  scrollbar-width: thin;
-  scrollbar-color: var(--panel-line-strong) transparent;
-}
-
-.battle-arena-scroll::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.battle-arena-scroll::-webkit-scrollbar-thumb {
-  background: var(--panel-line-strong);
-  border-radius: 999px;
-}
-
-.battle-arena-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--ember);
 }
 
 .battle-arena {

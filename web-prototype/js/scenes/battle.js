@@ -6563,69 +6563,177 @@ export function BattleScene(container, params, api) {
     }
   }
 
-  // E1：行動の実行中（activeArrowが立っている間）、主体と全対象の
-  // ステータス枠がちょうど収まるbounding boxの中心が、
-  // .battle-arena-scrollの表示領域の中心に来るよう自動でスクロールする
-  // （矢印と同じくDOM実測ベース -- battleLayoutの座標をここで二重に
-  // 計算し直さずに済む）。render()はrenderScreen経由でDOMを毎回丸ごと
-  // 組み直すため（.battle-arena-scroll自体も新しい要素に差し替わり、
-  // scrollLeft/scrollTopは0に戻ってしまう）、呼び出し側（resolvePrep/
-  // MainAction）で1度だけ呼んでも、同じ行動の解決中に挟まる後続の
-  // render()呼び出しで巻き戻されてしまう。updateArrowOverlay()と同じく
-  // render()の末尾から毎回呼ぶことで、その行動が解決し終わるまで
-  // 呼ばれるたびに正しい位置へ再スクロールし直され、最終的に安定する。
-  // E2追記：主体・全対象のbounding boxが表示領域そのものより大きく、
-  // 中央寄せしてもどちらかの端が必ず見切れてしまう場合は、.battle-
-  // freeform-canvas全体をtransform: scale()で縮小し、全員が収まる
-  // ようにしてから中央寄せする。等倍のままでも収まる（大多数のケース）
-  // 場合は縮小しない。
-  // 倍率適用後の中央寄せ計算は、transform適用後に改めてDOM実測し直す
-  // のではなく、等倍時の実測値から解析的に算出する -- transformに
-  // トランジションを付けている（滑らかにズームさせるため）と、
-  // style.transformを書き換えた直後のgetBoundingClientRect()はブラウザが
-  // まだ遷移を開始していない＝旧い（等倍の）値をそのまま返してしまい、
-  // 縮小前の位置を基準にスクロールしてしまう（実際にこの実装でハマった
-  // 不具合）。transform: scale(s)はtransform-origin（既定で要素自身の
-  // 中心）を基準に効くアフィン変換なので、原点(originX, originY)さえ
-  // わかれば「等倍時の点(x, y)がscale(s)適用後にどこへ移るか」は
-  // origin + (x - origin) * sで機械的に計算でき、実測し直す必要が無い。
-  const ZOOM_FIT_MARGIN = 32;
-  const ZOOM_FIT_MIN_SCALE = 0.4;
-  function scrollArenaToCenterOn(units) {
+  // 「カメラ」：戦闘盤面（.battle-arena-scroll）のスクロール位置・ズーム
+  // 倍率を、プレイヤーの直接操作を受け付けず（CSS側でoverflow:hiddenに
+  // 変更済み）、システム側が状況に応じて自動的に動かす仕組み（ユーザー
+  // 指示）。プレイヤーが今まさに操作・判断すべき箇所（行動選択ポップ
+  // アップ、対象候補、実行中の主体/対象）が必ず見えるよう、render()の
+  // 末尾から毎回updateCamera()を呼んで現在のフェイズ/選択状態を見て
+  // 焦点を決め直す。
+  //
+  // 焦点の算出はDOM実測（getBoundingClientRect）に頼らず、battleLayout.js
+  // が返す論理座標（原点=キャンバス左上、ユニット枠のサイズも既知）を
+  // 直接使う -- 前回のズーム倍率がどうであれ常に同じ土台で計算でき、
+  // 「前回の倍率のまま測ってしまい、新しい倍率をさらに掛けて二重に縮小
+  // されてしまう」といった不具合を構造的に避けられる（旧scrollArenaTo
+  // CenterOnはDOM実測ベースで、実際にこの問題を抱えていた）。唯一DOM実測
+  // が必要なのは「キャンバス自身の現在の画面上の中心位置」だけ -- transform:
+  // scale(s)はtransform-origin（既定で要素自身の中心）を基準に効くため、
+  // 倍率を変えてもこの中心点自体は画面上で動かない。よって「現在の中心
+  // 位置」を1度測っておけば、任意の新しい倍率sに対して、自然座標
+  // (natural座標、キャンバス左上基準)上の任意の点Pが画面上のどこに来るか
+  // を viewportCenter + (P - naturalCenter) * s で機械的に算出できる
+  // （実測し直す必要がないので、CSSトランジション中でも縮小前の古い値を
+  // 拾ってしまう心配が無い）。
+  const CAMERA_MARGIN = 32;
+  // ポップアップの実際の高さは選択肢数で変わる（DOM依存）が、正確な
+  // キャンバス座標変換までは行わず、CSS側のmax-height（theme.css
+  // .battle-action-popup参照）に余白を足した固定値で近似する。
+  const POPUP_APPROX_HEIGHT = 260;
+  // ⑤：Mainフェイズで行動内容・対象がどちらも未確定な手番ユニットへ
+  // 「気持ちだけ」寄せる度合い（0=寄せない、1=完全にその人を中心に）。
+  const MAIN_CHOICE_ACTOR_BIAS = 0.18;
+  // ④：Prepフェイズの計画が全て確定した時、既定位置の中心を「オード
+  // ブル開始！」ボタン側へどれだけ寄せるか。
+  const PREP_READY_BUTTON_BIAS = 1;
+
+  function unitLogicalRect(unit) {
+    const idx = unit.faction === "ally" ? allyUnits.indexOf(unit) : enemyUnits.indexOf(unit);
+    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
+    const point = (unit.faction === "ally" ? layout.ally : layout.enemy)[idx];
+    const bounds = computeCanvasBounds(layout);
+    const cx = -bounds.minX + point.x;
+    const cy = -bounds.minY + point.y;
+    return { left: cx - CARD_WIDTH / 2, right: cx + CARD_WIDTH / 2, top: cy - CARD_HEIGHT / 2, bottom: cy + CARD_HEIGHT / 2 };
+  }
+
+  // キャンバス全体（＝全ユニット＋中央のフェイズ表示が過不足なく収まる
+  // よう算出済みのbounding box）をそのまま焦点にする＝「全員が映る」。
+  function allUnitsLogicalRect() {
+    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
+    const bounds = computeCanvasBounds(layout);
+    return { left: 0, top: 0, right: bounds.width, bottom: bounds.height };
+  }
+
+  function centerBlockLogicalRect() {
+    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
+    const bounds = computeCanvasBounds(layout);
+    const originX = -bounds.minX;
+    const originY = -bounds.minY;
+    return { left: originX - CENTER_BLOCK_WIDTH / 2, right: originX + CENTER_BLOCK_WIDTH / 2, top: originY - CENTER_BLOCK_HEIGHT, bottom: originY };
+  }
+
+  // rects全てがちょうど収まるようキャンバスを縮小し（収まる場合は等倍
+  // のまま、ユーザー指示によりこれ以上は縮小しないという下限は設けない）、
+  // その中心（biasRectを指定した場合はrects全体の中心とbiasRectの中心を
+  // biasWeightで按分した点）が.battle-arena-scrollの表示領域の中心に
+  // 来るようスクロールする。
+  function applyCamera(rects, { biasRect, biasWeight = 0 } = {}) {
     const scrollEl = container.querySelector(".battle-arena-scroll");
     const canvasEl = container.querySelector(".battle-freeform-canvas");
-    if (!scrollEl || !canvasEl) return;
-    const elements = units.map((u) => container.querySelector(`[data-unit-id="${u.character.id}"]`)).filter(Boolean);
-    if (!elements.length) return;
-
-    const naturalRects = elements.map((el) => el.getBoundingClientRect());
-    const minX = Math.min(...naturalRects.map((r) => r.left));
-    const maxX = Math.max(...naturalRects.map((r) => r.right));
-    const minY = Math.min(...naturalRects.map((r) => r.top));
-    const maxY = Math.max(...naturalRects.map((r) => r.bottom));
-    const boxWidth = maxX - minX;
-    const boxHeight = maxY - minY;
+    if (!scrollEl || !canvasEl || rects.length === 0) return;
 
     const canvasRect = canvasEl.getBoundingClientRect();
-    const originX = canvasRect.left + canvasRect.width / 2;
-    const originY = canvasRect.top + canvasRect.height / 2;
+    const viewportCenterX = canvasRect.left + canvasRect.width / 2;
+    const viewportCenterY = canvasRect.top + canvasRect.height / 2;
 
-    const availableWidth = scrollEl.clientWidth - ZOOM_FIT_MARGIN * 2;
-    const availableHeight = scrollEl.clientHeight - ZOOM_FIT_MARGIN * 2;
-    const scale = Math.max(ZOOM_FIT_MIN_SCALE, Math.min(1, availableWidth / boxWidth, availableHeight / boxHeight));
+    const layout = computeBattleLayout(allyUnits.length, enemyUnits.length);
+    const bounds = computeCanvasBounds(layout);
+    const naturalCenterX = bounds.width / 2;
+    const naturalCenterY = bounds.height / 2;
+
+    const minX = Math.min(...rects.map((r) => r.left));
+    const maxX = Math.max(...rects.map((r) => r.right));
+    const minY = Math.min(...rects.map((r) => r.top));
+    const maxY = Math.max(...rects.map((r) => r.bottom));
+
+    const availableWidth = scrollEl.clientWidth - CAMERA_MARGIN * 2;
+    const availableHeight = scrollEl.clientHeight - CAMERA_MARGIN * 2;
+    const scale = Math.min(1, availableWidth / (maxX - minX), availableHeight / (maxY - minY));
+
+    let targetX = (minX + maxX) / 2;
+    let targetY = (minY + maxY) / 2;
+    if (biasRect && biasWeight > 0) {
+      const biasX = (biasRect.left + biasRect.right) / 2;
+      const biasY = (biasRect.top + biasRect.bottom) / 2;
+      targetX = targetX * (1 - biasWeight) + biasX * biasWeight;
+      targetY = targetY * (1 - biasWeight) + biasY * biasWeight;
+    }
+
     canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
-    canvasEl.style.transform = scale < 1 ? `scale(${scale})` : "";
+    canvasEl.style.transform = scale !== 1 ? `scale(${scale})` : "";
 
-    const scaledCenterX = originX + ((minX + maxX) / 2 - originX) * scale;
-    const scaledCenterY = originY + ((minY + maxY) / 2 - originY) * scale;
+    const scaledTargetX = viewportCenterX + (targetX - naturalCenterX) * scale;
+    const scaledTargetY = viewportCenterY + (targetY - naturalCenterY) * scale;
     const viewportRect = scrollEl.getBoundingClientRect();
-    const dx = scaledCenterX - (viewportRect.left + viewportRect.width / 2);
-    const dy = scaledCenterY - (viewportRect.top + viewportRect.height / 2);
+    const dx = scaledTargetX - (viewportRect.left + viewportRect.width / 2);
+    const dy = scaledTargetY - (viewportRect.top + viewportRect.height / 2);
     const maxScrollLeft = scrollEl.scrollWidth - scrollEl.clientWidth;
     const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
     const left = Math.max(0, Math.min(maxScrollLeft, scrollEl.scrollLeft + dx));
     const top = Math.max(0, Math.min(maxScrollTop, scrollEl.scrollTop + dy));
     scrollEl.scrollTo({ left, top, behavior: FAST ? "auto" : "smooth" });
+  }
+
+  // render()の末尾から毎回呼び、現在のフェイズ・選択状態を見てカメラの
+  // 焦点を決め直す（ユーザー指定の①〜⑦）。優先順位：①実行中の演出
+  // （矢印表示中）＞②Prepの行動選択ポップアップ＞③/⑥対象候補選択中＞
+  // ⑤Mainで手番ユニットの行動内容が未確定＞④/①既定位置（Prep全確定時
+  // は開始ボタンへ寄せる）。
+  function updateCamera() {
+    if (activeArrow) {
+      // ⑦：実行中は主体・全対象の中心へ、大きさもちょうど収まるように。
+      const targets = activeArrow.targets ?? [activeArrow.target];
+      applyCamera([activeArrow.actor, ...targets].map(unitLogicalRect));
+      return;
+    }
+    if (phase === "prep") {
+      if (actionPopupUnit) {
+        // ②：行動選択ポップアップを開いている間は、そのユニットの枠と
+        // ポップアップが主に見えるように。
+        const cardRect = unitLogicalRect(actionPopupUnit);
+        const popupRect = { left: cardRect.left, right: cardRect.right, top: cardRect.bottom, bottom: cardRect.bottom + POPUP_APPROX_HEIGHT };
+        applyCamera([cardRect, popupRect]);
+        return;
+      }
+      if (prepTargetPickingActor) {
+        // ③：行動対象選択中は、主体と全ての対象候補が見えるように
+        // （候補が一部確定して減っても、その都度候補を狭めて追う必要は
+        // 無いというユーザー指示通り、現在の候補集合をそのまま使う）。
+        const actor = prepTargetPickingActor;
+        applyCamera([actor, ...currentPickCandidates(actor)].map(unitLogicalRect));
+        return;
+      }
+      if (allAlliesReady()) {
+        // ④：全員確定済み＝「オードブル開始！」が出ている間は、全員が
+        // 映る倍率を保ったまま、その中心を開始ボタン側へ寄せる。
+        applyCamera([allUnitsLogicalRect()], { biasRect: centerBlockLogicalRect(), biasWeight: PREP_READY_BUTTON_BIAS });
+        return;
+      }
+      // ①：それ以外（誰かの選択待ち・選択中だがポップアップは閉じている
+      // 等）は既定位置＝全員が映る通常表示。
+      applyCamera([allUnitsLogicalRect()]);
+      return;
+    }
+    // Mainフェイズ：プレイヤーの選択が必要なのは常にmainOrder[mainCursor]
+    // （味方、advanceMainPhase参照）。
+    const currentUnit = mainOrder[mainCursor];
+    if (currentUnit && currentUnit.faction === "ally" && !isIncapacitated(currentUnit)) {
+      if (!currentUnit.action) {
+        // ⑤：内容・対象ともに未確定 -- 全ユニット（生存可否問わず）が
+        // 映る倍率のまま、その人へ気持ちだけカメラを寄せる。
+        applyCamera([allUnitsLogicalRect()], { biasRect: unitLogicalRect(currentUnit), biasWeight: MAIN_CHOICE_ACTOR_BIAS });
+        return;
+      }
+      if (!isActionFullyResolved(currentUnit)) {
+        // ⑥：内容確定・対象未確定 -- ③と同じ。
+        applyCamera([currentUnit, ...currentPickCandidates(currentUnit)].map(unitLogicalRect));
+        return;
+      }
+    }
+    // ①：プレイヤーの選択が必要な場面でない間（敵の自動行動待ち等）は
+    // 既定位置。
+    applyCamera([allUnitsLogicalRect()]);
   }
 
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
@@ -6649,12 +6757,11 @@ export function BattleScene(container, params, api) {
 
   // アリーナのスクロール位置・カード列のスクロール位置・キャンバスの
   // 縮小率は、render()のたびに.battle-arena-scroll等が丸ごと作り直され
-  // scrollLeft/scrollTop/transformが初期値へ戻ってしまう（E1の
-  // scrollArenaToCenterOn自身のコメント参照）。差し替え直前の値を保存し、
-  // renderScreen直後・まだ画面が塗り替わる前に同じ値を即座に（トラン
-  // ジション無しで）書き戻すことで、見た目上は「一旦左上へ飛んでから
-  // 動く」ようには見えず、その後のscrollArenaToCenterOn等が正しい
-  // 現在地からなめらかにアニメーションできるようにする。
+  // scrollLeft/scrollTop/transformが初期値へ戻ってしまう。差し替え直前の
+  // 値を保存し、renderScreen直後・まだ画面が塗り替わる前に同じ値を即座に
+  // （トランジション無しで）書き戻すことで、見た目上は「一旦左上へ飛んで
+  // から動く」ようには見えず、その後のupdateCamera()等が正しい現在地
+  // からなめらかにアニメーションできるようにする。
   const ARENA_SCROLL_SELECTORS = [".battle-arena-scroll", ".battle-action-queue--left", ".battle-action-queue--right"];
   function saveArenaScrollState() {
     const scrollPositions = {};
@@ -6709,11 +6816,7 @@ export function BattleScene(container, params, api) {
     const logEl = container.querySelector(".battle-log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
     updateArrowOverlay();
-    // E1：行動実行中（activeArrow）は毎回ここで主体・全対象へ合わせて
-    // 自動スクロールする（このrender()自体が.battle-arena-scrollを
-    // 新しい要素に差し替えるため、一度だけ呼んでも後続のrender()で
-    // 巻き戻る -- scrollArenaToCenterOn自体のコメント参照）。
-    if (activeArrow) scrollArenaToCenterOn(activeArrow.targets ? [activeArrow.actor, ...activeArrow.targets] : [activeArrow.actor, activeArrow.target]);
+    updateCamera();
     scrollActionQueueToActive(".battle-action-queue--left");
     scrollActionQueueToActive(".battle-action-queue--right");
   }
