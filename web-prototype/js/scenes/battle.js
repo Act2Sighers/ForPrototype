@@ -3909,19 +3909,23 @@ function unitAttribute(character) {
 // それまでの間はここに文字情報のまま出しておく。変調は隊員限定。
 // CSSの.battle-unit:hover .battle-unit__popoverで表示を切り替える
 // （JS側で開閉状態を持たない、hoverだけの簡易実装）。
+// レベルは常時表示から外し（ユーザー指示）、マウスオーバーポップアップ
+// の先頭行に回す。
 function battleUnitPopover(unit) {
-  const children = [battleStatsRow(unit), staminaSpan(unit.stamina)];
+  const children = [h("span", { class: "battle-unit__level", text: `Lv.${unit.character.level}` }), battleStatsRow(unit), staminaSpan(unit.stamina)];
   if (unit.faction === "ally") children.push(conditionBadge(unit));
   return h("div", { class: "battle-unit__popover" }, children);
 }
 
-// ステータス枠の表示項目は「名前・レベル・属性・HPゲージ・PT」のみに
-// 絞ってある（ユーザー指示）。変調/体幹/能力値/IN/戦闘不能バッジなど
-// それ以外の情報は、この枠自体には出さず、battleUnitPopover()の
+// ステータス枠の表示項目は「名前・属性・HPゲージ・PT（ランプのみ）」に
+// 絞ってある（ユーザー指示）。レベル/変調/体幹/能力値/IN/戦闘不能バッジ
+// など他の情報は、この枠自体には出さず、battleUnitPopover()の
 // マウスオーバーポップアップに回している。戦闘不能の判別は、この枠に
 // 別途重ねる.battle-unit--down（グレーアウト、statusCardClass参照）
 // のみで行う。属性がNO_ATTRIBUTE（隊員や、属性を持たないモンスター）
 // の場合は、「属性：なし」等とは書かず、属性欄自体を表示しない。
+// PTはヘッダー行の右側（旧レベル表示の位置）へ移し、数値表示は削って
+// ランプ（pt-lamp）のみにする（ユーザー指示）。
 function battleUnitCard(unit, extraClass, onClick, onPointerDown) {
   const classes = extraClass ? `battle-unit ${extraClass}` : "battle-unit";
   const character = unit.character;
@@ -3930,14 +3934,10 @@ function battleUnitCard(unit, extraClass, onClick, onPointerDown) {
   return h("div", { class: classes, "data-unit-id": character.id, onClick, onPointerdown: onPointerDown }, [
     h("div", { class: "battle-unit__head" }, [
       h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
-      h("span", { class: "battle-unit__level", text: `Lv.${character.level}` }),
+      ptLamp(unit.pt.current, unit.pt.max),
     ]),
     attributeLabel ? h("p", { class: "battle-unit__attribute", text: `属性: ${attributeLabel}` }) : null,
     battleHpGauge(unit),
-    h("div", { class: "battle-unit__pt" }, [
-      h("span", { text: `PT: ${unit.pt.current} / ${unit.pt.max}` }),
-      ptLamp(unit.pt.current, unit.pt.max),
-    ]),
     battleUnitPopover(unit),
   ]);
 }
@@ -6647,7 +6647,55 @@ export function BattleScene(container, params, api) {
     return [skipButton, speedButton];
   }
 
+  // アリーナのスクロール位置・カード列のスクロール位置・キャンバスの
+  // 縮小率は、render()のたびに.battle-arena-scroll等が丸ごと作り直され
+  // scrollLeft/scrollTop/transformが初期値へ戻ってしまう（E1の
+  // scrollArenaToCenterOn自身のコメント参照）。差し替え直前の値を保存し、
+  // renderScreen直後・まだ画面が塗り替わる前に同じ値を即座に（トラン
+  // ジション無しで）書き戻すことで、見た目上は「一旦左上へ飛んでから
+  // 動く」ようには見えず、その後のscrollArenaToCenterOn等が正しい
+  // 現在地からなめらかにアニメーションできるようにする。
+  const ARENA_SCROLL_SELECTORS = [".battle-arena-scroll", ".battle-action-queue--left", ".battle-action-queue--right"];
+  function saveArenaScrollState() {
+    const scrollPositions = {};
+    for (const sel of ARENA_SCROLL_SELECTORS) {
+      const el = container.querySelector(sel);
+      if (el) scrollPositions[sel] = { left: el.scrollLeft, top: el.scrollTop };
+    }
+    const canvasEl = container.querySelector(".battle-freeform-canvas");
+    const scaleMatch = canvasEl?.style.transform.match(/scale\(([\d.]+)\)/);
+    return { scrollPositions, scale: scaleMatch ? parseFloat(scaleMatch[1]) : null };
+  }
+  function restoreArenaScrollState(saved) {
+    for (const [sel, pos] of Object.entries(saved.scrollPositions)) {
+      const el = container.querySelector(sel);
+      if (el) { el.scrollLeft = pos.left; el.scrollTop = pos.top; }
+    }
+    if (saved.scale != null) {
+      const canvasEl = container.querySelector(".battle-freeform-canvas");
+      if (canvasEl) { canvasEl.style.transition = "none"; canvasEl.style.transform = `scale(${saved.scale})`; }
+    }
+  }
+
+  // カード列（.battle-action-queue--left/--right）は人数が多いと縦に
+  // 見切れ、独自にスクロール可能になる。今まさに行動しているユニットの
+  // カード（.battle-action-queue-card--active）が両端の列それぞれで
+  // 見切れていれば、その列だけを縦スクロールして見えるようにする
+  // （ユーザー指示）。
+  function scrollActionQueueToActive(selector) {
+    const columnEl = container.querySelector(selector);
+    const activeEl = columnEl?.querySelector(".battle-action-queue-card--active");
+    if (!columnEl || !activeEl) return;
+    const columnRect = columnEl.getBoundingClientRect();
+    const activeRect = activeEl.getBoundingClientRect();
+    if (activeRect.top >= columnRect.top && activeRect.bottom <= columnRect.bottom) return;
+    const targetTop = columnEl.scrollTop + (activeRect.top - columnRect.top) - (columnRect.height - activeRect.height) / 2;
+    const maxTop = columnEl.scrollHeight - columnEl.clientHeight;
+    columnEl.scrollTo({ top: Math.max(0, Math.min(maxTop, targetTop)), behavior: FAST ? "auto" : "smooth" });
+  }
+
   function render() {
+    const savedArenaScroll = saveArenaScrollState();
     renderScreen(container, {
       eyebrow: isArenaMode ? "TRAINING GROUNDS" : mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
       title: isArenaMode ? "訓練（アリーナモード）" : mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
@@ -6655,6 +6703,7 @@ export function BattleScene(container, params, api) {
       onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
     });
+    restoreArenaScrollState(savedArenaScroll);
     // テキストログは常に最新行が見えるよう、描画のたびに一番下へ
     // スクロールする（.screen-frame自体のスクロール位置保持とは別)。
     const logEl = container.querySelector(".battle-log");
@@ -6665,6 +6714,8 @@ export function BattleScene(container, params, api) {
     // 新しい要素に差し替えるため、一度だけ呼んでも後続のrender()で
     // 巻き戻る -- scrollArenaToCenterOn自体のコメント参照）。
     if (activeArrow) scrollArenaToCenterOn(activeArrow.targets ? [activeArrow.actor, ...activeArrow.targets] : [activeArrow.actor, activeArrow.target]);
+    scrollActionQueueToActive(".battle-action-queue--left");
+    scrollActionQueueToActive(".battle-action-queue--right");
   }
 
   // G3：プログラム的にトリガーできるテストフック。DOM操作（クリック・

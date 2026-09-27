@@ -1225,6 +1225,7 @@ body {
 .battle-arena {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 8px;
   padding: 4px;
 }
@@ -1601,12 +1602,6 @@ body {
   font-size: 11px;
   color: var(--ink-dim);
   flex-wrap: wrap;
-}
-
-.battle-unit__pt {
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 /* 残りPTを示すランプ。 */

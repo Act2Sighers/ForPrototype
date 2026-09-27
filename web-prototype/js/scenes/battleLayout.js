@@ -32,16 +32,21 @@ const ROW_HEIGHT = CARD_HEIGHT + ROW_GAP;
 // 原点から1行目までの縦方向のオフセット。中央のフェイズ表示
 // （CENTER_BLOCK_HEIGHT参照）を原点の少し上に置くための余白を兼ねる。
 const ROW_START_Y = 90;
-// 行番号が1増えるごとに、帯の中心線（スパイン）が外側へ広がる量。
-const BAND_DX_PER_ROW = 70;
-// ジグザグモード（1列）での、中央寄り/外寄りの振れ幅。
-const ZIGZAG_OFFSET = 36;
+// ジグザグモード（1列）：偶数行を「近レーン」・奇数行を「遠レーン」の
+// 2本のレーンとして扱う（ユーザー提示のモックアップに合わせた設計 --
+// 詳しくはcomputeUnitPositionsのコメント参照）。近レーンの原点からの
+// 開き幅、2行進むごとに両レーンとも外側へ広がる量、近→遠レーンの
+// 固定の開き幅、をそれぞれ独立した定数として持つ。
+const ZIGZAG_BASE_HALF_GAP = 190;
+const ZIGZAG_STEP_PER_PAIR = 50;
+const ZIGZAG_LANE_GAP = 120;
 // 複数列モードでの、隣接するレーン同士の間隔（枠の幅＋余白）。
 const LANE_GAP = CARD_WIDTH + LANE_SPACING_GAP;
-// 原点からの帯の基本の開き幅（1行目でも味方・敵の枠が重ならないだけの
-// 間隔を保証する）。ジグザグの振れ幅ぶん互いに近づいても重ならない
-// 最小値（CARD_WIDTH/2 + ZIGZAG_OFFSET + 余白）を確保してある。
+// 原点からの帯の基本の開き幅（複数列モードの基準スパイン位置）。
 const BASE_HALF_GAP = 170;
+// 複数列モードで、行番号が1増えるごとに帯の中心線（スパイン）が外側へ
+// 広がる量。
+const MULTI_COLUMN_BAND_DX_PER_ROW = 70;
 // この人数を超えたら1列のジグザグから3列モードへ切り替える。
 const MULTI_COLUMN_THRESHOLD = 7;
 // 3列モードで使う列数。
@@ -69,25 +74,35 @@ export function computeUnitPositions(faction, count) {
     const row = Math.floor(i / columns);
     const laneInRow = i % columns;
     const y = ROW_START_Y + row * ROW_HEIGHT;
-    // BASE_HALF_GAPを基本の開き幅として、行が進むごとにさらに外側へ
-    // 広げる。BASE_HALF_GAPが無いと1行目で味方・敵の枠がほぼ重なって
-    // しまう（ジグザグの振れ幅だけでは220px幅の枠を離しきれない）。
-    const spineX = sideSign * (BASE_HALF_GAP + BAND_DX_PER_ROW * row);
 
     let x;
     if (columns === 1) {
-      // ジグザグモード：行が偶数なら中央寄り、奇数なら外寄り。敵は
-      // 位相を反転させ、両陣営の1行目同士が向き合う対称な形にする。
-      const zigzagSign = row % 2 === 0 ? 1 : -1;
-      const phaseFlip = faction === "enemy" ? -1 : 1;
-      x = spineX + zigzagSign * phaseFlip * ZIGZAG_OFFSET;
+      // ジグザグモード：偶数行＝「近レーン」・奇数行＝「遠レーン」の
+      // 2本のレーンが独立して存在すると考える（ユーザー提示のモック
+      // アップに基づく設計）。どちらのレーンも2行進む（＝同じレーンで
+      // 1つ奥へ進む）ごとにZIGZAG_STEP_PER_PAIRぶん外側へ広がり、遠
+      // レーンは近レーンより常にZIGZAG_LANE_GAPぶん外側にある。
+      // 隣り合う行が別レーンに属する固定の開き幅（ZIGZAG_LANE_GAP）で
+      // 常に離れるため、「奇数行→偶数行」の広がり幅（-ZIGZAG_LANE_GAP+
+      // ZIGZAG_STEP_PER_PAIR）が小さくなりすぎて隣接2行がほぼ重なって
+      // 見えてしまう、という旧アルゴリズムの問題を構造的に避けられる
+      // （ZIGZAG_LANE_GAP≫ZIGZAG_STEP_PER_PAIRである限り常に成立）。
+      // 両陣営とも同じ規則（偶数行＝近、奇数行＝遠）を使うため、旧来の
+      // ような敵側の位相反転は不要 -- 両陣営の同じ行番号同士が同じ
+      // レーン扱いになり、モックアップ通り左右対称になる。
+      const pairIndex = Math.floor(row / 2);
+      const isFarLane = row % 2 === 1;
+      const offset = ZIGZAG_BASE_HALF_GAP + pairIndex * ZIGZAG_STEP_PER_PAIR + (isFarLane ? ZIGZAG_LANE_GAP : 0);
+      x = sideSign * offset;
     } else {
-      // 複数列モード：レーンを中央揃えにはせず、スパインから常に外側
-      // （中心から遠ざかる方向）へだけ積み増していく。中央揃えにする
-      // と、内側のレーンが中心線を越えて相手陣営側へはみ出しうる
+      // 複数列モード：BASE_HALF_GAPを基本の開き幅として、行が進むごとに
+      // さらに外側へ広げる。レーンを中央揃えにはせず、スパインから常に
+      // 外側（中心から遠ざかる方向）へだけ積み増していく。中央揃えに
+      // すると、内側のレーンが中心線を越えて相手陣営側へはみ出しうる
       // （BASE_HALF_GAPより複数レーン分の半幅の方が大きくなるため）。
       // 外側だけに積むことで、スパイン自体が確保する中心からの間隔
       // （BASE_HALF_GAP起点）を常に下回らないようにしている。
+      const spineX = sideSign * (BASE_HALF_GAP + MULTI_COLUMN_BAND_DX_PER_ROW * row);
       x = spineX + sideSign * laneInRow * LANE_GAP;
     }
     positions.push({ x, y });
