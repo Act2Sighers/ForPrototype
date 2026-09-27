@@ -29,6 +29,7 @@ import { SkillEnhanceScene } from "./scenes/skillEnhance.js";
 import { HiringScene } from "./scenes/hiring.js";
 import { PeddlerShopScene } from "./scenes/peddlerShop.js";
 import { ResourceTradeScene } from "./scenes/resourceTrade.js";
+import { ArenaSetupScene } from "./scenes/arenaSetup.js";
 import { ResultScene } from "./scenes/result.js";
 
 const registry = {
@@ -61,6 +62,7 @@ const registry = {
   hiring: HiringScene,
   peddlerShop: PeddlerShopScene,
   resourceTrade: ResourceTradeScene,
+  arenaSetup: ArenaSetupScene,
   result: ResultScene,
 };
 

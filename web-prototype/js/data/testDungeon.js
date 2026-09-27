@@ -75,6 +75,11 @@ export function computeBossLevel(difficultyValue, longestReachableNodeCount) {
 export const WORLD_LOCATIONS = [
   { id: "castle", name: "王城", kind: "castle" },
   { id: "dormitory", name: "宿舎", kind: "dormitory" },
+  // 訓練所：モンスターの上位個体を含む任意の敵配置と、任意設定の味方
+  // 編成とで、ラン中の戦闘をシミュレーションできる（js/scenes/
+  // arenaSetup.js参照）。ダンジョン類（挑戦を伴う本編）より前、宿舎の
+  // すぐ後ろに置く（ユーザー指示：ダンジョン類は最も後ろにあるべき）。
+  { id: "trainingGrounds", name: "訓練所", kind: "trainingGrounds" },
   ...DUNGEONS.map((d) => ({ id: d.id, name: d.name, kind: "dungeon" })),
 ];
 

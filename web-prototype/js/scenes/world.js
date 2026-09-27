@@ -73,6 +73,8 @@ export function WorldScene(container, params, api) {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("gallery") }));
     } else if (location?.kind === "dormitory") {
       actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("archive") }));
+    } else if (location?.kind === "trainingGrounds") {
+      actions.push(button("入場", { variant: "primary", onClick: () => api.callScene("arenaSetup") }));
     } else if (location?.kind === "dungeon" && selectedDifficultyId && selectedDepthId) {
       actions.push(
         button("挑戦開始", {

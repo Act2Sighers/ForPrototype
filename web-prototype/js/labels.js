@@ -30,5 +30,6 @@ export const SCENE_LABELS = {
   hiring: "雇用画面",
   peddlerShop: "行商画面",
   resourceTrade: "資源取引画面",
+  arenaSetup: "訓練所",
   result: "リザルト画面",
 };
