@@ -1,12 +1,14 @@
 import { renderScreen, button, h } from "../dom.js";
-import state from "../state.js";
+import state, { ARENA_PRESET_LIMIT, saveArenaPreset, loadArenaPreset, deleteArenaPreset } from "../state.js";
 import { CHARACTER_DATA, IMPLEMENTED_CHARACTER_IDS, WEAPON_TYPES, compatibleWeaponTypeIds } from "../data/resourceCatalog.js";
 import { skillLabel } from "./battle.js";
 import { CHARACTER_SKILL_ACQUISITIONS } from "../data/characterSkills.js";
 import {
   arenaEnemyTemplate,
   arenaEnemyCatalogEntries,
+  arenaRandomizableEnemyEntries,
   buildArenaDefaultAllySlot,
+  fillArenaSkillsByPriority,
   ARENA_LEVELS,
   ARENA_GROWTH_PROFILES,
   ARENA_WEAPON_QUALITIES,
@@ -30,12 +32,17 @@ const ENEMY_TOTAL_COUNT_MAX = 12;
 // シミュレーション機能。
 //
 // Step4：味方ロースター（枠数/種族/レベル/能力値構成/武器/スキル構成）
+// Step5：敵ロースター（5種族枠/配置体数/レベル/ボス枠制約）
+// Step6：一括設定・ランダム編成・変調トグル・プリセット
 // の編集UIを実装。設定は全てstate.arenaConfigを直接書き換える（保存済み
 // プロフィールの一部として、既存のslotSnapshot/restoreFromSlotの仕組み
 // にそのまま乗って永続化される -- state.jsのsetArenaConfigは「丸ごと
 // 置き換え」（プリセット読込・インポート等）専用で、こうした細かい
-// フィールド単位の対話的編集には使わない）。
-// 敵ロースター詳細・一括設定・プリセット等は後続のステップで追加する。
+// フィールド単位の対話的編集には使わない。プリセットの保存/読込だけは
+// 例外的に丸ごと置き換えなので、setArenaConfig相当のstructuredClone
+// コピーを行うstate.js側のsaveArenaPreset/loadArenaPresetを使う）。
+// バトル本体へのアリーナモード配線（【パス】スキル・報酬算出・変調の
+// 実際の反映）はStep7で行う。
 export function ArenaSetupScene(container, params, api) {
   const expandedAllyIndices = new Set();
   const expandedEnemyIndices = new Set();
@@ -414,6 +421,297 @@ export function ArenaSetupScene(container, params, api) {
     return h("div", { class: "panel" }, children);
   }
 
+  // ---- 一括設定・ランダム編成 ----
+
+  // 「重複を許可」はランダム編成の挙動だけを左右する一時的なUI設定
+  // （設定オブジェクト自体には含めない -- 保存/プリセットの対象は
+  // あくまで結果の編成であって、次に押すランダムボタンの挙動ではない）。
+  let allyAllowDuplicates = false;
+
+  // 味方一括変更系：個々のonLevelChangeと同じ理由で、レベルを下げて
+  // 予算超過になったスキル構成は空へ戻す。render()は呼び出し側で行う。
+  function applyAllyLevel(level) {
+    for (const slot of state.arenaConfig.allies) {
+      slot.level = level;
+      const budget = arenaSkillBudgetFor(level);
+      if (computeArenaSkillBudgetUsed(slot.dataId, slot.skillSelection) > budget) {
+        slot.skillSelection = { trees: {}, acquisitions: [] };
+      }
+    }
+  }
+
+  function applyEnemyLevel(level) {
+    for (const slot of state.arenaConfig.enemies) slot.level = level;
+  }
+
+  function applyAllyGrowthProfile(profileId) {
+    for (const slot of state.arenaConfig.allies) slot.growthProfileId = profileId;
+  }
+
+  function applyAllyWeaponQuality(qualityId) {
+    for (const slot of state.arenaConfig.allies) slot.weaponQualityId = qualityId;
+  }
+
+  function randomizeAllyWeaponTypes() {
+    for (const slot of state.arenaConfig.allies) {
+      const types = compatibleWeaponTypeIds(slot.dataId);
+      slot.weaponTypeId = types[Math.floor(Math.random() * types.length)];
+    }
+  }
+
+  function refillAllySkills(priority) {
+    for (const slot of state.arenaConfig.allies) {
+      slot.skillSelection = fillArenaSkillsByPriority(slot.dataId, slot.level, priority);
+    }
+  }
+
+  // 味方のランダム編成：人数(2〜6)も種族も毎回引き直し、既存の枠は
+  // 種族ごと全て作り直す（レベル/能力値構成/武器/スキルは「初期値」と
+  // 同じ組み方=buildArenaDefaultAllySlotに戻る）。実装済み種族は7人おり
+  // ALLY_MAXは6なので、重複禁止でも必ず人数分選び切れる。
+  function randomizeAllies() {
+    const count = ALLY_MIN + Math.floor(Math.random() * (ALLY_MAX - ALLY_MIN + 1));
+    const pool = IMPLEMENTED_CHARACTER_IDS.slice();
+    const picks = [];
+    for (let i = 0; i < count; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool[idx]);
+      if (!allyAllowDuplicates) pool.splice(idx, 1);
+    }
+    state.arenaConfig.allies = picks.map((id) => buildArenaDefaultAllySlot(id));
+    expandedAllyIndices.clear();
+    render();
+  }
+
+  // 敵のランダム種族選出：ボス・上位ボスを除いた母集団から重複無しで
+  // speciesCount種を選び、配置体数1固定・レベルは初期値で全枠を丸ごと
+  // 作り直す（既存のボス枠も含めて置き換わる）。
+  function randomizeEnemies(speciesCount) {
+    const pool = arenaRandomizableEnemyEntries();
+    const picks = [];
+    for (let i = 0; i < speciesCount && pool.length > 0; i++) {
+      const idx = Math.floor(Math.random() * pool.length);
+      picks.push(pool.splice(idx, 1)[0]);
+    }
+    state.arenaConfig.enemies = picks.map(({ kind, dataId }) => ({ kind, dataId, count: 1, level: ARENA_DEFAULT_LEVEL }));
+    expandedEnemyIndices.clear();
+    render();
+  }
+
+  // 配置体数の一括設定：ボス・上位ボス枠（常に1体固定）はそのまま残す。
+  // それ以外の各枠へまず最低1体ずつ確保してから、入力値-1ぶんの
+  // 追加分を表示順に残り予算の許す範囲で配っていく（先に「1体ずつ」を
+  // 全枠へ確保しておかないと、先頭の枠を優先して埋めた結果、後方の枠が
+  // 1体も割り当てられず陣営合計の上限(12)を超えてしまう恐れがあるため
+  // -- 各枠は「配置体数0」という状態を取れない前提）。
+  function applyEnemyCountBulk(value) {
+    const nonBossSlots = state.arenaConfig.enemies.filter((slot) => !isArenaBossKind(slot.kind));
+    const bossCount = state.arenaConfig.enemies.length - nonBossSlots.length;
+    let remaining = ENEMY_TOTAL_COUNT_MAX - bossCount - nonBossSlots.length;
+    for (const slot of nonBossSlots) {
+      const extraWanted = Math.max(0, value - 1);
+      const extraGranted = Math.max(0, Math.min(extraWanted, remaining));
+      slot.count = 1 + extraGranted;
+      remaining -= extraGranted;
+    }
+    render();
+  }
+
+  function bulkLevelSection(title, onApply) {
+    return h("div", { class: "field-group" }, [
+      h("p", { class: "field-label", text: title }),
+      h(
+        "div",
+        { class: "chip-row" },
+        ARENA_LEVELS.map((level) =>
+          button(`Lv.${level}`, {
+            variant: "ghost",
+            onClick: () => {
+              onApply(level);
+              render();
+            },
+          })
+        )
+      ),
+    ]);
+  }
+
+  function bulkAllySection() {
+    return [
+      bulkLevelSection("レベル一括設定（味方）", applyAllyLevel),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "能力値構成一括設定（味方）" }),
+        h(
+          "div",
+          { class: "chip-row" },
+          Object.values(ARENA_GROWTH_PROFILES).map((profile) =>
+            button(profile.label, {
+              variant: "ghost",
+              onClick: () => {
+                applyAllyGrowthProfile(profile.id);
+                render();
+              },
+            })
+          )
+        ),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "武器品質一括設定（味方）" }),
+        h(
+          "div",
+          { class: "chip-row" },
+          Object.values(ARENA_WEAPON_QUALITIES).map((quality) =>
+            button(quality.label, {
+              variant: "ghost",
+              onClick: () => {
+                applyAllyWeaponQuality(quality.id);
+                render();
+              },
+            })
+          )
+        ),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "武器種一括ランダム化（味方）" }),
+        h("div", { class: "chip-row" }, [
+          button("ランダム化を実行", {
+            variant: "ghost",
+            onClick: () => {
+              randomizeAllyWeaponTypes();
+              render();
+            },
+          }),
+        ]),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "スキル構成一括再構成（味方）" }),
+        h("div", { class: "chip-row" }, [
+          button("成長優先", {
+            variant: "ghost",
+            onClick: () => {
+              refillAllySkills("growth");
+              render();
+            },
+          }),
+          button("新規修得優先", {
+            variant: "ghost",
+            onClick: () => {
+              refillAllySkills("acquisition");
+              render();
+            },
+          }),
+        ]),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "ランダム編成（味方、人数2〜6も引き直し）" }),
+        h("div", { class: "chip-row" }, [
+          chip("重複を許可", allyAllowDuplicates, () => {
+            allyAllowDuplicates = !allyAllowDuplicates;
+            render();
+          }),
+          button("ランダム編成を実行", { variant: "ghost", onClick: randomizeAllies }),
+        ]),
+      ]),
+    ];
+  }
+
+  function bulkEnemySection() {
+    return [
+      bulkLevelSection("レベル一括設定（敵）", applyEnemyLevel),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "ランダム種族選出（敵、ボス・上位ボスは対象外）" }),
+        h(
+          "div",
+          { class: "chip-row" },
+          Array.from({ length: ENEMY_SLOT_MAX }, (_, i) => i + 1).map((n) => button(`${n}種`, { variant: "ghost", onClick: () => randomizeEnemies(n) }))
+        ),
+      ]),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "配置体数一括設定（敵、ボス・上位ボスは対象外）" }),
+        h("div", { class: "qty-input-row" }, [
+          h("input", {
+            type: "number",
+            class: "qty-input",
+            min: "1",
+            max: String(ENEMY_TOTAL_COUNT_MAX),
+            value: "1",
+            onchange: (e) => applyEnemyCountBulk(Math.max(1, parseInt(e.target.value, 10) || 1)),
+          }),
+        ]),
+      ]),
+    ];
+  }
+
+  function bulkAllSection() {
+    return [
+      bulkLevelSection("レベル一括設定（全員）", (level) => {
+        applyAllyLevel(level);
+        applyEnemyLevel(level);
+      }),
+      h("div", { class: "field-group" }, [
+        h("p", { class: "field-label", text: "変調" }),
+        h("div", { class: "chip-row" }, [
+          chip("発生する", state.arenaConfig.conditionEnabled === true, () => {
+            state.arenaConfig.conditionEnabled = true;
+            render();
+          }),
+          chip("発生しない", state.arenaConfig.conditionEnabled === false, () => {
+            state.arenaConfig.conditionEnabled = false;
+            render();
+          }),
+        ]),
+      ]),
+    ];
+  }
+
+  // ---- プリセット ----
+  // 名前は自由入力にせず「プリセットN」固定にし（このプロジェクトの
+  // UIは一貫してチップ/ボタン駆動でテキスト入力欄を使わない方針のため）、
+  // 代わりに保存時点の中身（人数/合計体数/保存日時）を毎回その場で
+  // 要約表示することで、名前が無くても中身の見分けが付くようにする。
+  function presetSection() {
+    const rows = [];
+    for (let i = 0; i < ARENA_PRESET_LIMIT; i++) {
+      const preset = state.arenaPresets[i];
+      const summary = preset
+        ? `プリセット${i + 1}（味方${preset.config.allies.length}・敵${preset.config.enemies.reduce((sum, s) => sum + s.count, 0)}体・${new Date(preset.savedAt).toLocaleString()}）`
+        : `プリセット${i + 1}（空）`;
+      rows.push(
+        h("div", { class: "panel" }, [
+          h("div", { class: "slot__meta" }, [h("span", { class: "slot__name", text: summary })]),
+          h("div", { class: "slot__actions" }, [
+            button("保存", {
+              variant: "ghost",
+              onClick: () => {
+                saveArenaPreset(i, `プリセット${i + 1}`);
+                render();
+              },
+            }),
+            button("読込", {
+              variant: "ghost",
+              disabled: !preset,
+              onClick: () => {
+                loadArenaPreset(i);
+                expandedAllyIndices.clear();
+                expandedEnemyIndices.clear();
+                render();
+              },
+            }),
+            button("削除", {
+              variant: "ghost",
+              disabled: !preset,
+              onClick: () => {
+                deleteArenaPreset(i);
+                render();
+              },
+            }),
+          ]),
+        ])
+      );
+    }
+    return [h("p", { class: "field-label", text: "プリセット（現在の設定を10枠まで保存できます）" }), h("div", { class: "slot-list" }, rows)];
+  }
+
   function render() {
     const config = state.arenaConfig;
 
@@ -439,7 +737,11 @@ export function ArenaSetupScene(container, params, api) {
         ]),
       ]),
       h("div", { class: "slot-list" }, config.enemies.map((slot, index) => enemySlotCard(slot, index))),
-      h("p", { class: "lead", text: "一括設定・ランダム・テンプレート・プリセットは今後のステップで追加されます。" }),
+      h("p", { class: "field-label", text: "一括設定・ランダム編成" }),
+      ...bulkAllySection(),
+      ...bulkEnemySection(),
+      ...bulkAllSection(),
+      ...presetSection(),
     ];
 
     renderScreen(container, {
