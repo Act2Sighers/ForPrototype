@@ -1055,11 +1055,11 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 // 生成されるSetをそのまま渡す（呼び出し元でmodule.idを追加する）。
 function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed, isArenaMode = false) {
   // 訓練所（アリーナモード）専用の【パス】：所持スキル配列や武器等を一切
-  // 経由せず、アリーナモードの時だけ味方・敵問わず常に選択可能にする
-  // （通常戦闘では呼び出し側が常にisArenaMode=falseで呼ぶため、既存の
-  // 戦闘には一切現れない）。PREP_MODULES.passPrep/MAIN_MODULES.passMain
-  // 参照。
-  if (module.id === "passPrep" || module.id === "passMain") return isArenaMode;
+  // 経由せず、アリーナモードの味方ユニットにだけ常に選択可能にする
+  // （敵は対象外 -- ユーザー指示。通常戦闘では呼び出し側が常に
+  // isArenaMode=falseで呼ぶため、既存の戦闘には一切現れない）。
+  // PREP_MODULES.passPrep/MAIN_MODULES.passMain参照。
+  if (module.id === "passPrep" || module.id === "passMain") return isArenaMode && unit.faction === "ally";
   if (module.oncePerTurn && onceThisTurnUsed?.has(module.id)) return false;
   if (module.oncePerBattle && onceThisBattleUsed?.has(module.id)) return false;
   // 平凡スキル：平凡個体自体がまだ未実装（MONSTER_DATA/CHARACTER_DATAの
@@ -6631,7 +6631,6 @@ export function BattleScene(container, params, api) {
   // 勝敗が決するまではポーズだけ、決した後は「戦闘を終える」1つだけに
   // 差し替える（自動遷移はしない -- 実際の遷移はhandleBattleEndButton）。
   function battleActions() {
-    const skipButton = button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() });
     const speedButton = button("倍速", {
       variant: state.battleDoubleSpeed ? "primary" : "ghost",
       onClick: () => {
@@ -6639,7 +6638,12 @@ export function BattleScene(container, params, api) {
         render();
       },
     });
-    if (battleOutcome) return [button(isArenaMode ? "訓練を終える" : "戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton, speedButton];
+    // 訓練所（アリーナモード）：「スキップ（テスト用）」は撤去し、代わりに
+    // 「訓練を終える」を勝敗の決着を待たず常時表示する（ユーザー指示 --
+    // いつでも打ち切って設定画面へ戻れるようにする）。
+    if (isArenaMode) return [button("訓練を終える", { variant: "primary", onClick: handleBattleEndButton }), speedButton];
+    const skipButton = button("スキップ（テスト用）", { variant: "ghost", onClick: () => api.closeScene() });
+    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton, speedButton];
     return [skipButton, speedButton];
   }
 

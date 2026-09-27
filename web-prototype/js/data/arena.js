@@ -44,12 +44,12 @@ export const ARENA_LEVELS = [1, 5, 10, 15, 20, 25, 30, 40, 50, 99];
 // CHARACTER_DATA[dataId].growthをそのまま使う）を示す特別値。
 export const ARENA_GROWTH_PROFILES = {
   original: { id: "original", label: "オリジナル", ratio: null },
-  balanced: { id: "balanced", label: "バランス", ratio: { attack: 1, defence: 1, power: 1, wisdom: 1, sociality: 1 } },
-  aggressive: { id: "aggressive", label: "好戦的", ratio: { attack: 5, defence: 2, power: 2, wisdom: 2, sociality: 2 } },
-  defensive: { id: "defensive", label: "保守的", ratio: { attack: 2, defence: 5, power: 2, wisdom: 2, sociality: 2 } },
-  intense: { id: "intense", label: "刺激的", ratio: { attack: 2, defence: 2, power: 5, wisdom: 2, sociality: 2 } },
-  intellectual: { id: "intellectual", label: "理知的", ratio: { attack: 2, defence: 2, power: 2, wisdom: 5, sociality: 2 } },
-  diplomatic: { id: "diplomatic", label: "外交的", ratio: { attack: 2, defence: 2, power: 2, wisdom: 2, sociality: 5 } },
+  balanced: { id: "balanced", label: "バランス<1/1/1/1/1>", ratio: { attack: 1, defence: 1, power: 1, wisdom: 1, sociality: 1 } },
+  aggressive: { id: "aggressive", label: "好戦的<5/2/2/2/2>", ratio: { attack: 5, defence: 2, power: 2, wisdom: 2, sociality: 2 } },
+  defensive: { id: "defensive", label: "保守的<2/5/2/2/2>", ratio: { attack: 2, defence: 5, power: 2, wisdom: 2, sociality: 2 } },
+  intense: { id: "intense", label: "刺激的<2/2/5/2/2>", ratio: { attack: 2, defence: 2, power: 5, wisdom: 2, sociality: 2 } },
+  intellectual: { id: "intellectual", label: "理知的<2/2/2/5/2>", ratio: { attack: 2, defence: 2, power: 2, wisdom: 5, sociality: 2 } },
+  diplomatic: { id: "diplomatic", label: "外交的<2/2/2/2/5>", ratio: { attack: 2, defence: 2, power: 2, wisdom: 2, sociality: 5 } },
 };
 
 // 比率(ratio)をtargetSumぴったりに配分する決定論的な最大剰余法。
@@ -158,12 +158,12 @@ export function arenaEnemyGrowth(kind, dataId, level) {
 // ユーザー指定の条件を、既存の武器固有スキル改良ロジックだけで自然に
 // 満たす。
 export const ARENA_WEAPON_QUALITIES = {
-  imitation: { id: "imitation", label: "模造品", fixedStats: { sweetness: 0, hardness: 0, poisonResist: 0, stability: 0, flexibility: 0 } },
-  practical: { id: "practical", label: "実用品", fixedStats: { sweetness: 2, hardness: 2, poisonResist: 2, stability: 2, flexibility: 2 } },
-  premium: { id: "premium", label: "一級品", fixedStats: { sweetness: 4, hardness: 4, poisonResist: 4, stability: 4, flexibility: 4 } },
-  mass: { id: "mass", label: "量産支給品", randomRange: [0, 6] },
-  standard: { id: "standard", label: "一般支給品", randomRange: [7, 13] },
-  special: { id: "special", label: "特製支給品", randomRange: [14, 20] },
+  imitation: { id: "imitation", label: "模造品(オール0)", fixedStats: { sweetness: 0, hardness: 0, poisonResist: 0, stability: 0, flexibility: 0 } },
+  practical: { id: "practical", label: "実用品(オール2)", fixedStats: { sweetness: 2, hardness: 2, poisonResist: 2, stability: 2, flexibility: 2 } },
+  premium: { id: "premium", label: "一級品(オール4)", fixedStats: { sweetness: 4, hardness: 4, poisonResist: 4, stability: 4, flexibility: 4 } },
+  mass: { id: "mass", label: "量産支給品(評価C以下)", randomRange: [0, 6] },
+  standard: { id: "standard", label: "一般支給品(評価B)", randomRange: [7, 13] },
+  special: { id: "special", label: "特製支給品(評価A以上)", randomRange: [14, 20] },
 };
 
 function rollArenaWeaponStats(qualityId) {
@@ -421,11 +421,10 @@ export function buildArenaDefaultAllySlot(dataId) {
   };
 }
 
-// 敵陣営の初期値：カラメル犬（カルメヤ犬の上位個体）×1・メレンゲ猫×1・
-// チョコロック×1（ユーザー指定）。上位個体をあえて1枠含めているのは、
-// この機能自体が上位個体の組み合わせ検証のために作られているため。
+// 敵陣営の初期値：カルメヤ犬×1・メレンゲ猫×1・チョコロック×1
+// （ユーザー指定）。
 export const ARENA_DEFAULT_ENEMY_SLOTS = [
-  { kind: "elite", dataId: "caramelDog", count: 1 },
+  { kind: "normal", dataId: "karumeDog", count: 1 },
   { kind: "normal", dataId: "merengeCat", count: 1 },
   { kind: "normal", dataId: "chocoRock", count: 1 },
 ];

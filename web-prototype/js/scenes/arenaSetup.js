@@ -470,10 +470,11 @@ export function ArenaSetupScene(container, params, api) {
 
   // 味方のランダム編成：人数(2〜6)も種族も毎回引き直し、既存の枠は
   // 種族ごと全て作り直す（レベル/能力値構成/武器/スキルは「初期値」と
-  // 同じ組み方=buildArenaDefaultAllySlotに戻る）。実装済み種族は7人おり
-  // ALLY_MAXは6なので、重複禁止でも必ず人数分選び切れる。
-  function randomizeAllies() {
-    const count = ALLY_MIN + Math.floor(Math.random() * (ALLY_MAX - ALLY_MIN + 1));
+  // 同じ組み方=buildArenaDefaultAllySlotに戻る）。人数は呼び出し側が
+  // 明示的に指定する（countSection参照 -- 人数別のボタンを並べる）。
+  // 実装済み種族は7人おりALLY_MAXは6なので、重複禁止でも必ず人数分
+  // 選び切れる。
+  function randomizeAllies(count) {
     const pool = IMPLEMENTED_CHARACTER_IDS.slice();
     const picks = [];
     for (let i = 0; i < count; i++) {
@@ -606,14 +607,21 @@ export function ArenaSetupScene(container, params, api) {
         ]),
       ]),
       h("div", { class: "field-group" }, [
-        h("p", { class: "field-label", text: "ランダム編成（味方、人数2〜6も引き直し）" }),
-        h("div", { class: "chip-row" }, [
-          chip("重複を許可", allyAllowDuplicates, () => {
-            allyAllowDuplicates = !allyAllowDuplicates;
-            render();
-          }),
-          button("ランダム編成を実行", { variant: "ghost", onClick: randomizeAllies }),
-        ]),
+        h("p", { class: "field-label", text: "ランダム編成（味方、指定した人数で種族を引き直す）" }),
+        h(
+          "div",
+          { class: "chip-row" },
+          [
+            chip("重複を許可", allyAllowDuplicates, () => {
+              allyAllowDuplicates = !allyAllowDuplicates;
+              render();
+            }),
+          ].concat(
+            Array.from({ length: ALLY_MAX - ALLY_MIN + 1 }, (_, i) => ALLY_MIN + i).map((n) =>
+              button(`${n}人でランダム編成`, { variant: "ghost", onClick: () => randomizeAllies(n) })
+            )
+          )
+        ),
       ]),
     ];
   }
