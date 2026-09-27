@@ -692,6 +692,17 @@ function createWeapon({ id, baseTypeId, stats }) {
   return weapon;
 }
 
+// forgeWeapon/forgeWeaponWithStatSumと同じ生成形だが、性能値を（資源や
+// 目標合計からではなく）呼び出し側が直接指定する。訓練所（アリーナ
+// モード）の「模造品/実用品/一級品」のような固定値の品質ティア専用。
+export function forgeWeaponWithStats(weaponTypeId, stats) {
+  return createWeapon({
+    id: `weapon-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    baseTypeId: weaponTypeId,
+    stats,
+  });
+}
+
 // Forges a weapon of the given 武器種 from a rigid resource species: the
 // weapon's stats are copied from the material (or freshly rolled, for
 // 琥珀糖鉱石) as of the moment it's forged. Which material was used is
@@ -725,10 +736,18 @@ export function forgeWeaponWithStatSum(weaponTypeId, totalPoints) {
 }
 
 // characterDataIdのキャラが所持可能な武器種（1つ以上シナジーが重複する
-// もの）からランダムに1つ抽選する。通常雇用の候補生成専用。
-export function pickCompatibleWeaponTypeId(characterDataId) {
+// もの）のid一覧をWEAPON_TYPESの並び順のまま返す（訓練所の武器種
+// プルダウンの選択肢生成、pickCompatibleWeaponTypeIdの抽選母集団の
+// 両方から使う共通ロジック）。
+export function compatibleWeaponTypeIds(characterDataId) {
   const synergies = new Set(CHARACTER_DATA[characterDataId].synergies);
-  const compatibleIds = Object.keys(WEAPON_TYPES).filter((id) => WEAPON_TYPES[id].synergies.some((s) => synergies.has(s)));
+  return Object.keys(WEAPON_TYPES).filter((id) => WEAPON_TYPES[id].synergies.some((s) => synergies.has(s)));
+}
+
+// characterDataIdのキャラが所持可能な武器種からランダムに1つ抽選する。
+// 通常雇用の候補生成専用。
+export function pickCompatibleWeaponTypeId(characterDataId) {
+  const compatibleIds = compatibleWeaponTypeIds(characterDataId);
   return compatibleIds[Math.floor(Math.random() * compatibleIds.length)];
 }
 
