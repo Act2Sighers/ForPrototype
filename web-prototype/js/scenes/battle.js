@@ -6690,6 +6690,7 @@ export function BattleScene(container, params, api) {
       pt: { ...unit.pt },
       in: unit.in,
       stamina: unit.stamina,
+      condition: unit.character.condition ?? 0,
       incapacitated: isIncapacitated(unit),
       action: unit.action
         ? {
