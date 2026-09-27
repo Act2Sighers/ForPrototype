@@ -9,6 +9,9 @@ import {
   arenaRandomizableEnemyEntries,
   buildArenaDefaultAllySlot,
   fillArenaSkillsByPriority,
+  createArenaCharacter,
+  createArenaEnemy,
+  validateArenaConfig,
   ARENA_LEVELS,
   ARENA_GROWTH_PROFILES,
   ARENA_WEAPON_QUALITIES,
@@ -712,6 +715,22 @@ export function ArenaSetupScene(container, params, api) {
     return [h("p", { class: "field-label", text: "プリセット（現在の設定を10枠まで保存できます）" }), h("div", { class: "slot-list" }, rows)];
   }
 
+  // Step7：現在の設定一式から仮インスタンスを組み立て、battle.jsの
+  // アリーナモードへ渡す。敵は種族枠ごとにcount体ぶん個別インスタンス化
+  // する（同じ枠でも1体ずつ独立したHP/成長を持つ、実際の複数体
+  // モンスターと同じ扱い）。ここで作るインスタンスはstate.formationSlots
+  // /warehouseItems等の実データを一切経由しない、渡し切りの使い捨て
+  // オブジェクト -- battle.js側もアリーナモードでは何も書き戻さない。
+  function startArenaBattle() {
+    const config = state.arenaConfig;
+    if (!validateArenaConfig(config)) return;
+    const allies = config.allies.map((slot) => createArenaCharacter(slot));
+    const enemies = config.enemies.flatMap((slot) =>
+      Array.from({ length: slot.count }, () => createArenaEnemy({ kind: slot.kind, dataId: slot.dataId, level: slot.level }))
+    );
+    api.callScene("battle", { mode: "arena", allies, enemies, conditionEnabled: config.conditionEnabled });
+  }
+
   function render() {
     const config = state.arenaConfig;
 
@@ -750,7 +769,7 @@ export function ArenaSetupScene(container, params, api) {
       subtitle: "任意の組み合わせで戦闘をシミュレーションできます。",
       body,
       onPause: () => api.callScene("pause"),
-      actions: [button("戻る", { variant: "ghost", onClick: () => api.closeScene() })],
+      actions: [button("この設定で訓練を開始", { variant: "primary", onClick: startArenaBattle }), button("戻る", { variant: "ghost", onClick: () => api.closeScene() })],
     });
   }
 

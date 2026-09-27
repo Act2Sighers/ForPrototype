@@ -252,6 +252,18 @@ const PREP_MODULES = {
       return { applied: true };
     },
   },
+  // 訓練所（アリーナモード）専用：何もせず手番を終える。isModuleAvailableFor
+  // 側でmodule.id==="passPrep"/"passMain"を専用に扱い、アリーナモードの
+  // 時だけ味方・敵問わず選択可能にする（通常戦闘では常に選択不可 --
+  // 詳しくはisModuleAvailableFor自身のコメント参照）。
+  passPrep: {
+    id: "passPrep",
+    label: "パス",
+    targetFaction: "self",
+    statusLabel: "パス",
+    shortNotation: "P/[パス]s",
+    apply: () => ({ applied: true }),
+  },
 };
 
 // PrepフェイズのスキルもMainフェイズと同じ「モジュールと同じ辞書に
@@ -1041,7 +1053,13 @@ function isSoleSurvivor(actor, allyUnits, enemyUnits) {
 // onceThisTurnUsed/onceThisBattleUsed：module.oncePerTurn/oncePerBattleを
 // 持つスキル（最短表記の「!」「!!」）の使用済み判定用。BattleScene内で
 // 生成されるSetをそのまま渡す（呼び出し元でmodule.idを追加する）。
-function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed) {
+function isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed, isArenaMode = false) {
+  // 訓練所（アリーナモード）専用の【パス】：所持スキル配列や武器等を一切
+  // 経由せず、アリーナモードの時だけ味方・敵問わず常に選択可能にする
+  // （通常戦闘では呼び出し側が常にisArenaMode=falseで呼ぶため、既存の
+  // 戦闘には一切現れない）。PREP_MODULES.passPrep/MAIN_MODULES.passMain
+  // 参照。
+  if (module.id === "passPrep" || module.id === "passMain") return isArenaMode;
   if (module.oncePerTurn && onceThisTurnUsed?.has(module.id)) return false;
   if (module.oncePerBattle && onceThisBattleUsed?.has(module.id)) return false;
   // 平凡スキル：平凡個体自体がまだ未実装（MONSTER_DATA/CHARACTER_DATAの
@@ -1558,6 +1576,20 @@ const MAIN_MODULES = {
       );
       return applyContinuousStatus(target, magnitude, "ratioDamage", turns);
     },
+  },
+  // 訓練所（アリーナモード）専用：残りPTを全て払って何もせず手番を終える
+  // （cost:"all"＝以降このMainフェイズでは行動しない、というPrep版パスの
+  // Main版）。effect:"none"はcomputeLeafEffect側の専用分岐（HPログでは
+  // なく「何もしなかった」という1行だけを出す）。isModuleAvailableFor側で
+  // アリーナモード限定にしている（PREP_MODULES.passPrepのコメント参照）。
+  passMain: {
+    id: "passMain",
+    label: "パス",
+    targetFaction: "self",
+    cost: "all",
+    effect: "none",
+    shortNotation: "M/r/[パス]s",
+    apply: () => ({}),
   },
 };
 
@@ -4008,9 +4040,27 @@ function buildBossEnemyUnits() {
 }
 
 export function BattleScene(container, params, api) {
-  const mode = params?.mode === "boss" ? "boss" : "normal";
-  const allyUnits = state.formationSlots.map((c) => createBattleUnit(c, "ally"));
-  const enemyUnits = mode === "boss" ? buildBossEnemyUnits() : buildNormalEnemyUnits();
+  const mode = params?.mode === "boss" ? "boss" : params?.mode === "arena" ? "arena" : "normal";
+  // 訓練所（アリーナモード）：state.formationSlots/実際の敵生成を一切
+  // 経由せず、arenaSetup.jsが既に組み立てた仮インスタンス（js/data/
+  // arena.jsのcreateArenaCharacter/createArenaEnemy）をそのまま
+  // createBattleUnitへ渡すだけ -- 通常戦闘の隊員/モンスター生成経路には
+  // 一切触れないので、実データへの影響が構造的に発生しない。
+  const isArenaMode = mode === "arena";
+  const arenaConditionEnabled = isArenaMode ? (params.conditionEnabled ?? true) : true;
+  const allyUnits = isArenaMode
+    ? params.allies.map((c) => createBattleUnit(c, "ally"))
+    : state.formationSlots.map((c) => createBattleUnit(c, "ally"));
+  const enemyUnits = isArenaMode ? params.enemies.map((c) => createBattleUnit(c, "enemy")) : mode === "boss" ? buildBossEnemyUnits() : buildNormalEnemyUnits();
+  // 変調（condition）の全ての加算経路（increaseCondition呼び出し）を
+  // これ経由に差し替える：アリーナモードかつ「変調：発生しない」設定の
+  // 時だけ何もしない（アリーナ画面側の設定通り、実際に戦闘中に変調が
+  // 発生するかどうかを切り替える -- ユーザー指示）。それ以外は常に
+  // 素通しで、通常戦闘の挙動には一切影響しない。
+  function bumpCondition(character, amount) {
+    if (isArenaMode && !arenaConditionEnabled) return;
+    increaseCondition(character, amount);
+  }
   assignDisplayNames([...allyUnits, ...enemyUnits]);
 
   let turn = 1;
@@ -4164,7 +4214,7 @@ export function BattleScene(container, params, api) {
 
   function randomEnemyAction(unit) {
     const modules = currentModules();
-    const viableModuleIds = Object.keys(modules).filter((id) => isModuleAvailableFor(unit, modules[id], onceThisTurnUsed, onceThisBattleUsed) && candidateUnits(unit, id).length > 0);
+    const viableModuleIds = Object.keys(modules).filter((id) => isModuleAvailableFor(unit, modules[id], onceThisTurnUsed, onceThisBattleUsed, isArenaMode) && candidateUnits(unit, id).length > 0);
     const moduleId = pickRandom(viableModuleIds);
     const targetUnit = pickRandom(candidateUnits(unit, moduleId));
     return { moduleId, targetUnit };
@@ -4307,7 +4357,7 @@ export function BattleScene(container, params, api) {
   function viablePrepModuleIds(unit) {
     return Object.keys(PREP_MODULES).filter((id) => {
       const module = PREP_MODULES[id];
-      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed)) return false;
+      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed, isArenaMode)) return false;
       return candidateUnits(unit, id).length > 0;
     });
   }
@@ -4335,7 +4385,7 @@ export function BattleScene(container, params, api) {
   function viableMainModuleIds(unit) {
     return Object.keys(MAIN_MODULES).filter((id) => {
       const module = MAIN_MODULES[id];
-      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed)) return false;
+      if (!isModuleAvailableFor(unit, module, onceThisTurnUsed, onceThisBattleUsed, isArenaMode)) return false;
       if (!isAffordable(unit, module)) return false;
       return candidateUnits(unit, id).length > 0;
     });
@@ -4931,8 +4981,12 @@ export function BattleScene(container, params, api) {
 
   // 戦闘で相対した全モンスター分の戦闘勝利報酬を計算して実際に付与し、
   // ログ表示用の文字列を返す（グラント自体もここで行う -- 演出は無く
-  // テキストログの表示だけで良いという指定のため）。
-  function grantBattleRewards() {
+  // テキストログの表示だけで良いという指定のため）。訓練所（アリーナ
+  // モード）はdryRun:trueで呼び、報酬の算出・表示だけ行い実際の付与
+  // （grantResource/grantTieredResource）は一切行わない（ユーザー指示：
+  // 「報酬は戦闘勝利時に算出・表示だけしてください。ランではないので
+  // 獲得は不要」）。
+  function grantBattleRewards(dryRun = false) {
     const rewards = computeBattleRewards(enemyUnits.map((u) => u.character));
     // 【ジャックポット】：トドメを刺した対象(unit.jackpotKilled)の固有
     // 報酬（computeMonsterReward分）だけをもう一度足し込んで2倍にする。
@@ -4947,9 +5001,11 @@ export function BattleScene(container, params, api) {
         else rewards.push({ ...bonus });
       }
     }
-    for (const entry of rewards) {
-      if (entry.tier === null) grantResource(entry.category, entry.resourceId, entry.amount);
-      else grantTieredResource(entry.category, entry.resourceId, entry.tier, entry.amount);
+    if (!dryRun) {
+      for (const entry of rewards) {
+        if (entry.tier === null) grantResource(entry.category, entry.resourceId, entry.amount);
+        else grantTieredResource(entry.category, entry.resourceId, entry.tier, entry.amount);
+      }
     }
     const parts = rewards.map((entry) => {
       const species = entry.category === "natural" ? NATURAL_RESOURCES[entry.resourceId] : RIGID_RESOURCES[entry.resourceId];
@@ -4990,21 +5046,30 @@ export function BattleScene(container, params, api) {
     executing = false;
     if (outcome === "victory") {
       pushLog("▼▼▼ 勝利！ ▼▼▼", "phase");
-      pushLog(`戦闘勝利報酬：${grantBattleRewards()}`, "phase");
+      pushLog(`戦闘勝利報酬：${grantBattleRewards(isArenaMode)}`, "phase");
       // 変調：戦闘勝利時、「全モンスターのレベル合計÷編成スロット上の
       // 隊員人数（切り上げ）」分だけ全隊員に加算する。
       const levelSum = enemyUnits.reduce((sum, u) => sum + u.character.level, 0);
       const conditionBonus = Math.ceil(levelSum / allyUnits.length);
-      for (const unit of allyUnits) increaseCondition(unit.character, conditionBonus);
-      // リザルトスコア用：討伐した全モンスターのレベル合計を積み上げる。
-      recordDefeatedMonsterLevels(levelSum);
+      for (const unit of allyUnits) bumpCondition(unit.character, conditionBonus);
+      // リザルトスコア用：討伐した全モンスターのレベル合計を積み上げる
+      // （訓練所は実際のランのスコアに一切関わらないので加算しない）。
+      if (!isArenaMode) recordDefeatedMonsterLevels(levelSum);
     } else {
       pushLog("▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
     }
     render();
   }
 
+  // 訓練所（アリーナモード）：勝敗どちらでも実際のラン/ゲームオーバー
+  // 遷移には一切乗らず、呼び出し元（アリーナ画面）へそのまま戻る
+  // （closeScene）。仮インスタンスはこの時点で参照が失われ、変調含む
+  // 全ての戦闘中の状態がそのまま破棄される（ユーザー指示）。
   function handleBattleEndButton() {
+    if (isArenaMode) {
+      api.closeScene();
+      return;
+    }
     if (battleOutcome === "victory") {
       reviveIncapacitatedAllies();
       api.closeScene();
@@ -5018,7 +5083,7 @@ export function BattleScene(container, params, api) {
   function rippleIncapacitationCondition(unit) {
     if (unit.faction !== "ally") return;
     for (const other of allyUnits) {
-      if (other !== unit) increaseCondition(other.character, 1);
+      if (other !== unit) bumpCondition(other.character, 1);
     }
   }
 
@@ -5217,8 +5282,8 @@ export function BattleScene(container, params, api) {
     unit.prepRevealed = true;
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
-    if (unit.faction === "ally") increaseCondition(unit.character, 1);
-    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
+    if (unit.faction === "ally") bumpCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") bumpCondition(targetUnit.character, 1);
     render();
     await sleep(ACTION_DELAY_MS);
     // 撫でて撫でてのような「そのユニット自身がこのスキルを何回使った
@@ -5314,6 +5379,12 @@ export function BattleScene(container, params, api) {
           : `${targetUnit.displayName}への${effectLabel}は不発（既存の効果 ${result.existingN} 以上ではない）`,
         unit.faction
       );
+    } else if (module.effect === "none") {
+      // 訓練所（アリーナモード）専用の【パス】用：何も変化させず、ログに
+      // 1行だけ残す（HPログ分岐と違い戦闘不能判定も行わない -- 何も
+      // 起きていないため）。
+      result = module.apply(unit, targetUnit, params);
+      pushLog(`${targetUnit.displayName}は何もしなかった。`, unit.faction);
     } else {
       const beforeHp = targetUnit.character.currentHp;
       result = module.apply(unit, targetUnit, params);
@@ -5857,8 +5928,8 @@ export function BattleScene(container, params, api) {
     unit.mainActionLog.push(module.label);
     // 変調：隊員が行動を行った時+1、隊員がモンスターの行動の対象になった
     // 時+1（成否・不発を問わず、行動の宣言時点で発生する）。
-    if (unit.faction === "ally") increaseCondition(unit.character, 1);
-    if (unit.faction === "enemy" && targetUnit.faction === "ally") increaseCondition(targetUnit.character, 1);
+    if (unit.faction === "ally") bumpCondition(unit.character, 1);
+    if (unit.faction === "enemy" && targetUnit.faction === "ally") bumpCondition(targetUnit.character, 1);
     render();
     await sleep(ACTION_DELAY_MS);
 
@@ -6077,7 +6148,7 @@ export function BattleScene(container, params, api) {
     applyEndOfTurnStaminaDecay();
     applyEndOfTurnCorrectionDecay();
     // 変調：毎ターン終了時+1（全味方、戦闘不能かどうかは問わない）。
-    for (const unit of allyUnits) increaseCondition(unit.character, 1);
+    for (const unit of allyUnits) bumpCondition(unit.character, 1);
     turn += 1;
     onceThisTurnUsed.clear();
     phase = "prep";
@@ -6568,14 +6639,14 @@ export function BattleScene(container, params, api) {
         render();
       },
     });
-    if (battleOutcome) return [button("戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton, speedButton];
+    if (battleOutcome) return [button(isArenaMode ? "訓練を終える" : "戦闘を終える", { variant: "primary", onClick: handleBattleEndButton }), skipButton, speedButton];
     return [skipButton, speedButton];
   }
 
   function render() {
     renderScreen(container, {
-      eyebrow: mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
-      title: mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
+      eyebrow: isArenaMode ? "TRAINING GROUNDS" : mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
+      title: isArenaMode ? "訓練（アリーナモード）" : mode === "boss" ? "戦闘（ボス戦）" : "戦闘",
       body: [battleLog(), actionExecuteButton(), battleArena()],
       onPause: battleOutcome ? undefined : () => api.callScene("pause"),
       actions: battleActions(),
