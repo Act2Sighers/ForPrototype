@@ -3900,6 +3900,17 @@ function battleUnitCard(unit, extraClass, onClick, onPointerDown) {
   ]);
 }
 
+// F1：Prepフェイズ中、各ユニットの枠の真上中央に常時表示するイニシア
+// チブ(IN)の数字。枠自体は持たず（背景透過）、名前より一回り大きい
+// 文字だけを置く（ユーザー指示）。正なら青地に「+n」、負なら赤地に
+// 「-n」、0はどちらでもない中間色でそのまま「0」と表示する。
+function initiativeBadge(unit) {
+  const n = unit.in;
+  const sign = n > 0 ? "battle-unit__initiative--positive" : n < 0 ? "battle-unit__initiative--negative" : "";
+  const text = n > 0 ? `+${n}` : `${n}`;
+  return h("div", { class: `battle-unit__initiative ${sign}`.trim(), text });
+}
+
 function targetDisplayName(actor, target) {
   return target === actor ? `${target.displayName}（自分自身）` : target.displayName;
 }
@@ -6230,7 +6241,10 @@ export function BattleScene(container, params, api) {
 
     function placedCard(unit, point) {
       const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
-      const children = [battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit), (e) => handleUnitPointerDown(unit, e))];
+      const children = [];
+      // F1：Prepフェイズ中だけ、枠の真上に常時イニシアチブ(IN)を表示する。
+      if (phase === "prep") children.push(initiativeBadge(unit));
+      children.push(battleUnitCard(unit, statusCardClass(unit), () => handleStatusCardClick(unit), (e) => handleUnitPointerDown(unit, e)));
       if (actionPopupUnit === unit) children.push(battleActionPopup(unit));
       return h("div", { style }, children);
     }
