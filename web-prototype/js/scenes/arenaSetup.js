@@ -5,10 +5,15 @@ import { skillLabel } from "./battle.js";
 import { CHARACTER_SKILL_ACQUISITIONS } from "../data/characterSkills.js";
 import {
   arenaEnemyTemplate,
+  arenaEnemyCatalogEntries,
   buildArenaDefaultAllySlot,
   ARENA_LEVELS,
   ARENA_GROWTH_PROFILES,
   ARENA_WEAPON_QUALITIES,
+  ARENA_ENEMY_CATALOG_KINDS,
+  ARENA_ENEMY_KIND_LABELS,
+  ARENA_DEFAULT_LEVEL,
+  isArenaBossKind,
   computeSkillTrees,
   computeArenaSkillBudgetUsed,
   arenaSkillBudgetFor,
@@ -16,6 +21,9 @@ import {
 
 const ALLY_MIN = 2;
 const ALLY_MAX = 6;
+const ENEMY_SLOT_MIN = 1;
+const ENEMY_SLOT_MAX = 5;
+const ENEMY_TOTAL_COUNT_MAX = 12;
 
 // 訓練所（アリーナ画面）：プレイヤーが任意の味方編成・敵配置・諸設定を
 // 決めて、その通りの戦闘（battle.jsのアリーナモード）を実行できる
@@ -30,6 +38,7 @@ const ALLY_MAX = 6;
 // 敵ロースター詳細・一括設定・プリセット等は後続のステップで追加する。
 export function ArenaSetupScene(container, params, api) {
   const expandedAllyIndices = new Set();
+  const expandedEnemyIndices = new Set();
 
   function chip(label, isSelected, onClick, disabled = false) {
     return h("button", {
@@ -38,11 +47,6 @@ export function ArenaSetupScene(container, params, api) {
       onClick: disabled ? undefined : onClick,
       text: label,
     });
-  }
-
-  function enemySummaryLine(slot) {
-    const data = arenaEnemyTemplate(slot.kind, slot.dataId);
-    return `${data.name}×${slot.count} Lv.${slot.level}`;
   }
 
   // ---- 味方ロースターの増減 ----
@@ -267,6 +271,149 @@ export function ArenaSetupScene(container, params, api) {
     return h("div", { class: "panel" }, children);
   }
 
+  // ---- 敵ロースターの増減 ----
+
+  function totalEnemyCount(enemies) {
+    return enemies.reduce((sum, slot) => sum + slot.count, 0);
+  }
+
+  // ボス・上位ボスは陣営全体で1枠までしか置けない（ユーザー指示）。
+  // excludeIndexは「自分自身は数えない」ための除外（種別チップの無効化
+  // 判定に使う -- 既にボス枠になっている自分自身のせいで自分の
+  // ボス系統チップが無効化されてしまわないようにする）。
+  function hasOtherBossSlot(enemies, excludeIndex) {
+    return enemies.some((slot, i) => i !== excludeIndex && isArenaBossKind(slot.kind));
+  }
+
+  function addEnemySlot() {
+    const enemies = state.arenaConfig.enemies;
+    if (enemies.length >= ENEMY_SLOT_MAX || totalEnemyCount(enemies) >= ENEMY_TOTAL_COUNT_MAX) return;
+    const usedIds = new Set(enemies.map((slot) => slot.dataId));
+    const candidates = arenaEnemyCatalogEntries("normal");
+    const next = candidates.find((entry) => !usedIds.has(entry.id)) ?? candidates[0];
+    enemies.push({ kind: "normal", dataId: next.id, count: 1, level: ARENA_DEFAULT_LEVEL });
+    render();
+  }
+
+  function removeEnemySlot(index) {
+    if (state.arenaConfig.enemies.length <= ENEMY_SLOT_MIN) return;
+    state.arenaConfig.enemies.splice(index, 1);
+    render();
+  }
+
+  // 種別を変えると、旧種別のカタログのdataIdはそのまま引き継げないため
+  // 新しいカタログの先頭種族に差し替える。ボス系統に変える場合は配置
+  // 体数を1に固定する。
+  function onEnemyKindChange(slot, kind) {
+    slot.kind = kind;
+    slot.dataId = arenaEnemyCatalogEntries(kind)[0].id;
+    if (isArenaBossKind(kind)) slot.count = 1;
+    render();
+  }
+
+  function onEnemyCountChange(slot, rawValue) {
+    let count = parseInt(rawValue, 10);
+    if (!Number.isFinite(count)) count = 1;
+    const otherTotal = totalEnemyCount(state.arenaConfig.enemies) - slot.count;
+    const maxAllowed = Math.max(1, ENEMY_TOTAL_COUNT_MAX - otherTotal);
+    slot.count = Math.max(1, Math.min(count, maxAllowed));
+    render();
+  }
+
+  function enemyKindSection(slot, index) {
+    return h("div", { class: "field-group" }, [
+      h("p", { class: "field-label", text: "種別" }),
+      h(
+        "div",
+        { class: "chip-row" },
+        ARENA_ENEMY_CATALOG_KINDS.map((kind) => {
+          const isSelected = slot.kind === kind;
+          const disabled = !isSelected && isArenaBossKind(kind) && hasOtherBossSlot(state.arenaConfig.enemies, index);
+          return chip(ARENA_ENEMY_KIND_LABELS[kind], isSelected, () => onEnemyKindChange(slot, kind), disabled);
+        })
+      ),
+    ]);
+  }
+
+  function enemySpeciesSection(slot) {
+    const entries = arenaEnemyCatalogEntries(slot.kind);
+    return h("div", { class: "field-group" }, [
+      h("p", { class: "field-label", text: "種族" }),
+      h(
+        "div",
+        { class: "chip-row" },
+        entries.map((entry) =>
+          chip(entry.name, slot.dataId === entry.id, () => {
+            slot.dataId = entry.id;
+            render();
+          })
+        )
+      ),
+    ]);
+  }
+
+  function enemyCountSection(slot) {
+    const isBoss = isArenaBossKind(slot.kind);
+    const otherTotal = totalEnemyCount(state.arenaConfig.enemies) - slot.count;
+    const maxAllowed = ENEMY_TOTAL_COUNT_MAX - otherTotal;
+    return h("div", { class: "field-group" }, [
+      h("p", { class: "field-label", text: `配置体数（陣営合計 ${totalEnemyCount(state.arenaConfig.enemies)}/${ENEMY_TOTAL_COUNT_MAX}体）` }),
+      h("div", { class: "qty-input-row" }, [
+        h("input", {
+          type: "number",
+          class: "qty-input",
+          min: "1",
+          max: String(maxAllowed),
+          value: String(slot.count),
+          disabled: isBoss,
+          onchange: (e) => onEnemyCountChange(slot, e.target.value),
+        }),
+      ]),
+    ]);
+  }
+
+  function enemyLevelSection(slot) {
+    return h("div", { class: "field-group" }, [
+      h("p", { class: "field-label", text: "レベル" }),
+      h(
+        "div",
+        { class: "chip-row" },
+        ARENA_LEVELS.map((level) =>
+          chip(`Lv.${level}`, slot.level === level, () => {
+            slot.level = level;
+            render();
+          })
+        )
+      ),
+    ]);
+  }
+
+  function enemySlotCard(slot, index) {
+    const isExpanded = expandedEnemyIndices.has(index);
+    const data = arenaEnemyTemplate(slot.kind, slot.dataId);
+    const children = [
+      h("div", { class: "slot__meta" }, [
+        h("span", { class: "slot__name", text: `${data.name}×${slot.count} Lv.${slot.level}` }),
+        h("span", { class: "tag", text: ARENA_ENEMY_KIND_LABELS[slot.kind] }),
+      ]),
+      h("div", { class: "slot__actions" }, [
+        button(isExpanded ? "詳細を隠す" : "詳細設定", {
+          variant: "ghost",
+          onClick: () => {
+            if (isExpanded) expandedEnemyIndices.delete(index);
+            else expandedEnemyIndices.add(index);
+            render();
+          },
+        }),
+        button("削除", { variant: "ghost", disabled: state.arenaConfig.enemies.length <= ENEMY_SLOT_MIN, onClick: () => removeEnemySlot(index) }),
+      ]),
+    ];
+    if (isExpanded) {
+      children.push(enemyKindSection(slot, index), enemySpeciesSection(slot), enemyCountSection(slot), enemyLevelSection(slot));
+    }
+    return h("div", { class: "panel" }, children);
+  }
+
   function render() {
     const config = state.arenaConfig;
 
@@ -279,10 +426,20 @@ export function ArenaSetupScene(container, params, api) {
       ]),
       h("div", { class: "slot-list" }, config.allies.map((slot, index) => allySlotCard(slot, index))),
       h("div", { class: "field-group" }, [
-        h("p", { class: "field-label", text: "敵陣営" }),
-        h("p", { class: "lead", text: config.enemies.map(enemySummaryLine).join(" / ") }),
+        h("div", { class: "row-between" }, [
+          h("p", {
+            class: "field-label",
+            text: `敵陣営（${config.enemies.length}/${ENEMY_SLOT_MAX}種、合計${totalEnemyCount(config.enemies)}/${ENEMY_TOTAL_COUNT_MAX}体）`,
+          }),
+          button("＋ 種族を追加", {
+            variant: "ghost",
+            disabled: config.enemies.length >= ENEMY_SLOT_MAX || totalEnemyCount(config.enemies) >= ENEMY_TOTAL_COUNT_MAX,
+            onClick: addEnemySlot,
+          }),
+        ]),
       ]),
-      h("p", { class: "lead", text: "敵陣営の詳細設定・一括設定・プリセットは今後のステップで追加されます。" }),
+      h("div", { class: "slot-list" }, config.enemies.map((slot, index) => enemySlotCard(slot, index))),
+      h("p", { class: "lead", text: "一括設定・ランダム・テンプレート・プリセットは今後のステップで追加されます。" }),
     ];
 
     renderScreen(container, {

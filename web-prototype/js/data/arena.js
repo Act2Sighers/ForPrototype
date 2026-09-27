@@ -98,6 +98,13 @@ export function computeArenaCharacterGrowth(dataId, growthProfileId, level) {
 // アリーナの敵種族選択が参照する4カタログを種別付きでまとめる。
 export const ARENA_ENEMY_CATALOG_KINDS = ["normal", "elite", "boss", "eliteBoss"];
 
+export const ARENA_ENEMY_KIND_LABELS = { normal: "通常種", elite: "上位個体", boss: "ボス", eliteBoss: "上位ボス" };
+
+// ボス・上位ボスの各枠は、配置体数が常に1体固定（ユーザー指示）。
+export function isArenaBossKind(kind) {
+  return kind === "boss" || kind === "eliteBoss";
+}
+
 const ENEMY_CATALOGS_BY_KIND = {
   normal: MONSTER_DATA,
   elite: ELITE_MONSTER_DATA,
@@ -113,6 +120,12 @@ export function arenaEnemyTemplate(kind, dataId) {
   const data = ENEMY_CATALOGS_BY_KIND[kind]?.[dataId];
   if (!data) throw new Error(`unknown arena enemy template: ${kind}/${dataId}`);
   return data;
+}
+
+// 指定した種別（通常種/上位個体/ボス/上位ボス）のカタログ全entryを、
+// そのカタログの並び順のまま返す（種族選択チップ列の選択肢生成専用）。
+export function arenaEnemyCatalogEntries(kind) {
+  return Object.values(ENEMY_CATALOGS_BY_KIND[kind]);
 }
 
 // 種族選択の「ランダム選出」機能の対象母集団: 通常種+上位個体のみ
