@@ -109,10 +109,20 @@ function svg(tag, attrs = {}, children = []) {
 // が必要なので、この2つの生成関数はピクセル座標を直接受け取る）。
 // 相手陣営への矢印は直線＋矢じり。variantを指定すると専用クラスが付き
 // （現状"pin"＝挑発の釘付け矢印のみ）、見た目（色）だけを差し替える。
-function crossArrowElements(a, b, variant) {
+// scale：呼び出し側（updateArrowOverlay/renderDragArrow）が渡す現在の
+// カメラ倍率。a/bは既に画面ピクセル座標（arenaRect基準）なので矢印の
+// 始点・終点自体はそのままでよいが、矢じりの大きさやコの字の膨らみ幅の
+// ような「絶対px指定の飾り」はカメラが拡大されても大きくならず、逆に
+// 縮小されても小さくならない（常に一定の画面上サイズ）ままだった
+// （ユーザー報告：拡大時に矢印が相対的に細く/小さく見える）。scaleを
+// 掛けることで、これらの装飾もカメラのズームに合わせて見た目のサイズが
+// 変わるようにする。stroke-widthはCSS側でcalc(var(--arrow-scale,1)*…)
+// として同じscale値を反映する（overlay要素にCSSカスタムプロパティとして
+// 設定、updateArrowOverlay参照）。
+function crossArrowElements(a, b, variant, scale = 1) {
   const angle = Math.atan2(b.y - a.y, b.x - a.x);
-  const headLen = 10;
-  const headWidth = 6;
+  const headLen = 10 * scale;
+  const headWidth = 6 * scale;
   const baseX = b.x - headLen * Math.cos(angle);
   const baseY = b.y - headLen * Math.sin(angle);
   const leftX = baseX + headWidth * Math.sin(angle);
@@ -129,11 +139,11 @@ function crossArrowElements(a, b, variant) {
 
 // 「隠密」状態のユニットのステータス枠の隣（中央側、点edgeのさらに外側）
 // に描く薄い青のバツ印。
-function stealthMarkElements(edge, faction) {
-  const offset = 14;
+function stealthMarkElements(edge, faction, scale = 1) {
+  const offset = 14 * scale;
   const x = faction === "ally" ? edge.x + offset : edge.x - offset;
   const y = edge.y;
-  const r = 6;
+  const r = 6 * scale;
   return [
     svg("line", { x1: x - r, y1: y - r, x2: x + r, y2: y + r, class: "battle-stealth-mark" }),
     svg("line", { x1: x - r, y1: y + r, x2: x + r, y2: y - r, class: "battle-stealth-mark" }),
@@ -151,17 +161,17 @@ function stealthMarkElements(edge, faction) {
 // 旧実装と同じ見た目になる。自分自身が対象の場合は幅の狭いコの字にする
 // （a,bが同一点になるため、yだけ±10して縦に短く割る）。矢じりは対象側
 // の辺の中点に、xOuter側から見て水平に付く。
-function loopArrowElements(a, b, faction, isSelf, variant) {
+function loopArrowElements(a, b, faction, isSelf, variant, scale = 1) {
   const outwardSign = faction === "ally" ? 1 : -1;
-  const offset = isSelf ? 14 : 26;
-  const start = isSelf ? { x: a.x, y: a.y - 10 } : a;
-  const end = isSelf ? { x: a.x, y: a.y + 10 } : b;
+  const offset = (isSelf ? 14 : 26) * scale;
+  const start = isSelf ? { x: a.x, y: a.y - 10 * scale } : a;
+  const end = isSelf ? { x: a.x, y: a.y + 10 * scale } : b;
   const xOuter = outwardSign > 0 ? Math.max(start.x, end.x) + offset : Math.min(start.x, end.x) - offset;
   const lineClass = variant ? `battle-arrow-line battle-arrow-line--${variant}` : "battle-arrow-line";
   const headClass = variant ? `battle-arrow-head battle-arrow-head--${variant}` : "battle-arrow-head";
   const path = svg("path", { d: `M${start.x},${start.y} L${xOuter},${start.y} L${xOuter},${end.y} L${end.x},${end.y}`, class: lineClass, fill: "none" });
-  const headLen = 8;
-  const headWidth = 6;
+  const headLen = 8 * scale;
+  const headWidth = 6 * scale;
   const baseX = xOuter > end.x ? end.x + headLen : end.x - headLen;
   const head = svg("polygon", { points: `${end.x},${end.y} ${baseX},${end.y - headWidth} ${baseX},${end.y + headWidth}`, class: headClass });
   return [path, head];
@@ -4105,6 +4115,18 @@ export function BattleScene(container, params, api) {
   // hoveredUnitの変更はupdatePopupOverlay()の直接DOM操作だけで反映し、
   // render()は呼ばない。
   let hoveredUnit = null;
+  // カメラ（.battle-freeform-canvasのtransform）が直近のapplyCamera()で
+  // セットした「最終的な」tx/ty/scale。ポップアップの画面位置を割り出す
+  // 際、cardEl.getBoundingClientRect()を直接使うとCSSトランジション中の
+  // 同期読み取りで「変更前の値」を拾ってしまう既知の落とし穴があり
+  // （updateActionPopupOverlayがupdateCamera()の直後、同じrender()の
+  // 末尾で呼ばれるため実際に発生していた -- ユーザー報告）、代わりに
+  // このtx/ty/scaleとunitLogicalRect()の論理座標から画面上の位置を直接
+  // 計算する（cardScreenRect参照）。DOM実測に頼らないぶん、トランジション
+  // の進行状況に関わらず常に「最終的にどこに来るか」を正しく返せる。
+  let lastCameraTx = 0;
+  let lastCameraTy = 0;
+  let lastCameraScale = 1;
   // D4：ドラッグで対象を確定する処理の実行中状態。null＝ドラッグ中で
   // ない。{ actor, origin, arenaEl, overlay, arenaRect, hoverEl }
   // -- origin/arenaRectはpointerdown時に1度だけ実測してキャッシュし、
@@ -4798,9 +4820,11 @@ export function BattleScene(container, params, api) {
     // 以降のorigin/pointerPointの座標系と必ず一致させる（ユーザー報告の
     // 「ドラッグ開始時に矢印の位置がずれる」不具合の原因）。
     overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
+    const scale = currentArenaScale(arenaRect);
+    overlay.style.setProperty("--arrow-scale", String(scale));
     const origin = edgePoint(cardEl.getBoundingClientRect(), arenaRect, actor.faction);
     dragState = {
-      actor, origin, arenaEl, overlay, arenaRect, hoverEl: null, redoSlotIndex, redoOriginalUnitId,
+      actor, origin, arenaEl, overlay, arenaRect, scale, hoverEl: null, redoSlotIndex, redoOriginalUnitId,
       startClientX: event.clientX, startClientY: event.clientY, moved: false,
     };
     event.preventDefault(); // ネイティブのテキスト選択・ドラッグゴースト画像を防ぐ
@@ -4815,14 +4839,14 @@ export function BattleScene(container, params, api) {
   // 描く矢印群とは独立している）。
   function renderDragArrow(pointerPoint) {
     if (!dragState) return;
-    const { overlay, origin } = dragState;
+    const { overlay, origin, scale } = dragState;
     let group = overlay.querySelector(".battle-drag-preview");
     if (!group) {
       group = svg("g", { class: "battle-drag-preview" });
       overlay.appendChild(group);
     }
     while (group.firstChild) group.removeChild(group.firstChild);
-    for (const el of crossArrowElements(origin, pointerPoint, "drag")) group.appendChild(el);
+    for (const el of crossArrowElements(origin, pointerPoint, "drag", scale)) group.appendChild(el);
   }
 
   function handleDragPointerMove(event) {
@@ -4847,6 +4871,8 @@ export function BattleScene(container, params, api) {
         if (!dragState || !arenaEl || !overlay || !cardEl) { dragState = null; return; }
         const arenaRect = arenaEl.getBoundingClientRect();
         overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
+        dragState.scale = currentArenaScale(arenaRect);
+        overlay.style.setProperty("--arrow-scale", String(dragState.scale));
         dragState.arenaEl = arenaEl;
         dragState.overlay = overlay;
         dragState.arenaRect = arenaRect;
@@ -6478,17 +6504,20 @@ export function BattleScene(container, params, api) {
     ]);
   }
 
-  // カードの画面上の位置（getBoundingClientRect、実際のズーム倍率を
-  // 反映した実測値）を基準に、overlayElをその「下」または「上」へ
-  // ちょうど隣接するよう配置する（position:fixed前提、window座標系の
-  // ままでよい）。overlayEl自体は常に自然な＝ズームの影響を受けない
-  // サイズで描画されるため、倍率に関わらず常に同じ大きさで表示される
-  // （ユーザー要望）。
+  // ユニットの枠の画面上の位置（cardScreenRect、DOM実測ではなくカメラの
+  // 最終的なtx/ty/scaleから直接計算した値 -- 上のlastCameraTx/Ty/Scaleの
+  // コメント参照）を基準に、overlayElをその「下」または「上」へちょうど
+  // 隣接するよう配置する（position:fixed前提、window座標系のままでよい）。
+  // matchWidth＝trueの時だけoverlayElの横幅を枠の横幅に合わせる（行動
+  // 選択ポップアップ：選択肢ボタンが枠幅いっぱいに並ぶ従来の見た目を
+  // 保つ）。falseの時は横幅を指定せず、overlayEl自身（中身の内容）に
+  // 任せる -- ホバーポップオーバーは能力値などnowrapのテキストを含む
+  // ため、枠の横幅に強制的に合わせると右にはみ出す不具合があった
+  // （ユーザー報告・ユーザー提案の対応方針）。
   const POPUP_OVERLAY_MARGIN = 6;
-  function positionFixedOverlayNearCard(overlayEl, cardEl, direction) {
-    const cardRect = cardEl.getBoundingClientRect();
+  function positionFixedOverlayNearCard(overlayEl, cardRect, direction, matchWidth) {
     overlayEl.style.left = `${cardRect.left}px`;
-    overlayEl.style.width = `${cardRect.width}px`;
+    overlayEl.style.width = matchWidth ? `${cardRect.width}px` : "";
     if (direction === "below") {
       overlayEl.style.top = `${cardRect.bottom + POPUP_OVERLAY_MARGIN}px`;
       overlayEl.style.bottom = "";
@@ -6514,12 +6543,12 @@ export function BattleScene(container, params, api) {
     const layer = container.querySelector(".battle-unit-popover-overlay");
     if (!layer) return;
     if (!hoveredUnit) { layer.style.display = "none"; return; }
-    const cardEl = container.querySelector(`.battle-freeform-canvas [data-unit-id="${hoveredUnit.character.id}"]`);
-    if (!cardEl) { layer.style.display = "none"; return; }
+    const cardRect = cardScreenRect(hoveredUnit);
+    if (!cardRect) { layer.style.display = "none"; return; }
     while (layer.firstChild) layer.removeChild(layer.firstChild);
     layer.appendChild(battleUnitPopoverContent(hoveredUnit));
     layer.style.display = "block";
-    positionFixedOverlayNearCard(layer, cardEl, "above");
+    positionFixedOverlayNearCard(layer, cardRect, "above", false);
   }
 
   // render()の末尾から呼ぶ。actionPopupUnitがあれば、そのユニットの枠の
@@ -6527,9 +6556,9 @@ export function BattleScene(container, params, api) {
   function updateActionPopupOverlay() {
     if (!actionPopupUnit) return;
     const popupEl = container.querySelector(".battle-action-popup");
-    const cardEl = container.querySelector(`.battle-freeform-canvas [data-unit-id="${actionPopupUnit.character.id}"]`);
-    if (!popupEl || !cardEl) return;
-    positionFixedOverlayNearCard(popupEl, cardEl, "below");
+    const cardRect = cardScreenRect(actionPopupUnit);
+    if (!popupEl || !cardRect) return;
+    positionFixedOverlayNearCard(popupEl, cardRect, "below", true);
   }
 
   // battleArena()がDOMに実際に挿入された後（render()内でrenderScreen
@@ -6550,6 +6579,12 @@ export function BattleScene(container, params, api) {
     if (!arenaRect.width || !arenaRect.height) return; // アリーナがまだレイアウトされていない間は何もしない
     overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
 
+    // 矢印の装飾（矢じり・コの字の膨らみ・stroke-width）をカメラの現在の
+    // ズーム倍率に合わせて拡縮する（ユーザー報告：拡大時に矢印が相対的に
+    // 細く/小さく見える）。
+    const currentArrowScale = currentArenaScale(arenaRect);
+    overlay.style.setProperty("--arrow-scale", String(currentArrowScale));
+
     // ユニットのステータス枠の「中央側の辺」の中点をDOM実測する。枠が
     // 見つからない場合はnullを返す。
     function unitEdge(unit) {
@@ -6566,7 +6601,7 @@ export function BattleScene(container, params, api) {
         const a = unitEdge(unit.pinnedBy);
         const b = unitEdge(unit);
         if (!a || !b) continue;
-        for (const el of crossArrowElements(a, b, "pin")) overlay.appendChild(el);
+        for (const el of crossArrowElements(a, b, "pin", currentArrowScale)) overlay.appendChild(el);
       }
     }
 
@@ -6576,7 +6611,7 @@ export function BattleScene(container, params, api) {
         if (!unit.stealthed || isIncapacitated(unit)) continue;
         const edge = unitEdge(unit);
         if (!edge) continue;
-        for (const el of stealthMarkElements(edge, unit.faction)) overlay.appendChild(el);
+        for (const el of stealthMarkElements(edge, unit.faction, currentArrowScale)) overlay.appendChild(el);
       }
     }
 
@@ -6589,7 +6624,7 @@ export function BattleScene(container, params, api) {
         const a = unitEdge(unit.guardedBy);
         const b = unitEdge(unit);
         if (!a || !b) continue;
-        for (const el of loopArrowElements(a, b, unit.faction, false, "guard")) overlay.appendChild(el);
+        for (const el of loopArrowElements(a, b, unit.faction, false, "guard", currentArrowScale)) overlay.appendChild(el);
       }
     }
 
@@ -6619,7 +6654,9 @@ export function BattleScene(container, params, api) {
           const b = unitEdge(target);
           if (!a || !b) continue;
           const elements =
-            unit.faction !== target.faction ? crossArrowElements(a, b, "pending") : loopArrowElements(a, b, unit.faction, unit === target, "pending");
+            unit.faction !== target.faction
+              ? crossArrowElements(a, b, "pending", currentArrowScale)
+              : loopArrowElements(a, b, unit.faction, unit === target, "pending", currentArrowScale);
           for (const el of elements) overlay.appendChild(el);
         }
       }
@@ -6644,7 +6681,9 @@ export function BattleScene(container, params, api) {
           const b = unitEdge(target);
           if (!b) continue;
           const elements =
-            unit.faction !== target.faction ? crossArrowElements(a, b, "pending") : loopArrowElements(a, b, unit.faction, unit === target, "pending");
+            unit.faction !== target.faction
+              ? crossArrowElements(a, b, "pending", currentArrowScale)
+              : loopArrowElements(a, b, unit.faction, unit === target, "pending", currentArrowScale);
           for (const el of elements) overlay.appendChild(el);
         }
       }
@@ -6663,8 +6702,8 @@ export function BattleScene(container, params, api) {
           if (!b) continue;
           const elements =
             activeArrow.actor.faction !== target.faction
-              ? crossArrowElements(a, b)
-              : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === target);
+              ? crossArrowElements(a, b, undefined, currentArrowScale)
+              : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === target, undefined, currentArrowScale);
           for (const el of elements) overlay.appendChild(el);
         }
       }
@@ -6674,8 +6713,8 @@ export function BattleScene(container, params, api) {
       if (a && b) {
         const elements =
           activeArrow.actor.faction !== activeArrow.target.faction
-            ? crossArrowElements(a, b)
-            : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === activeArrow.target);
+            ? crossArrowElements(a, b, undefined, currentArrowScale)
+            : loopArrowElements(a, b, activeArrow.actor.faction, activeArrow.actor === activeArrow.target, undefined, currentArrowScale);
         for (const el of elements) overlay.appendChild(el);
       }
     }
@@ -6715,6 +6754,16 @@ export function BattleScene(container, params, api) {
   // ⑤：Mainフェイズで行動内容・対象がどちらも未確定な手番ユニットへ
   // 「気持ちだけ」寄せる度合い（0=寄せない、1=完全にその人を中心に）。
   const MAIN_CHOICE_ACTOR_BIAS = 0.18;
+
+  // 矢印の装飾（矢じり・コの字の膨らみ・stroke-width）をカメラの現在の
+  // ズーム倍率に合わせて拡縮するための倍率（updateArrowOverlay/beginDrag/
+  // handleDragPointerMoveの3箇所で使う共通処理）。実測したarenaRectを
+  // キャンバスの自然な大きさで割るだけなので、実測値と常に整合が取れる
+  // （CSSトランジション中でも自己矛盾しない）。
+  function currentArenaScale(arenaRect) {
+    const bounds = computeCanvasBounds(computeBattleLayout(allyUnits.length, enemyUnits.length));
+    return bounds.width > 0 ? arenaRect.width / bounds.width : 1;
+  }
 
   function unitLogicalRect(unit) {
     const idx = unit.faction === "ally" ? allyUnits.indexOf(unit) : enemyUnits.indexOf(unit);
@@ -6803,6 +6852,57 @@ export function BattleScene(container, params, api) {
 
     canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
     canvasEl.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+    lastCameraTx = tx;
+    lastCameraTy = ty;
+    lastCameraScale = scale;
+  }
+
+  // 指定ユニットの枠の「最終的な」（カメラのCSSトランジションが完了した
+  // 時点の）画面上の位置を、DOM実測ではなくlastCameraTx/Ty/Scaleと
+  // unitLogicalRect()から直接計算する。.battle-arena-scroll自身は
+  // transformを持たない（transitionするのは.battle-freeform-canvasだけ）
+  // ので、その画面上の位置（getBoundingClientRect）はいつ読んでも正確
+  // ──カメラのトランジション中かどうかに左右されない。
+  function cardScreenRect(unit) {
+    // hoveredUnitはmouseenter/mouseleaveのDOM事象から直接set/clearされ、
+    // render()（＝allyUnits/enemyUnitsの更新）とは非同期なため、隊列が
+    // 丸ごと入れ替わるタイミング（訓練所のforceEnemies等）ではその間に
+    // 既に居なくなったユニットを指したままになりうる。unitLogicalRect()
+    // はallyUnits/enemyUnits内のindexOfを前提にしており、見つからない
+    // ユニットを渡すと例外になるため、ここで先に存在確認する。
+    const idx = unit.faction === "ally" ? allyUnits.indexOf(unit) : enemyUnits.indexOf(unit);
+    if (idx === -1) return null;
+    const scrollEl = container.querySelector(".battle-arena-scroll");
+    if (!scrollEl) return null;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const local = unitLogicalRect(unit);
+    // カード枠のCSSはtop（=local.top）を固定してheight:autoで下へ伸びる
+    // 実装（placedCard参照）のため、実際に描かれる高さはCARD_HEIGHT
+    // （枠取り用の確保サイズであって実寸ではない）と一致するとは限らない
+    // （ユーザー報告：ポップアップの縦位置がずれる原因の1つだった）。
+    // カード自身のDOM実測から「自然な（スケールに依存しない）高さ」を
+    // 逆算して使う -- widthは常にCARD_WIDTH*scaleぴったりに一致する
+    // （インラインstyleで明示指定されているため）ので、それを物差しに
+    // 今の実測値から今のscaleを逆算し、高さをそのscaleで割り戻せば、
+    // 実測した瞬間がカメラのCSSトランジション中であっても（widthも
+    // heightも同じ瞬間の同じ変換状態を反映するため）常に正しい自然高さ
+    // が得られる -- 見た目の位置自体はlastCameraTx/Ty/Scale（DOM実測に
+    // 頼らない、常に「最終的な」値）で計算するので、トランジション中の
+    // 実測に起因するズレの心配がない。
+    let naturalHeight = local.bottom - local.top;
+    const cardEl = container.querySelector(`.battle-freeform-canvas [data-unit-id="${unit.character.id}"]`);
+    if (cardEl) {
+      const liveRect = cardEl.getBoundingClientRect();
+      if (liveRect.width > 0) naturalHeight = liveRect.height / (liveRect.width / CARD_WIDTH);
+    }
+    return {
+      left: scrollRect.left + lastCameraTx + lastCameraScale * local.left,
+      right: scrollRect.left + lastCameraTx + lastCameraScale * local.right,
+      top: scrollRect.top + lastCameraTy + lastCameraScale * local.top,
+      bottom: scrollRect.top + lastCameraTy + lastCameraScale * (local.top + naturalHeight),
+      width: lastCameraScale * (local.right - local.left),
+      height: lastCameraScale * naturalHeight,
+    };
   }
 
   // render()の末尾から毎回呼び、現在のフェイズ・選択状態を見てカメラの
@@ -6830,7 +6930,12 @@ export function BattleScene(container, params, api) {
       // 「枠の下にポップアップぶんの領域も見込んで一緒に収める」計算は
       // 不要になった -- ポップアップ自体のサイズはズーム倍率に関係なく
       // 常に一定で、表示領域の外にもはみ出せるため、見切れる心配が無い。
-      applyCamera([unitLogicalRect(actionPopupUnit)]);
+      // 枠ぴったりまでクローズアップすると画面いっぱいに迫って窮屈な
+      // 印象になる（ユーザー報告）ため、左右にCARD_WIDTH/2ずつ余白を
+      // 持たせた広さで収める -- 結果、枠の横幅がカメラ幅のおおよそ半分
+      // 程度になる（ユーザー提案の目安）。
+      const rect = unitLogicalRect(actionPopupUnit);
+      applyCamera([{ left: rect.left - CARD_WIDTH / 2, right: rect.right + CARD_WIDTH / 2, top: rect.top, bottom: rect.bottom }]);
       return;
     }
     if (phase === "prep") {

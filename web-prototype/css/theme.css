@@ -1320,9 +1320,15 @@ body {
   z-index: 3;
 }
 
+/* --arrow-scaleは現在のカメラのズーム倍率（battle.jsのcurrentArenaScale
+   参照）。矢印の座標自体は既にカメラの倍率を反映した画面ピクセルだが、
+   stroke-widthのような「絶対px指定の飾り」はカメラを拡大しても太くなら
+   ない（=相対的に細く見える）ため、calc()で同じ倍率を掛けて追従させる
+   （ユーザー報告）。overlay（.battle-arrow-overlay）に設定され、子要素
+   へ継承される。 */
 .battle-arrow-line {
   stroke: var(--ember-strong);
-  stroke-width: 3;
+  stroke-width: calc(3 * var(--arrow-scale, 1));
 }
 
 .battle-arrow-head {
@@ -1345,7 +1351,7 @@ body {
 /* 隠密状態のユニットのステータス枠の隣に出す、薄い青のバツ印。 */
 .battle-stealth-mark {
   stroke: var(--stat-defence);
-  stroke-width: 2;
+  stroke-width: calc(2 * var(--arrow-scale, 1));
   opacity: 0.5;
 }
 
@@ -1365,8 +1371,8 @@ body {
    確定済みの矢印（通常クラス）と見分けられるよう点線・半透明にする。 */
 .battle-arrow-line--drag {
   stroke: var(--ink);
-  stroke-width: 2.5;
-  stroke-dasharray: 6 5;
+  stroke-width: calc(2.5 * var(--arrow-scale, 1));
+  stroke-dasharray: calc(6 * var(--arrow-scale, 1)) calc(5 * var(--arrow-scale, 1));
   opacity: 0.7;
 }
 
@@ -1381,7 +1387,7 @@ body {
    ようにしておく。 */
 .battle-arrow-line--pending {
   stroke: var(--ember);
-  stroke-width: 2;
+  stroke-width: calc(2 * var(--arrow-scale, 1));
   opacity: 0.55;
 }
 
