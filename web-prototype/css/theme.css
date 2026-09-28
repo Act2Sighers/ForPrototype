@@ -1208,6 +1208,7 @@ body {
   font-size: 11px;
   line-height: 1.5;
   color: #fff;
+  text-align: center;
 }
 
 /* 味方の行動は青、敵の行動は赤。フェイズ見出しは白のまま太字にして
@@ -1215,6 +1216,10 @@ body {
 .battle-log__line--ally { color: var(--stat-defence); }
 .battle-log__line--enemy { color: var(--danger-strong); }
 .battle-log__line--phase { font-weight: 600; }
+
+/* 表示枠の最上部＝最新の1行だけ、試験的に通常の2倍のフォントサイズに
+   する（ユーザー指示：見た目次第では後で元に戻す想定）。 */
+.battle-log__line--latest { font-size: 22px; }
 
 /* .battle-arena-scroll（マップ画面の.map-scrollと同じ考え方）が縦横の
    表示領域を担う枠。F3で行動順カード列（.battle-action-queue）を
@@ -1602,6 +1607,34 @@ body {
   box-shadow: 0 0 0 2px var(--danger) inset;
 }
 
+/* D-self：自身を行動対象に選べるスキル（例：【アレンジ】）用の、ドラッグ
+   中だけ現れる一時的な自己ドロップ先（ユーザー提案）。行動主体自身の
+   枠へドロップする操作は既に「対象選択のキャンセル」に使われているため
+   （.battle-unit--drop-cancel参照）、自分自身を対象として選ぶための
+   別の場所が必要になる -- 主体の枠のすぐ外側（盤面の外向き）に、この
+   専用の枠を一時的に表示する。ステータス枠本体とは配色を変え、対象候補
+   の強調（drop-hover、ember系）・キャンセル（drop-cancel、danger系）
+   のどちらとも混同しないようにする。 */
+.battle-self-target-zone {
+  display: none;
+  position: fixed;
+  z-index: 30;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--frost);
+  border-radius: var(--radius-sm);
+  color: var(--frost);
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.battle-self-target-zone--hover {
+  background: rgba(56, 232, 187, 0.18);
+  box-shadow: 0 0 0 2px var(--frost) inset;
+}
+
 /* 戦闘不能：枠全体を薄くグレーアウトする。 */
 .battle-unit--down {
   opacity: 0.45;
@@ -1653,11 +1686,13 @@ body {
   color: var(--danger);
 }
 
-/* 体幹/継続効果/バフ/デバフのアイコンを将来ここに並べる予定の空実装
-   （ユーザー相談）。イニシアチブ表示（枠の下）と対称に、枠の真上に
-   配置する。高さは固定し、横幅は中身（テキスト）に応じて自身で決める
-   （ユーザー指示）。体幹やバフ/デバフはMainフェイズ中にも増減しうる
-   ため、イニシアチブと違いPrep/Main問わず常時表示する。 */
+/* 体幹/継続効果/攻防破賢協の上昇・低下を、小さな枠（アイコンの代替、
+   ユーザー指示：画像/絵文字ではなく短いテキスト+文字色+数値の小さな枠
+   で表現する試験実装）として左から並べる置き場。イニシアチブ表示
+   （枠の下）と対称に、枠の真上に配置する。高さは固定し、横幅は中身
+   （バッジの数）に応じて自身で決める（ユーザー指示）。体幹やバフ/
+   デバフはMainフェイズ中にも増減しうるため、イニシアチブと違いPrep/
+   Main問わず常時表示する。 */
 .battle-unit__icon-slot {
   position: absolute;
   bottom: 100%;
@@ -1665,16 +1700,47 @@ body {
   transform: translateX(-50%);
   margin-bottom: 4px;
   height: 18px;
-  padding: 0 6px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   white-space: nowrap;
-  font-size: 10px;
-  color: var(--ink-dim);
   pointer-events: none;
   line-height: 1;
 }
+
+/* 個々の小さな枠。文字色をそのまま枠線の色にも使う（currentColor）ため、
+   バッジの種類ごとに色を1箇所（下の各--stat-*系ルール）で決めるだけで
+   済む。 */
+.battle-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 1. 体幹：正なら装甲（青）、負なら脆弱（黄）。0の時はバッジ自体を
+   表示しない（iconSlotBadge参照）。 */
+.battle-icon-badge--armor { color: var(--stat-defence); }
+.battle-icon-badge--fragile { color: var(--stat-power); }
+
+/* 2. 継続効果：継続回復（緑）／継続ダメージ（赤）。割合系は数値の末尾に
+   「%」を付ける（continuousBadgeInfo参照）。 */
+.battle-icon-badge--heal { color: var(--stat-wisdom); }
+.battle-icon-badge--damage { color: var(--danger); }
+
+/* 3〜7. 攻/防/破/賢/協の上昇（各能力値の色）／低下（共通の灰色）。 */
+.battle-icon-badge--stat-attack-up { color: var(--stat-attack); }
+.battle-icon-badge--stat-defence-up { color: var(--stat-defence); }
+.battle-icon-badge--stat-power-up { color: var(--stat-power); }
+.battle-icon-badge--stat-wisdom-up { color: var(--stat-wisdom); }
+.battle-icon-badge--stat-sociality-up { color: var(--stat-sociality); }
+.battle-icon-badge--stat-down { color: var(--ink-faint); }
 
 .battle-unit__head {
   display: flex;

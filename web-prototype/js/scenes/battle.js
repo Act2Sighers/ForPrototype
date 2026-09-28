@@ -4011,15 +4011,49 @@ function initiativeBadge(unit) {
   ]);
 }
 
-// 体幹/継続効果/バフ/デバフのアイコン表示（ユーザー相談）の空実装。
-// アイコン自体はまだ用意していないため、今はイニシアチブ表示と同じ
-// 考え方（枠自体は持たず、ステータス枠の外＝枠の上に常時重ねる透明な
-// 領域）で、位置と概念だけを示すテキストを仮置きする（ユーザー指示）。
-// イニシアチブと違いPrep/Mainどちらでも常時表示する -- 体幹やバフ/
-// デバフはMainフェイズ中にも増減しうるため。縦幅は固定（theme.css参照）、
-// 横幅は中身（テキスト）に応じて自身で決める。
-function iconSlotBadge() {
-  return h("div", { class: "battle-unit__icon-slot", text: "アイコン配置枠" });
+// 継続効果アイコンバッジの表示テキスト。continuousTickAmount()（round6
+// で導入、HPゲージのHP(↑n)バッジと共有）はHPの実増減量（割合系は既に
+// 実効最大HPに対する絶対量へ変換済み）を返すが、このアイコンバッジでは
+// 割合系だけ「元の割合そのもの（n/継続割合系難易度）」を「N%」の形で
+// 見せたい（ユーザー指示）という別の表示要件のため、専用に計算し直す。
+function continuousBadgeInfo(unit) {
+  const c = unit.continuousHp;
+  if (!c) return null;
+  const isHeal = c.type === "heal" || c.type === "ratioHeal";
+  const isRatio = c.type === "ratioDamage" || c.type === "ratioHeal";
+  const n = isRatio ? Math.ceil(c.n / CONTINUOUS_RATIO_DIFFICULTY) : Math.ceil(c.n / CONTINUOUS_DIFFICULTY);
+  return { text: `${isHeal ? "回復" : "消耗"}${n}${isRatio ? "%" : ""}`, isHeal };
+}
+
+function iconBadge(className, text) {
+  return h("span", { class: `battle-icon-badge ${className}`, text });
+}
+
+// 体幹/継続効果/攻防破賢協の上昇・低下を、小さな枠（アイコンの代替、
+// ユーザー指示：プロトタイプでは画像/絵文字ではなく短いテキスト+文字色+
+// 数値の小さな枠で表現する）として左から順に並べる。該当しない項目は
+// その都度省略する。イニシアチブと違いPrep/Mainどちらでも常時表示する
+// -- 体幹やバフ/デバフはMainフェイズ中にも増減しうるため。枠自体は持た
+// ず（背景透過）、ステータス枠の外＝枠の上に常時重ねる透明な領域に置く。
+// 縦幅は固定（theme.css参照）、横幅は中身（バッジの数）に応じて自身で
+// 決める。
+function iconSlotBadge(unit) {
+  const badges = [];
+  if (unit.stamina > 0) badges.push(iconBadge("battle-icon-badge--armor", `装甲${unit.stamina}`));
+  else if (unit.stamina < 0) badges.push(iconBadge("battle-icon-badge--fragile", `脆弱${-unit.stamina}`));
+
+  const continuous = continuousBadgeInfo(unit);
+  if (continuous) badges.push(iconBadge(continuous.isHeal ? "battle-icon-badge--heal" : "battle-icon-badge--damage", continuous.text));
+
+  for (const key of BATTLE_STAT_ORDER) {
+    const c = unit.corrections[key];
+    if (!c) continue;
+    const up = c.sign > 0;
+    const label = `${BATTLE_STAT_ABBR[key]}${up ? "↑" : "↓"}${c.n}`;
+    badges.push(iconBadge(up ? `battle-icon-badge--stat-${key}-up` : "battle-icon-badge--stat-down", label));
+  }
+
+  return h("div", { class: "battle-unit__icon-slot" }, badges);
 }
 
 function targetDisplayName(actor, target) {
@@ -4225,7 +4259,7 @@ export function BattleScene(container, params, api) {
   // プレイヤー入力待ち、Mainフェイズはウェイト中）タイミングで呼ぶ。
   // 見出し行の直後に敵の残りHP一覧を添える。
   function pushPhaseHeader(label) {
-    pushLog(`▼▼▼ ${turn}ターン目 ${label}▼▼▼`, "phase");
+    pushLog(`▲▲▲ ${turn}ターン目 ${label}▲▲▲`, "phase");
     pushLog(enemyHpRosterLine(), "roster");
   }
 
@@ -4806,7 +4840,8 @@ export function BattleScene(container, params, api) {
     // 入りうるが、Mainではクリックすると常に行動ポップアップの開閉
     // （handleMainActorClick）になる -- 対象確定にはならないので、自分
     // 自身を対象候補としてクリック可能扱いする点線ハイライトは出さない
-    // （行動対象プルダウンからは引き続き自分自身を選べる）。
+    // （自分自身を対象に選ぶ手段はドラッグ中だけ現れる自身ドロップ先
+    // battle-self-target-zone、updateSelfTargetZone参照）。
     return unit !== actor && currentPickCandidates(actor).includes(unit);
   }
 
@@ -4949,13 +4984,17 @@ export function BattleScene(container, params, api) {
     }
     const { arenaRect, actor, redoSlotIndex, redoOriginalUnitId } = dragState;
     renderDragArrow({ x: event.clientX - arenaRect.left, y: event.clientY - arenaRect.top });
+    updateSelfTargetZone();
 
     // ドロップ候補の真上にいる間だけ、その枠へ直接クラスを足して見た目
     // のフィードバックを出す（render()側の状態には一切触れない）。
     // D5：やり直しドラッグ中は候補の意味が「次に選ぶべきスロット」とは
     // 限らない（途中のスロットをやり直している場合がある）ため、
     // clickable-targetクラスに頼らずcandidatesForSlotで直接判定する。
-    const hoverEl = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit") ?? null;
+    const selfZoneEl = document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-self-target-zone") ?? null;
+    selfZoneEl?.classList.add("battle-self-target-zone--hover");
+    if (!selfZoneEl) container.querySelector(".battle-self-target-zone")?.classList.remove("battle-self-target-zone--hover");
+    const hoverEl = selfZoneEl ? null : document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-unit") ?? null;
     if (dragState.hoverEl && dragState.hoverEl !== hoverEl) {
       dragState.hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
     }
@@ -5002,6 +5041,9 @@ export function BattleScene(container, params, api) {
     const group = overlay.querySelector(".battle-drag-preview");
     if (group) overlay.removeChild(group);
     if (hoverEl) hoverEl.classList.remove("battle-unit--drop-hover", "battle-unit--drop-cancel");
+    const droppedOnSelfZone = !!document.elementFromPoint(event.clientX, event.clientY)?.closest(".battle-self-target-zone");
+    const selfZone = container.querySelector(".battle-self-target-zone");
+    if (selfZone) { selfZone.style.display = "none"; selfZone.classList.remove("battle-self-target-zone--hover"); }
     dragState = null;
     justDragged = true;
     setTimeout(() => { justDragged = false; }, 0); // ゴーストclickが来なかった場合の保険
@@ -5010,6 +5052,15 @@ export function BattleScene(container, params, api) {
 
     if (redoSlotIndex !== undefined) {
       handleRedoDrop(actor, redoSlotIndex, redoOriginalUnitId, dropUnitId);
+      return;
+    }
+
+    // D-self：自身の枠の外側に一時的に出した「自身」ドロップ先へ離した
+    // 場合は、行動主体自身を対象として確定する（自分の枠そのものへ離す
+    // 操作＝キャンセルとは別の意味になる、updateSelfTargetZone参照）。
+    if (droppedOnSelfZone) {
+      if (phase === "prep") handlePrepTargetClick(actor);
+      else handleMainTargetClick(actor);
       return;
     }
 
@@ -5175,7 +5226,7 @@ export function BattleScene(container, params, api) {
     // 関数を呼び直すことが無いため、これまで表面化していなかった）。
     executing = false;
     if (outcome === "victory") {
-      pushLog("▼▼▼ 勝利！ ▼▼▼", "phase");
+      pushLog("▲▲▲ 勝利！ ▲▲▲", "phase");
       pushLog(`戦闘勝利報酬：${grantBattleRewards(isArenaMode)}`, "phase");
       // 変調：戦闘勝利時、「全モンスターのレベル合計÷編成スロット上の
       // 隊員人数（切り上げ）」分だけ全隊員に加算する。
@@ -5186,7 +5237,7 @@ export function BattleScene(container, params, api) {
       // （訓練所は実際のランのスコアに一切関わらないので加算しない）。
       if (!isArenaMode) recordDefeatedMonsterLevels(levelSum);
     } else {
-      pushLog("▼▼▼ 味方全滅…敗北 ▼▼▼", "phase");
+      pushLog("▲▲▲ 味方全滅…敗北 ▲▲▲", "phase");
     }
     render();
   }
@@ -6389,11 +6440,14 @@ export function BattleScene(container, params, api) {
     // ユーザー指示：最新の行が表示枠の最上部に来て、古い行が下へ流れて
     // いく仕様に変更（旧仕様は逆で、最下部へ追記→毎回scrollTopを最下
     // 端へ強制していた）。配列そのものは引き続き古い順（push）で溜める
-    // ため、表示だけ複製して反転させる。
+    // ため、表示だけ複製して反転させる。最上部＝最新の1行だけ、試験的に
+    // 通常の2倍のフォントサイズにする（ユーザー指示）。
     return h(
       "div",
       { class: "battle-log" },
-      [...logLines].reverse().map((line) => h("p", { class: `battle-log__line battle-log__line--${line.kind}`, text: line.text }))
+      [...logLines].reverse().map((line, i) =>
+        h("p", { class: `battle-log__line battle-log__line--${line.kind}${i === 0 ? " battle-log__line--latest" : ""}`, text: line.text })
+      )
     );
   }
 
@@ -6511,9 +6565,9 @@ export function BattleScene(container, params, api) {
     function placedCard(unit, point) {
       const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
       const children = [];
-      // 体幹/継続効果/バフ/デバフのアイコン置き場（空実装、枠の上）は
+      // 体幹/継続効果/バフ/デバフのアイコン置き場（枠の上）は
       // Prep/Main問わず常時表示する。
-      children.push(iconSlotBadge());
+      children.push(iconSlotBadge(unit));
       // F1：Prepフェイズ中だけ、枠の真下に常時イニシアチブ(IN)を表示する。
       if (phase === "prep") children.push(initiativeBadge(unit));
       children.push(
@@ -6573,6 +6627,7 @@ export function BattleScene(container, params, api) {
     return h("div", { class: "battle-popup-layer" }, [
       h("div", { class: "battle-unit-popover-overlay" }, []),
       actionPopupUnit ? battleActionPopup(actionPopupUnit) : null,
+      h("div", { class: "battle-self-target-zone", text: "自身" }),
     ]);
   }
 
@@ -6634,6 +6689,31 @@ export function BattleScene(container, params, api) {
     const cardRect = cardScreenRect(actionPopupUnit);
     if (!popupEl || !cardRect) return;
     positionFixedOverlayNearCard(popupEl, cardRect, "below", false);
+  }
+
+  // D-self：自身を対象候補に含むスキルの新規対象選択ドラッグ中だけ、
+  // 主体の枠のすぐ外側（味方は左、敵は右＝どちらも自陣営が開いていく
+  // 方向の逆＝盤面の外向き）へ「自身」の一時的なドロップ先を重ねる
+  // （ユーザー提案）。やり直しドラッグ（redoSlotIndexあり）では、その
+  // スロットの候補に自分自身が入ることはない設計のため対象外。
+  // handleDragPointerMoveから、ドラッグが実際に動き始めた後（moved）は
+  // 毎回呼ぶ。
+  function updateSelfTargetZone() {
+    const zone = container.querySelector(".battle-self-target-zone");
+    if (!zone) return;
+    const actor = dragState?.actor;
+    if (!dragState?.moved || dragState.redoSlotIndex !== undefined || !actor || !currentPickCandidates(actor).includes(actor)) {
+      zone.style.display = "none";
+      return;
+    }
+    const cardRect = cardScreenRect(actor);
+    if (!cardRect) { zone.style.display = "none"; return; }
+    const width = cardRect.width / 2;
+    zone.style.display = "flex";
+    zone.style.top = `${cardRect.top}px`;
+    zone.style.height = `${cardRect.height}px`;
+    zone.style.width = `${width}px`;
+    zone.style.left = actor.faction === "ally" ? `${cardRect.left - width - POPUP_OVERLAY_MARGIN}px` : `${cardRect.right + POPUP_OVERLAY_MARGIN}px`;
   }
 
   // battleArena()がDOMに実際に挿入された後（render()内でrenderScreen
