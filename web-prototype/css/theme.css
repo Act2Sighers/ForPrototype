@@ -1653,6 +1653,29 @@ body {
   color: var(--danger);
 }
 
+/* 体幹/継続効果/バフ/デバフのアイコンを将来ここに並べる予定の空実装
+   （ユーザー相談）。イニシアチブ表示（枠の下）と対称に、枠の真上に
+   配置する。高さは固定し、横幅は中身（テキスト）に応じて自身で決める
+   （ユーザー指示）。体幹やバフ/デバフはMainフェイズ中にも増減しうる
+   ため、イニシアチブと違いPrep/Main問わず常時表示する。 */
+.battle-unit__icon-slot {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 4px;
+  height: 18px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--ink-dim);
+  pointer-events: none;
+  line-height: 1;
+}
+
 .battle-unit__head {
   display: flex;
   align-items: baseline;

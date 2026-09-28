@@ -32,6 +32,7 @@ import {
   RIGID_QUALITY_LABELS,
   COATING_ATTRIBUTE_LABELS,
   computeWeaponSkillId,
+  battleDisplayName,
 } from "../data/resourceCatalog.js";
 import { computeBossLevel } from "../data/testDungeon.js";
 import { computeGatherAbility, computeMineAbility, pickGatherReward, pickMineReward } from "../data/exploration.js";
@@ -55,6 +56,8 @@ const RATIO_DIFFICULTY = 3; // 割合系難易度：割合攻撃/割合貫通攻
 const CONTINUOUS_DIFFICULTY = 2; // 継続系難易度：継続回復/継続ダメージの毎ターン量を割る
 const CONTINUOUS_RATIO_DIFFICULTY = 6; // 継続割合系難易度：継続割合回復/継続割合ダメージの毎ターン量を割る
 const STATUS_AILMENT_COEFFICIENT = 3; // 状態異常係数：属性攻撃の状態異常発動確率＝使用者レベル×この値(%)
+const PT_MAX_CAP = 6; // PT最大値の上限（ユーザー指示）：鼓舞等でPrepフェイズ中にPTの最大値を
+// 増加させても、この値を超えないよう頭打ちにする。
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms / (state.battleDoubleSpeed ? 2 : 1)));
@@ -201,7 +204,10 @@ const PREP_MODULES = {
     targetFaction: "own",
     stat: "pt",
     shortNotation: "P/鼓舞",
-    apply: (t, n = 1) => { t.pt.current += n; t.pt.max += n; },
+    apply: (t, n = 1) => {
+      t.pt.max = Math.min(PT_MAX_CAP, t.pt.max + n);
+      t.pt.current = Math.min(t.pt.current + n, t.pt.max);
+    },
   },
   provoke: {
     id: "provoke",
@@ -1201,6 +1207,23 @@ const CONTINUOUS_EFFECT_LABELS = {
 };
 function continuousEffectLabel(type) {
   return CONTINUOUS_EFFECT_LABELS[type];
+}
+
+// 継続回復/継続ダメージ/継続割合回復/継続割合ダメージの「実際に毎ターン
+// 増減するHP量」。unit.continuousHp.nはモジュール適用時点のダイス結果
+// （h）そのままの生値で、難易度で割る前の値（ユーザー報告：ステータス
+// 枠のHP(↑n)表示が、この生値をそのまま出していたために実際の増減量の
+// 約2倍に見えていた不具合）。適用側（applyContinuousHpTicks）と全く
+// 同じ計算式をここに切り出して共有し、表示とログとで数値がずれないようにする。
+function continuousTickAmount(unit) {
+  const c = unit.continuousHp;
+  if (!c) return null;
+  const isHeal = c.type === "heal" || c.type === "ratioHeal";
+  const isRatio = c.type === "ratioDamage" || c.type === "ratioHeal";
+  const amount = isRatio
+    ? Math.ceil((computeEffectiveMaxHp(unit.character) * Math.ceil(c.n / CONTINUOUS_RATIO_DIFFICULTY)) / 100)
+    : Math.ceil(c.n / CONTINUOUS_DIFFICULTY);
+  return { amount, isHeal };
 }
 
 // 上昇/低下（旧・強化魔法/弱体化魔法）を対象ステータスごとに生成する
@@ -3880,8 +3903,8 @@ function battleHpGauge(unit) {
   const condition = character.condition ?? 0;
   const fillPct = rawMaxHp > 0 ? Math.max(0, Math.min(100, (currentHp / rawMaxHp) * 100)) : 0;
   const erosionPct = rawMaxHp > 0 ? Math.max(0, Math.min(100, (condition / rawMaxHp) * 100)) : 0;
-  const c = unit.continuousHp;
-  const label = c ? `HP(${c.type === "heal" ? "↑" : "↓"}${c.n})` : "HP";
+  const tick = continuousTickAmount(unit);
+  const label = tick ? `HP(${tick.isHeal ? "↑" : "↓"}${tick.amount})` : "HP";
   return h("div", { class: "hp-line" }, [
     h("span", { class: "hp-line__label stat-hp", text: label }),
     h("span", { class: "hp-line__value", text: `${currentHp} / ${maxHp}` }),
@@ -3898,17 +3921,21 @@ function battleHpGauge(unit) {
 // クリック可能表示を示す追加クラス、無い時はnull。onClickはステータス
 // 枠クリックによる行動対象指定用。data-unit-id は矢印オーバーレイが
 // DOM実測で枠を探すためのキー。
-// 横幅対策：ステータス枠・行動選択枠の表示名だけファーストネームに
-// 短縮する（ログ本文のunit.displayNameはフルネームのまま変えない）。
-// 同種モンスターが複数いる時の判別用サフィックス「 (2)」（末尾の半角
-// スペース+丸括弧数字、createBattleUnit参照）は残す。日本語名の区切り
-// 「・」が無い名前（フルーツリーなど）はそのまま返す。
-function firstName(displayName) {
-  const suffixMatch = displayName.match(/ \(\d+\)$/);
+// 横幅対策：ステータス枠・行動選択枠の表示名だけ、キャラクターデータに
+// 設定された戦闘用表示名（battleName、resourceCatalog.js参照）に短縮
+// する（ログ本文のunit.displayNameはフルネームのまま変えない）。以前は
+// 「・」以降を機械的に切り落として代用していたが、「チューイング・
+// マシン/ロボット/コンピュータ」のように「・」より前が同じ名前が複数
+// 種いる場合に全て同じ表示になってしまう不具合があった（ユーザー
+// 報告）。同種モンスターが複数いる時の判別用サフィックス「 (2)」（末尾の
+// 半角スペース+丸括弧数字、createBattleUnit参照）は残す。battleName未
+// 設定（＝ユーザー指定表で「名前と同じ」とされた種）はunit.displayName
+// のフルネームがそのまま返る。
+function battleCardName(unit) {
+  const suffixMatch = unit.displayName.match(/ \(\d+\)$/);
   const suffix = suffixMatch ? suffixMatch[0] : "";
-  const base = suffix ? displayName.slice(0, -suffix.length) : displayName;
-  const sepIndex = base.indexOf("・");
-  return (sepIndex === -1 ? base : base.slice(0, sepIndex)) + suffix;
+  const base = suffix ? unit.displayName.slice(0, -suffix.length) : unit.displayName;
+  return (battleDisplayName(unit.character.dataId) ?? base) + suffix;
 }
 
 // 属性の「無し」を表す明示的な値。character.attributeが未設定
@@ -3961,7 +3988,7 @@ function battleUnitCard(unit, extraClass, onClick, onPointerDown, onMouseenter, 
   const attributeLabel = attribute === NO_ATTRIBUTE ? null : COATING_ATTRIBUTE_LABELS[attribute];
   return h("div", { class: classes, "data-unit-id": character.id, onClick, onPointerdown: onPointerDown, onMouseenter, onMouseleave }, [
     h("div", { class: "battle-unit__head" }, [
-      h("span", { class: "battle-unit__name", text: firstName(unit.displayName) }),
+      h("span", { class: "battle-unit__name", text: battleCardName(unit) }),
       ptLamp(unit.pt.current, unit.pt.max),
     ]),
     attributeLabel ? h("p", { class: "battle-unit__attribute", text: `属性: ${attributeLabel}` }) : null,
@@ -3982,6 +4009,17 @@ function initiativeBadge(unit) {
     h("span", { class: "battle-unit__initiative-label", text: "イニシアチブ：" }),
     h("span", { class: `battle-unit__initiative-value ${sign}`.trim(), text }),
   ]);
+}
+
+// 体幹/継続効果/バフ/デバフのアイコン表示（ユーザー相談）の空実装。
+// アイコン自体はまだ用意していないため、今はイニシアチブ表示と同じ
+// 考え方（枠自体は持たず、ステータス枠の外＝枠の上に常時重ねる透明な
+// 領域）で、位置と概念だけを示すテキストを仮置きする（ユーザー指示）。
+// イニシアチブと違いPrep/Mainどちらでも常時表示する -- 体幹やバフ/
+// デバフはMainフェイズ中にも増減しうるため。縦幅は固定（theme.css参照）、
+// 横幅は中身（テキスト）に応じて自身で決める。
+function iconSlotBadge() {
+  return h("div", { class: "battle-unit__icon-slot", text: "アイコン配置枠" });
 }
 
 function targetDisplayName(actor, target) {
@@ -6100,15 +6138,11 @@ export function BattleScene(container, params, api) {
       if (!c || isIncapacitated(unit)) continue;
       // c.nはモジュール適用時点で既に算出済みの「h」（(H+ボーナス)d6合計
       // の結果）。毎ターン振り直すのではなく、その固定値を難易度で割った
-      // ものを繰り返し適用する。割合系（ratioDamage/ratioHeal）は
-      // 「h/継続割合系難易度」%を実効最大HP基準で、それ以外（heal/
-      // damage）は「h/継続系難易度」をそのまま量として使う。
-      const isRatio = c.type === "ratioDamage" || c.type === "ratioHeal";
-      const amount = isRatio
-        ? Math.ceil((computeEffectiveMaxHp(unit.character) * Math.ceil(c.n / CONTINUOUS_RATIO_DIFFICULTY)) / 100)
-        : Math.ceil(c.n / CONTINUOUS_DIFFICULTY);
+      // ものを繰り返し適用する（continuousTickAmount参照 -- ステータス
+      // 枠のHP(↑n)表示と全く同じ計算式を共有する）。
+      const { amount, isHeal } = continuousTickAmount(unit);
       const before = unit.character.currentHp;
-      if (c.type === "heal" || c.type === "ratioHeal") applyHpHeal(unit.character, amount);
+      if (isHeal) applyHpHeal(unit.character, amount);
       else applyHpDamage(unit.character, amount);
       const after = unit.character.currentHp;
       const effectLabel = continuousEffectLabel(c.type);
@@ -6341,7 +6375,7 @@ export function BattleScene(container, params, api) {
     if (active) classes.push("battle-action-queue-card--active");
     const lines = actionQueueLinesFor(unit).map((line) => h("p", { class: "battle-action-queue-card__line", text: line }));
     return h("div", { class: classes.join(" "), "data-unit-id": unit.character.id }, [
-      h("p", { class: "battle-action-queue-card__name", text: firstName(unit.displayName) }),
+      h("p", { class: "battle-action-queue-card__name", text: battleCardName(unit) }),
       h("div", { class: "battle-action-queue-card__lines" }, lines),
     ]);
   }
@@ -6477,7 +6511,10 @@ export function BattleScene(container, params, api) {
     function placedCard(unit, point) {
       const style = `position:absolute; left:${originX + point.x - CARD_WIDTH / 2}px; top:${originY + point.y - CARD_HEIGHT / 2}px; width:${CARD_WIDTH}px;`;
       const children = [];
-      // F1：Prepフェイズ中だけ、枠の真上に常時イニシアチブ(IN)を表示する。
+      // 体幹/継続効果/バフ/デバフのアイコン置き場（空実装、枠の上）は
+      // Prep/Main問わず常時表示する。
+      children.push(iconSlotBadge());
+      // F1：Prepフェイズ中だけ、枠の真下に常時イニシアチブ(IN)を表示する。
       if (phase === "prep") children.push(initiativeBadge(unit));
       children.push(
         battleUnitCard(
@@ -6813,6 +6850,31 @@ export function BattleScene(container, params, api) {
     return { left: cx - CARD_WIDTH / 2, right: cx + CARD_WIDTH / 2, top: cy - CARD_HEIGHT / 2, bottom: cy + CARD_HEIGHT / 2 };
   }
 
+  // ステータス枠の外側に常時重ねている透明な枠（上：アイコン配置枠、
+  // battle-unit__icon-slot／下：イニシアチブ表示、battle-unit__
+  // initiative、Prepフェイズのみ）ぶんの見込み高さ。theme.cssの実際の
+  // サイズ（高さ+余白）に合わせてある。カメラをユニット単体へクローズ
+  // アップする時（②行動選択ポップアップ／③⑥対象選択／⑦実行中）に
+  // unitLogicalRect()そのまま使うと、この2つの透明枠がステータス枠の
+  // 外＝フレーミング対象の外に出てしまい見切れる不具合があった（ユーザー
+  // 報告：6人編成で一番下の列のユニットのイニシアチブが見切れていた）。
+  const ICON_SLOT_FRAME_MARGIN = 22;
+  const INITIATIVE_FRAME_MARGIN = 24;
+
+  // カメラのクローズアップ対象として使う、上記2つの透明枠ぶんを見込んで
+  // 広げた矩形。ステータス枠そのものの位置（cardScreenRect等、ポップ
+  // アップをカードの隣に置くための実測用途）には影響しないよう、
+  // unitLogicalRect()自体は変えずこちらを別に用意する。
+  function unitCameraFrameRect(unit) {
+    const rect = unitLogicalRect(unit);
+    return {
+      left: rect.left,
+      right: rect.right,
+      top: rect.top - ICON_SLOT_FRAME_MARGIN,
+      bottom: rect.bottom + (phase === "prep" ? INITIATIVE_FRAME_MARGIN : 0),
+    };
+  }
+
   // キャンバス全体（＝全ユニットが過不足なく収まるよう算出済みの
   // bounding box）をそのまま焦点にする＝「全員が映る」。
   function allUnitsLogicalRect() {
@@ -6879,14 +6941,26 @@ export function BattleScene(container, params, api) {
     // 領域の内側を通り過ぎないようクランプする。キャンバスの方が表示
     // 領域より小さい軸（対象が少なく等倍でも収まる等）ではクランプせず
     // 中央寄せにする。
+    // 縦方向だけは、bounds（=computeCanvasBounds、ステータス枠自体の
+    // bounding boxのみを基準にした値）そのままだと、一番上の行のアイコン
+    // 配置枠（y<0へはみ出す）・一番下の行のイニシアチブ表示（y>bounds.
+    // heightへはみ出す、Prepのみ）がクランプでちょうど切り捨てられて
+    // しまう不具合があった（ユーザー報告：6人編成で一番下のユニットへ
+    // クローズアップした時、イニシアチブが見切れていた -- クローズアップ
+    // 対象のrect自体はunitCameraFrameRectで広げてあっても、パン量の
+    // 上限がbounds.heightで頭打ちになるため、実際にはそこまでパンできず
+    // 表示領域からはみ出したままになっていた）。パン量のクランプに使う
+    // 縦方向の範囲だけ、この2つの透明枠ぶん上下に広げる。
+    const contentMinY = -ICON_SLOT_FRAME_MARGIN;
+    const contentMaxY = bounds.height + (phase === "prep" ? INITIATIVE_FRAME_MARGIN : 0);
     const scaledWidth = bounds.width * scale;
-    const scaledHeight = bounds.height * scale;
+    const scaledHeight = (contentMaxY - contentMinY) * scale;
     tx = scaledWidth <= scrollEl.clientWidth
       ? (scrollEl.clientWidth - scaledWidth) / 2
       : Math.max(scrollEl.clientWidth - scaledWidth, Math.min(0, tx));
     ty = scaledHeight <= scrollEl.clientHeight
-      ? (scrollEl.clientHeight - scaledHeight) / 2
-      : Math.max(scrollEl.clientHeight - scaledHeight, Math.min(0, ty));
+      ? (scrollEl.clientHeight - scaledHeight) / 2 - scale * contentMinY
+      : Math.max(scrollEl.clientHeight - scale * contentMaxY, Math.min(-scale * contentMinY, ty));
 
     canvasEl.style.transition = FAST ? "none" : "transform 0.3s ease";
     canvasEl.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
@@ -6956,7 +7030,7 @@ export function BattleScene(container, params, api) {
     if (activeArrow) {
       // ⑦：実行中は主体・全対象の中心へ、大きさもちょうど収まるように。
       const targets = activeArrow.targets ?? [activeArrow.target];
-      applyCamera([activeArrow.actor, ...targets].map(unitLogicalRect));
+      applyCamera([activeArrow.actor, ...targets].map(unitCameraFrameRect));
       return;
     }
     if (actionPopupUnit) {
@@ -6973,7 +7047,7 @@ export function BattleScene(container, params, api) {
       // 印象になる（ユーザー報告）ため、左右にCARD_WIDTH/2ずつ余白を
       // 持たせた広さで収める -- 結果、枠の横幅がカメラ幅のおおよそ半分
       // 程度になる（ユーザー提案の目安）。
-      const rect = unitLogicalRect(actionPopupUnit);
+      const rect = unitCameraFrameRect(actionPopupUnit);
       applyCamera([{ left: rect.left - CARD_WIDTH / 2, right: rect.right + CARD_WIDTH / 2, top: rect.top, bottom: rect.bottom }]);
       return;
     }
@@ -6983,7 +7057,7 @@ export function BattleScene(container, params, api) {
         // （候補が一部確定して減っても、その都度候補を狭めて追う必要は
         // 無いというユーザー指示通り、現在の候補集合をそのまま使う）。
         const actor = prepTargetPickingActor;
-        applyCamera([actor, ...currentPickCandidates(actor)].map(unitLogicalRect));
+        applyCamera([actor, ...currentPickCandidates(actor)].map(unitCameraFrameRect));
         return;
       }
       // ①/④：それ以外（誰かの選択待ち・全員確定済みなど）は既定位置＝
@@ -6999,13 +7073,19 @@ export function BattleScene(container, params, api) {
     if (currentUnit && currentUnit.faction === "ally" && !isIncapacitated(currentUnit)) {
       if (!currentUnit.action) {
         // ⑤：内容・対象ともに未確定 -- 全ユニット（生存可否問わず）が
-        // 映る倍率のまま、その人へ気持ちだけカメラを寄せる。
-        applyCamera([allUnitsLogicalRect()], { biasRect: unitLogicalRect(currentUnit), biasWeight: MAIN_CHOICE_ACTOR_BIAS });
+        // 映る倍率のまま、その人へ気持ちだけカメラを寄せる。倍率・rects
+        // は既定位置（①）と同じallUnitsLogicalRect()のままなので、
+        // isDefaultView:trueも一緒に渡す -- そうしないと、Mainフェイズで
+        // プレイヤーの行動選択待ち（順次処理が一時停止中）の間、見た目上
+        // は既定位置のままなのに中央固定表示だけ減光され続けてしまう
+        // （ユーザー報告：Prepフェイズでは同じ待機中でも①がそのまま
+        // 使われるため起こらない）。
+        applyCamera([allUnitsLogicalRect()], { biasRect: unitLogicalRect(currentUnit), biasWeight: MAIN_CHOICE_ACTOR_BIAS, isDefaultView: true });
         return;
       }
       if (!isActionFullyResolved(currentUnit)) {
         // ⑥：内容確定・対象未確定 -- ③と同じ。
-        applyCamera([currentUnit, ...currentPickCandidates(currentUnit)].map(unitLogicalRect));
+        applyCamera([currentUnit, ...currentPickCandidates(currentUnit)].map(unitCameraFrameRect));
         return;
       }
     }

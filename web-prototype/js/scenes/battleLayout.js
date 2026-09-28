@@ -29,8 +29,15 @@
 // 足して逆算し、枠同士が重ならないようにしてある。
 export const CARD_WIDTH = 220;
 export const CARD_HEIGHT = 60;
-// 行間・レーン間それぞれに足す余白。
-const ROW_GAP = 30;
+// 行間・レーン間それぞれに足す余白。ROW_GAPは、枠自体の余白に加えて、
+// 枠の外に常時重なる2つの透明な領域（下：イニシアチブ表示、Prepのみ、
+// 高さ+余白で約24px／上：アイコン配置枠、Prep/Main問わず常時、高さ+
+// 余白で約22px、battle.jsのICON_SLOT_FRAME_MARGIN/INITIATIVE_FRAME_
+// MARGINおよびtheme.cssの対応クラス参照）が、1行下のアイコン配置枠と
+// 重ならないだけの余裕を持たせてある（ユーザー報告：アイコン配置枠を
+// 追加する前のROW_GAP=30のままだと、イニシアチブ表示と次の行のアイコン
+// 配置枠が重なってしまっていた）。
+const ROW_GAP = 60;
 const LANE_SPACING_GAP = 40;
 
 // 1行あたりの縦方向の間隔（枠の高さ＋余白）。
