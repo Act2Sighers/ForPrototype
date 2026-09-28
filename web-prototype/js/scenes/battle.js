@@ -4612,7 +4612,20 @@ export function BattleScene(container, params, api) {
     const action = unit.action;
     if (!action?.targetUnit) return false;
     const module = currentModules()[action.moduleId];
-    return action.extraTargets.length >= extraTargetSlotsFor(module, currentModules()).length;
+    const slots = extraTargetSlotsFor(module, currentModules());
+    if (action.extraTargets.length >= slots.length) return true;
+    // 次に埋めるべき追加対象スロットの候補が0（＝これ以上選びようがない）
+    // なら、それ以上の選択を要求せずここで確定扱いにする。実行時
+    // （resolveStepTarget）はこの埋まらなかったスロットを「対象がいない
+    // ため不発」として扱う設計に既になっている（runSteps参照）ため、
+    // ここで確定させても実行結果は変わらない。この分岐が無いと、必要な
+    // 対象数に対して候補が足りない編成（例：味方が2人しかいない時の
+    // 【守りの原点】、自身以外の自陣営2体が必要）で対象選択が永久に
+    // 完了せず、カメラも解決不能な選択待ちのまま行動主体へ寄り切って
+    // 動かせなくなる不具合があった（ユーザー報告）。同様の問題は対象数
+    // に対して候補が不足するスキル全般で起こり得るため、個別のスキルを
+    // 直さずここで一括して対応する。
+    return extraTargetCandidates(unit, action.extraTargets.length).length === 0;
   }
 
   // D5：今確定している対象一覧（主対象＋追加対象）を先頭からの配列で
@@ -6346,6 +6359,13 @@ export function BattleScene(container, params, api) {
     const outcome = checkBattleEnd();
     if (outcome) {
       activeArrow = null;
+      // unit.actionをここでも消しておかないと、この行動が勝敗を決めた
+      // まさにそのユニットの確定済み対象がunit.action.targetUnitに残った
+      // まま（updateArrowOverlayの「選択フェーズ中の確定済み対象」常設
+      // マークが、activeArrow/戦闘終了を問わず参照する）になり、戦闘
+      // 終了後も矢印が表示されっぱなしになる不具合があった（ユーザー
+      // 報告）。
+      unit.action = null;
       concludeBattle(outcome);
       return true;
     }
@@ -6477,6 +6497,14 @@ export function BattleScene(container, params, api) {
   // 「ボタンを中央に寄せるためカメラ側に余白を持たせる」必要が無くなる
   // （ユーザー指示）。
   function battleCenterOverlay() {
+    // 戦闘終了後は「Nターン目／フェイズ名／vs」の代わりに勝敗を表示する
+    // （ユーザー指示）。実行ボタン（centerActionPrompt）はisInteractive()
+    // が戦闘終了後falseになるため、元から自動的に消える。
+    if (battleOutcome) {
+      return h("div", { class: "battle-center-overlay" }, [
+        h("p", { class: "battle-center__phase", text: battleOutcome === "victory" ? "勝利！" : "敗北…" }),
+      ]);
+    }
     return h("div", { class: "battle-center-overlay" }, [
       h("p", { class: "battle-center__turn", text: `${turn}ターン目` }),
       h("p", { class: "battle-center__phase", text: phase === "prep" ? "オードブル！" : "メインディッシュ！" }),
@@ -7240,7 +7268,24 @@ export function BattleScene(container, params, api) {
     columnEl.scrollTo({ top: Math.max(0, Math.min(maxTop, targetTop)), behavior: FAST ? "auto" : "smooth" });
   }
 
+  // 戦闘不能になったユニットは、体幹・継続効果・能力値補正（バフ/デバフ）
+  // を全て取り除く（ユーザー指示）。アイコン配置枠側で個別に非表示処理を
+  // するより、データそのものを戦闘不能＝ニュートラルな状態に戻しておく
+  // 方が単純で、蘇生などで復帰した後に戦闘不能直前の古い状態が紛れ込む
+  // 心配も無くなる。HPが0以下になる経路（通常攻撃・継続ダメージ・属性
+  // 攻撃等）は複数箇所に分散しているため、個々の適用箇所ではなく
+  // render()の冒頭でまとめて正規化する。
+  function normalizeIncapacitatedUnits() {
+    for (const unit of [...allyUnits, ...enemyUnits]) {
+      if (!isIncapacitated(unit)) continue;
+      unit.stamina = 0;
+      unit.continuousHp = null;
+      for (const key of BATTLE_STAT_ORDER) unit.corrections[key] = null;
+    }
+  }
+
   function render() {
+    normalizeIncapacitatedUnits();
     const savedArenaScroll = saveArenaScrollState();
     renderScreen(container, {
       eyebrow: isArenaMode ? "TRAINING GROUNDS" : mode === "boss" ? "BATTLE / BOSS" : "BATTLE",
