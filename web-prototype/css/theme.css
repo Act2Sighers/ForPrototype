@@ -178,6 +178,17 @@ body {
   max-width: none;
 }
 
+/* 戦闘画面限定：.screen-body自身の既定min-height（他画面向けに意図的に
+   auto、上の.screen-bodyのコメント参照）を0で上書きする。戦闘画面は
+   中身（戦闘盤面+テキストログ）を画面の残り高さぴったりに収めたい
+   （ユーザー指示）ため、他画面と違ってこの「縮まない」既定が邪魔に
+   なる -- これが無いと.battle-arenaのflex: 1 1 0 + min-height: 0が
+   効かず、戦闘盤面がテキストログとの間に余白を残したまま自然な高さの
+   ままになってしまう。 */
+.screen[data-scene="battle"] .screen-body {
+  min-height: 0;
+}
+
 /* Themed, draggable scrollbars for the screen body and the map's
    horizontal scroller. */
 .screen-frame,
@@ -1219,7 +1230,16 @@ body {
   overflow: hidden;
   border-radius: var(--radius-sm);
   width: 100%;
-  max-height: 60vh;
+  /* 以前はmax-height: 60vhで頭打ちにしていたが、画面が広い時に戦闘盤面
+     とテキストログの間・テキストログと下部ボタンの間に無駄な余白が
+     残る、逆に人数が少なく盤面の自然な高さが60vhより小さい時にカード列
+     （行動が複数行になると60vh近くまで伸びうる）の方が高くなり.battle
+     -arenaの行全体がカード列基準の高さになって盤面側だけ上に余白が
+     残る、といった不具合があった（ユーザー報告）。.battle-arena（後述、
+     flex:1でscreen-body内の残り高さいっぱいに広がる）からheight:100%
+     で高さを継承する方式に変え、「ログのすぐ上まで」を常に正確に埋める
+     ようにした。 */
+  height: 100%;
 }
 
 /* .battle-arena-scrollを包むだけの、自分自身はスクロール/overflowを
@@ -1241,20 +1261,36 @@ body {
    テムは既定でmin-width:autoのため、中身の自然サイズより縮まない）。
    min-width: 0でその既定を外すことで、キャンバスがどれだけ横に広くても
    .battle-arena-scrollは左右のカード列の間の幅に固定され、はみ出した分は
-   overflow: hiddenで正しくクリップされる（縦方向はmax-height: 60vhが
-   同じ役割を果たしている）。 */
+   overflow: hiddenで正しくクリップされる。縦方向はmin-height: 0が同じ
+   役割を果たす -- align-items: stretch（.battle-arena参照）により縦幅は
+   .battle-arenaの高さいっぱいに伸ばされるが、flexアイテムの既定
+   min-height: autoのままだと中身（.battle-arena-scroll経由の
+   .battle-freeform-canvas）の自然な高さより縮まなくなってしまう。 */
 .battle-arena-viewport {
   position: relative;
   flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
 }
 
+/* 戦闘盤面の表示領域（.battle-arena-viewport）・左右のカード列
+   （.battle-column）の3つを横に並べる行。以前はalign-items: flex-start
+   で各々が自分の中身の自然な高さのままだったため、カード列の方が
+   （複数行の行動が積み重なるなどで）盤面より縦に伸びた時、盤面側は
+   短いまま行の下部に余白ができ、その余白ぶんテキストログが押し下げ
+   られる不具合があった（ユーザー報告）。align-items: stretchに変え、
+   3つとも常に.battle-arena自身の高さ（flex: 1 1 0 + min-height: 0で
+   screen-body内の残り高さ＝テキストログの直前までいっぱいに広がる）に
+   揃うようにした -- これにより「戦闘盤面/カード列の表示領域の下端が
+   常にテキストログのすぐ上に来る」を満たす。 */
 .battle-arena {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: space-between;
   gap: 8px;
   padding: 4px;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .battle-freeform-canvas {
@@ -1271,14 +1307,17 @@ body {
    行動内容だけの表示になった今は広すぎるため、その2/3程度（150px）
    まで狭めてある。.battle-arena-scrollの外（左右に1本ずつ）に置くため、
    キャンバス側を横スクロールしても画面に固定されたまま見え続ける。
-   縦は.battle-arena-scrollと同じ上限（60vh）を持たせ、超えた分は列
-   自体が独自にスクロールする。 */
+   縦の高さは.battle-arena（align-items: stretch）が決める＝戦闘盤面の
+   表示領域と常に同じ高さで固定され、行動が複数行になってカードが伸びて
+   もこの列自体の表示領域は広がらず、超えた分はoverflow-yで列自体が
+   独自にスクロールする（ユーザー報告：以前は列の方が伸びて表示領域
+   全体を押し広げ、テキストログを下へ押し下げていた）。 */
 .battle-column {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex: 0 0 150px;
-  max-height: 60vh;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -1311,8 +1350,12 @@ body {
   /* opacityはJS側（updateCenterOverlayOpacity）がカメラの位置を見て
      直接書き込む -- カメラが既定位置（全員が映る通常表示）以外の時は
      薄くし、クローズアップ中のユニットに常に不透明のまま被さって見え
-     づらくなるのを防ぐ（ユーザー指示）。 */
-  transition: opacity 0.2s ease;
+     づらくなるのを防ぐ（ユーザー指示）。この要素自体はrender()のたびに
+     DOMごと作り直される（この戦闘画面の描画方式そのものの前提）ため、
+     transitionを付けると「新しく作られた要素がブラウザ既定のopacity:1
+     から書き込み先の値へ毎回アニメーションし始める」形になり、暗くする
+     べき場面でも一瞬100%へ戻ってから暗くなる、という点滅に見える不具合
+     があった（ユーザー報告）。transitionを持たせず、常に即座に反映する。 */
 }
 
 .battle-center-overlay button {

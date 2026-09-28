@@ -4829,17 +4829,26 @@ export function BattleScene(container, params, api) {
   // clickイベントへ委ねるため（handleDragPointerMove/handleDragPointerUp
   // 参照）。
   function beginDrag(actor, event, redoSlotIndex, redoOriginalUnitId) {
+    // overlayのviewBoxは直近のupdateArrowOverlay()呼び出し時点（＝この
+    // render()内でのupdateCamera()より前）の測定値のままなので、その後
+    // カメラのCSSトランジションが進行してarenaRectが変化していた場合、
+    // 下でここ自身が測り直すarenaRectとズレている可能性がある。ここで
+    // updateArrowOverlay()を呼び、釘付け/警護等の常設マークを今の瞬間の
+    // arenaRectへ合わせて描き直しておかないと、この後すぐ下で新しい
+    // viewBoxだけを（常設マークの座標はそのままに）差し替えることになり、
+    // ドラッグ中だけ常設マークが実際の枠から一定量ずれて見える不具合が
+    // あった（ユーザー報告）。
+    updateArrowOverlay();
     const arenaEl = container.querySelector(".battle-freeform-canvas");
     const overlay = arenaEl?.querySelector(".battle-arrow-overlay");
     const cardEl = arenaEl?.querySelector(`[data-unit-id="${actor.character.id}"]`);
     if (!arenaEl || !overlay || !cardEl) return;
     const arenaRect = arenaEl.getBoundingClientRect();
-    // overlayのviewBoxは直近のupdateArrowOverlay()呼び出し時点（＝この
-    // render()内でのupdateCamera()より前）の測定値のままなので、その後
-    // カメラが動いていた場合は現在のスケールとズレている可能性がある。
-    // ここで自前に測ったarenaRectへ synchronously 引き直しておくことで、
-    // 以降のorigin/pointerPointの座標系と必ず一致させる（ユーザー報告の
-    // 「ドラッグ開始時に矢印の位置がずれる」不具合の原因）。
+    // 以降のorigin/pointerPointの座標系を、上のupdateArrowOverlay()と
+    // 必ず一致させるため、同じ考え方でここでも自前にarenaRectを測り直し
+    // てviewBoxへ反映する（ユーザー報告の「ドラッグ開始時に矢印の位置が
+    // ずれる」不具合の原因への対応、updateArrowOverlay()自身も同じ処理を
+    // 行うが、ここでのorigin計算のために改めて明示する）。
     overlay.setAttribute("viewBox", `0 0 ${arenaRect.width} ${arenaRect.height}`);
     const scale = currentArenaScale(arenaRect);
     overlay.style.setProperty("--arrow-scale", String(scale));
@@ -6579,12 +6588,15 @@ export function BattleScene(container, params, api) {
 
   // render()の末尾から呼ぶ。actionPopupUnitがあれば、そのユニットの枠の
   // すぐ下に来るようbattleActionPopup()の実際の画面位置を書き込む。
+  // 横幅はホバーポップオーバーと同じ考え方で内容任せ（auto）にする --
+  // 枠の横幅に強制的に合わせると、選択肢の文言が長い場合に画面外まで
+  // はみ出すことがあった（ユーザー報告）。
   function updateActionPopupOverlay() {
     if (!actionPopupUnit) return;
     const popupEl = container.querySelector(".battle-action-popup");
     const cardRect = cardScreenRect(actionPopupUnit);
     if (!popupEl || !cardRect) return;
-    positionFixedOverlayNearCard(popupEl, cardRect, "below", true);
+    positionFixedOverlayNearCard(popupEl, cardRect, "below", false);
   }
 
   // battleArena()がDOMに実際に挿入された後（render()内でrenderScreen
@@ -7078,11 +7090,18 @@ export function BattleScene(container, params, api) {
       actions: battleActions(),
     });
     restoreArenaScrollState(savedArenaScroll);
-    updateArrowOverlay();
+    // 矢印オーバーレイ（釘付け/警護/選択済み対象などの常設マーク）・
+    // ポップアップ2種・中央固定表示の不透明度は、いずれもカメラ
+    // （スクロール/ズーム）が確定した後の画面上の位置を基準にするため、
+    // 必ずupdateCamera()の後で呼ぶ。以前はupdateArrowOverlay()だけ
+    // updateCamera()より前に呼んでいたため、このrender()でカメラが
+    // 大きく動いた場合（例：行動選択ポップアップを閉じてカメラが
+    // クローズアップから通常表示へ戻る場面）、常設マークがこのrender()
+    // 開始時点＝1つ前のカメラ位置のまま描かれてしまい、直後にドラッグを
+    // 始めた時（beginDrag自身がupdateArrowOverlay()を呼び直す）だけ
+    // 急に正しい位置へ「動く」ように見える不具合があった（ユーザー報告）。
     updateCamera();
-    // ポップアップ2種・中央固定表示の不透明度は、カメラ（スクロール/
-    // ズーム）が確定した後でなければ正しく判定できないため、
-    // updateCamera()の後で呼ぶ。
+    updateArrowOverlay();
     updateActionPopupOverlay();
     updateHoverPopoverOverlay();
     updateCenterOverlayOpacity();
