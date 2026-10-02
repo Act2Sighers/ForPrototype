@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自動戦闘 プロトタイプ</title>
+<style>
+  body { margin: 0; background: #1b1e24; color: #e8e8e8; font-family: sans-serif;
+         display: flex; flex-direction: column; align-items: center; padding: 12px; }
+  #toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  button { background: #343a46; color: #eee; border: 1px solid #596073; border-radius: 4px;
+           padding: 6px 12px; font-size: 14px; cursor: pointer; }
+  button:hover { background: #444c5c; }
+  button.active { background: #3b6fd6; border-color: #6c9cff; }
+  #stage { position: relative; }
+  canvas { display: block; background: #2a2f38; border: 2px solid #596073; max-width: 100%; height: auto; }
+  #result { position: absolute; inset: 0; display: none; flex-direction: column;
+            align-items: center; justify-content: center; gap: 16px; background: rgba(0,0,0,.55); }
+  #result.show { display: flex; }
+  #resultText { font-size: 40px; font-weight: bold; }
+  #resultText.win { color: #6aa8ff; }
+  #resultText.lose { color: #ff7a7a; }
+  #resultText.draw { color: #ddd; }
+  #retry { font-size: 20px; padding: 10px 28px; }
+  #status { font-size: 14px; margin-left: 12px; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <button id="pause">一時停止</button>
+  <button class="speed active" data-speed="1">1x</button>
+  <button class="speed" data-speed="2">2x</button>
+  <button class="speed" data-speed="4">4x</button>
+  <span id="status"></span>
+</div>
+<div id="stage">
+  <canvas id="cv" width="960" height="600"></canvas>
+  <div id="result">
+    <div id="resultText"></div>
+    <button id="retry">もう一度</button>
+  </div>
+</div>
+
+<script>
+// ===== 調整用の定数 =====
+const FIELD_W = 960, FIELD_H = 600;
+const UNITS_PER_TEAM = 5;
+const UNIT_R = 14;            // ユニット半径
+const MOVE_SPEED = 80;        // 移動速度 px/秒
+const MAX_HP = 50;
+const DAMAGE = 6;             // 体当たり1回のダメージ
+const ATTACK_INTERVAL = 1.0;  // 攻撃間隔(秒)
+const LUNGE_TIME = 0.15;      // 乗り出して引っ込むまでの時間(秒)
+const LUNGE_DIST = 10;        // 乗り出し量 px
+const STOP_GAP = 4;           // 接触距離(2R)にこの値を足した距離で停止
+const HIT_FWD = UNIT_R + 8;   // 攻撃判定円の中心(前方オフセット)
+const HIT_R = 10;             // 攻撃判定円の半径
+const PUSH_RATE = 0.4;        // 重なり解消の強さ(1フレームあたりの割合)
+const TURN_RATE = 12;         // 向きの追従速度(rad/秒)
+const SPAWN_MARGIN = 40;
+const STEP = 1 / 60;          // 固定タイムステップ
+
+const COLORS = {
+  blue: { body: '#3b82f6', edge: '#9cc4ff' },
+  red:  { body: '#ef4444', edge: '#ffa3a3' },
+  dead: '#6b7078',
+};
+
+// ===== 状態 =====
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let units, paused, speed, outcome, accum, lastTime;
+
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+function makeUnit(team) {
+  const half = FIELD_W / 2;
+  const xMin = team === 'blue' ? SPAWN_MARGIN : half + SPAWN_MARGIN / 2;
+  const xMax = team === 'blue' ? half - SPAWN_MARGIN / 2 : FIELD_W - SPAWN_MARGIN;
+  return {
+    team,
+    x: rand(xMin, xMax),
+    y: rand(SPAWN_MARGIN, FIELD_H - SPAWN_MARGIN),
+    angle: team === 'blue' ? 0 : Math.PI,
+    hp: MAX_HP,
+    cooldown: rand(0, ATTACK_INTERVAL), // 攻撃までの残り時間
+    lunge: -1,                          // 乗り出し経過時間 (-1 = 非攻撃中)
+    hitDone: false,
+  };
+}
+
+function reset() {
+  units = [];
+  for (let i = 0; i < UNITS_PER_TEAM; i++) units.push(makeUnit('blue'));
+  for (let i = 0; i < UNITS_PER_TEAM; i++) units.push(makeUnit('red'));
+  outcome = null;
+  accum = 0;
+  document.getElementById('result').classList.remove('show');
+}
+
+const alive = u => u.hp > 0;
+
+function nearestEnemy(u) {
+  let best = null, bd = Infinity;
+  for (const o of units) {
+    if (o.team === u.team || !alive(o)) continue;
+    const d = Math.hypot(o.x - u.x, o.y - u.y);
+    if (d < bd) { bd = d; best = o; }
+  }
+  return best ? { unit: best, dist: bd } : null;
+}
+
+function turnToward(u, target, dt) {
+  const want = Math.atan2(target.y - u.y, target.x - u.x);
+  let diff = want - u.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const maxTurn = TURN_RATE * dt;
+  u.angle += Math.abs(diff) <= maxTurn ? diff : Math.sign(diff) * maxTurn;
+}
+
+function doHit(u) {
+  const hx = u.x + Math.cos(u.angle) * HIT_FWD;
+  const hy = u.y + Math.sin(u.angle) * HIT_FWD;
+  for (const o of units) {
+    if (o.team === u.team || !alive(o)) continue;
+    if (Math.hypot(o.x - hx, o.y - hy) <= HIT_R + UNIT_R) {
+      o.hp = Math.max(0, o.hp - DAMAGE);
+    }
+  }
+}
+
+function update(dt) {
+  if (outcome) return;
+  const stopDist = UNIT_R * 2 + STOP_GAP;
+
+  for (const u of units) {
+    if (!alive(u)) continue;
+
+    // 攻撃(乗り出し)中: 進行させるだけ
+    if (u.lunge >= 0) {
+      u.lunge += dt;
+      if (!u.hitDone && u.lunge >= LUNGE_TIME / 2) { // 最大に乗り出した瞬間に判定
+        u.hitDone = true;
+        doHit(u);
+      }
+      if (u.lunge >= LUNGE_TIME) u.lunge = -1;
+      continue;
+    }
+
+    const t = nearestEnemy(u);
+    if (!t) continue; // 敵がいなければ静止
+    turnToward(u, t.unit, dt);
+    u.cooldown = Math.max(0, u.cooldown - dt);
+
+    if (t.dist > stopDist + 2) {
+      // 接近
+      const dx = (t.unit.x - u.x) / t.dist, dy = (t.unit.y - u.y) / t.dist;
+      const step = Math.min(MOVE_SPEED * dt, t.dist - stopDist);
+      u.x += dx * step;
+      u.y += dy * step;
+    } else if (u.cooldown <= 0) {
+      // 攻撃開始
+      u.lunge = 0;
+      u.hitDone = false;
+      u.cooldown = ATTACK_INTERVAL;
+    }
+  }
+
+  // 生存ユニット同士の軽い押し合い
+  for (let i = 0; i < units.length; i++) {
+    const a = units[i];
+    if (!alive(a)) continue;
+    for (let j = i + 1; j < units.length; j++) {
+      const b = units[j];
+      if (!alive(b)) continue;
+      let dx = b.x - a.x, dy = b.y - a.y;
+      let d = Math.hypot(dx, dy);
+      const min = UNIT_R * 2;
+      if (d >= min) continue;
+      if (d < 0.001) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d = Math.hypot(dx, dy); }
+      const push = (min - d) * PUSH_RATE / 2;
+      a.x -= dx / d * push; a.y -= dy / d * push;
+      b.x += dx / d * push; b.y += dy / d * push;
+    }
+  }
+
+  // 壁
+  for (const u of units) {
+    u.x = Math.min(FIELD_W - UNIT_R, Math.max(UNIT_R, u.x));
+    u.y = Math.min(FIELD_H - UNIT_R, Math.max(UNIT_R, u.y));
+  }
+
+  // 決着判定
+  const blueAlive = units.some(u => u.team === 'blue' && alive(u));
+  const redAlive = units.some(u => u.team === 'red' && alive(u));
+  if (!blueAlive || !redAlive) {
+    outcome = blueAlive ? 'win' : redAlive ? 'lose' : 'draw';
+    const text = document.getElementById('resultText');
+    text.className = outcome;
+    text.textContent = outcome === 'win' ? '勝利（青陣営の勝利）'
+                     : outcome === 'lose' ? '敗北（赤陣営の勝利）'
+                     : '引き分け（両陣営全滅）';
+    document.getElementById('result').classList.add('show');
+  }
+}
+
+// ===== 描画 =====
+function drawUnit(u) {
+  const dead = !alive(u);
+  const col = COLORS[u.team];
+  let ox = 0, oy = 0;
+  if (u.lunge >= 0) {
+    const off = Math.sin(Math.PI * u.lunge / LUNGE_TIME) * LUNGE_DIST;
+    ox = Math.cos(u.angle) * off;
+    oy = Math.sin(u.angle) * off;
+  }
+  const x = u.x + ox, y = u.y + oy;
+
+  // 本体
+  ctx.beginPath();
+  ctx.arc(x, y, UNIT_R, 0, Math.PI * 2);
+  ctx.fillStyle = dead ? COLORS.dead : col.body;
+  ctx.fill();
+  ctx.lineWidth = dead ? 4 : 2;
+  ctx.strokeStyle = dead ? col.body : col.edge; // 倒れても陣営色を縁に残す
+  ctx.stroke();
+
+  if (dead) return;
+
+  // 向きの印(三角形)
+  const c = Math.cos(u.angle), s = Math.sin(u.angle);
+  const tip = UNIT_R + 6, base = UNIT_R - 3, w = 6;
+  ctx.beginPath();
+  ctx.moveTo(x + c * tip, y + s * tip);
+  ctx.lineTo(x + c * base - s * w, y + s * base + c * w);
+  ctx.lineTo(x + c * base + s * w, y + s * base - c * w);
+  ctx.closePath();
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  // HPゲージ
+  const bw = 30, bh = 4, bx = u.x - bw / 2, by = u.y - UNIT_R - 12;
+  ctx.fillStyle = '#000';
+  ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+  ctx.fillStyle = '#4ade80';
+  ctx.fillRect(bx, by, bw * u.hp / MAX_HP, bh);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, FIELD_W, FIELD_H);
+  // 倒れたユニットを先に描き、生存ユニットを上に重ねる
+  for (const u of units) if (!alive(u)) drawUnit(u);
+  for (const u of units) if (alive(u)) drawUnit(u);
+  const b = units.filter(u => u.team === 'blue' && alive(u)).length;
+  const r = units.filter(u => u.team === 'red' && alive(u)).length;
+  document.getElementById('status').textContent = `青 生存 ${b} / 赤 生存 ${r}`;
+}
+
+// ===== ループ =====
+function frame(now) {
+  const elapsed = Math.min(0.1, (now - lastTime) / 1000);
+  lastTime = now;
+  if (!paused) {
+    accum += elapsed * speed;
+    while (accum >= STEP) { update(STEP); accum -= STEP; }
+  }
+  draw();
+  requestAnimationFrame(frame);
+}
+
+// ===== UI =====
+const pauseBtn = document.getElementById('pause');
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.textContent = paused ? '再開' : '一時停止';
+  pauseBtn.classList.toggle('active', paused);
+});
+document.querySelectorAll('.speed').forEach(btn => {
+  btn.addEventListener('click', () => {
+    speed = Number(btn.dataset.speed);
+    document.querySelectorAll('.speed').forEach(b => b.classList.toggle('active', b === btn));
+  });
+});
+document.getElementById('retry').addEventListener('click', reset);
+
+paused = false;
+speed = 1;
+reset();
+lastTime = performance.now();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
